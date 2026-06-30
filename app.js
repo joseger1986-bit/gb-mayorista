@@ -14,6 +14,7 @@ const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
 const REPORTS_PASSWORD = "1234";
+const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Crect width='900' height='675' fill='%23f5f6f2'/%3E%3Crect x='56' y='56' width='788' height='563' rx='28' fill='%23ffffff' stroke='%23d9ded4' stroke-width='4'/%3E%3Ccircle cx='450' cy='275' r='92' fill='%23eef4e8'/%3E%3Ctext x='450' y='255' text-anchor='middle' font-family='Arial,sans-serif' font-size='68' font-weight='800' fill='%233f6b3a'%3EGB%3C/text%3E%3Ctext x='450' y='335' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='800' fill='%232b332d'%3EMayorista%3C/text%3E%3Ctext x='450' y='408' text-anchor='middle' font-family='Arial,sans-serif' font-size='28' fill='%23778378'%3EProducto sin foto%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
@@ -335,7 +336,12 @@ const els = {
   duplicateProductButton: document.querySelector("#duplicateProductButton"),
   deleteProductButton: document.querySelector("#deleteProductButton"),
   editProductCancel: document.querySelector("#editProductCancel"),
-  managementLock: document.querySelector("#managementLock"),
+  internalLoginView: document.querySelector("#internalLoginView"),
+  internalLoginForm: document.querySelector("#internalLoginForm"),
+  internalPassword: document.querySelector("#internalPassword"),
+  internalLoginError: document.querySelector("#internalLoginError"),
+  topbar: document.querySelector(".topbar"),
+  siteFooter: document.querySelector(".site-footer"),
   variantManagerOverlay: document.querySelector("#variantManagerOverlay"),
   variantManagerForm: document.querySelector("#variantManagerForm"),
   variantManagerText: document.querySelector("#variantManagerText"),
@@ -349,10 +355,7 @@ document.querySelectorAll("[data-view]").forEach((button) => {
   });
 });
 
-els.managementLock?.addEventListener("click", () => {
-  if (!requestInternalAccess()) return;
-  setView("admin");
-});
+els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -509,7 +512,7 @@ els.variantManagerOverlay?.addEventListener("click", (event) => {
 els.variantManagerForm?.addEventListener("submit", saveVariantManager);
 
 renderAll();
-setView(currentView);
+setView(getInitialView());
 document.documentElement.dataset.gbApp = "loaded";
 initializeSupabaseCatalog();
 
@@ -935,12 +938,14 @@ function renderAll() {
   renderCategories();
   renderProductFormCategories();
   renderCatalog();
-  renderAdmin();
-  renderCategoryManager();
-  renderStock();
-  renderOrders();
-  renderClients();
-  renderReports();
+  if (internalUnlocked) {
+    renderAdmin();
+    renderCategoryManager();
+    renderStock();
+    renderOrders();
+    renderClients();
+    renderReports();
+  }
   renderCart();
   applyRoleVisibility();
 }
@@ -4504,7 +4509,15 @@ function setView(view, preserveRole = false) {
   const managementViews = getManagementViews();
   if (!["catalogo", ...managementViews].includes(view)) view = "catalogo";
   let isManagementView = managementViews.includes(view);
-  if (isManagementView && !internalUnlocked && !requestInternalAccess()) {
+  if (isManagementView && !isPrivateManagementRoute()) {
+    view = "catalogo";
+    isManagementView = false;
+  }
+  if (isPrivateManagementRoute() && !internalUnlocked) {
+    showInternalLogin();
+    return;
+  }
+  if (isManagementView && !internalUnlocked) {
     view = "catalogo";
     isManagementView = false;
   }
@@ -4517,6 +4530,8 @@ function setView(view, preserveRole = false) {
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
   currentView = view;
+  document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
+  els.internalLoginView?.classList.add("hidden");
   els.catalogView.classList.toggle("hidden", view !== "catalogo");
   els.managementShell.classList.toggle("hidden", !isManagementView);
   els.adminView.classList.toggle("hidden", view !== "admin");
@@ -4528,6 +4543,8 @@ function setView(view, preserveRole = false) {
   document.querySelectorAll("[data-catalog-only]").forEach((element) => {
     element.classList.toggle("hidden", view !== "catalogo");
   });
+  els.topbar?.classList.toggle("hidden", isPrivateManagementRoute());
+  els.siteFooter?.classList.toggle("hidden", isPrivateManagementRoute());
   applyRoleVisibility();
   renderRole();
   renderNav();
@@ -4543,17 +4560,57 @@ function requestReportsAccess() {
   return false;
 }
 
-function requestInternalAccess() {
-  if (internalUnlocked) return true;
-  const password = window.prompt("Ingresá la contraseña de Gestión Interna");
-  if (password === REPORTS_PASSWORD) {
-    internalUnlocked = true;
-    reportsUnlocked = true;
-    currentRole = "owner";
-    return true;
+function getInitialView() {
+  return isPrivateManagementRoute() ? "admin" : "catalogo";
+}
+
+function isPrivateManagementRoute() {
+  return normalizeRoutePath(window.location.pathname) === PRIVATE_MANAGEMENT_PATH;
+}
+
+function normalizeRoutePath(pathname) {
+  const normalized = `/${String(pathname || "").replace(/^\/+|\/+$/g, "")}`;
+  return normalized === "/" ? "/" : normalized.toLowerCase();
+}
+
+function showInternalLogin(showError = false) {
+  currentRole = "client";
+  currentView = "gestion-login";
+  document.body.classList.add("private-management-mode");
+  els.topbar?.classList.add("hidden");
+  els.siteFooter?.classList.add("hidden");
+  els.catalogView?.classList.add("hidden");
+  els.managementShell?.classList.add("hidden");
+  els.adminView?.classList.add("hidden");
+  els.stockView?.classList.add("hidden");
+  els.importView?.classList.add("hidden");
+  els.ordersView?.classList.add("hidden");
+  els.clientsView?.classList.add("hidden");
+  els.reportsView?.classList.add("hidden");
+  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  els.internalLoginView?.classList.remove("hidden");
+  els.internalLoginError?.classList.toggle("hidden", !showError);
+  window.setTimeout(() => els.internalPassword?.focus(), 0);
+}
+
+function handleInternalLogin(event) {
+  event.preventDefault();
+  const password = String(els.internalPassword?.value || "");
+  if (password !== REPORTS_PASSWORD) {
+    if (els.internalPassword) {
+      els.internalPassword.value = "";
+      els.internalPassword.focus();
+    }
+    showInternalLogin(true);
+    return;
   }
-  showToast("Contraseña incorrecta. Gestión Interna permanece bloqueada");
-  return false;
+  internalUnlocked = true;
+  reportsUnlocked = true;
+  currentRole = "owner";
+  els.internalLoginError?.classList.add("hidden");
+  if (els.internalPassword) els.internalPassword.value = "";
+  renderAll();
+  setView("admin");
 }
 
 function getManagementViews() {

@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/gestion",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gestion/",
+      "destination": "/index.html"
+    }
+  ]
+}

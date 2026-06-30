@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <header class="topbar">
@@ -61,6 +61,20 @@
 
         <div class="category-row" id="categoryFilters" aria-label="Categorías"></div>
         <div class="product-grid" id="productGrid"></div>
+      </section>
+
+      <section id="internalLoginView" class="internal-login-view hidden" aria-labelledby="internalLoginTitle">
+        <form class="internal-login-card" id="internalLoginForm">
+          <div class="brand-mark login-brand">GB</div>
+          <p class="eyebrow">Acceso privado</p>
+          <h2 id="internalLoginTitle">Administrador</h2>
+          <label>
+            Contraseña
+            <input id="internalPassword" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <p class="login-error hidden" id="internalLoginError" role="alert">Contraseña incorrecta.</p>
+          <button class="primary-button full" type="submit">Ingresar</button>
+        </form>
       </section>
 
       <section id="managementShell" class="management-shell hidden">
@@ -312,10 +326,7 @@
         <strong>GB Mayorista</strong>
         <span>Tel: 2477520456</span>
       </div>
-      <div class="footer-actions">
-        <a class="direct-whatsapp" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp directo</a>
-        <button class="footer-lock" id="managementLock" type="button" aria-label="Acceso a gestión interna">🔒</button>
-      </div>
+      <a class="direct-whatsapp" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp directo</a>
     </footer>
 
     <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
@@ -465,8 +476,8 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="supabase_config.js?v=internal-lock-1"></script>
-    <script src="supabase_client.js?v=internal-lock-1"></script>
+    <script src="/supabase_config.js?v=private-gestion-1"></script>
+    <script src="/supabase_client.js?v=private-gestion-1"></script>
     <script>
       window.addEventListener("error", function (event) {
         document.documentElement.dataset.gbAppError = event.message || "error";
@@ -475,6 +486,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="app.js?v=internal-lock-1"></script>
+    <script src="/app.js?v=private-gestion-1"></script>
   </body>
 </html>

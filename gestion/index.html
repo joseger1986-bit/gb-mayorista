@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GB Mayorista</title>
+  </head>
+  <body>
+    <script>
+      fetch("/index.html", { cache: "no-store" })
+        .then(function (response) { return response.text(); })
+        .then(function (html) {
+          document.open();
+          document.write(html);
+          document.close();
+        });
+    </script>
+  </body>
+</html>
