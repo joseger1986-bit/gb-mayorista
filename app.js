@@ -214,8 +214,7 @@ let stockHistory = loadStockHistory();
 let clients = normalizeClients(loadClients());
 syncClientsFromOrders();
 applyPendingPaidStockDiscounts();
-let currentRole = localStorage.getItem(STORAGE_ROLE) || "client";
-if (!roles[currentRole]) currentRole = "client";
+let currentRole = "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
 let adminProductSort = { field: "name", direction: "asc" };
@@ -234,6 +233,7 @@ let stockModalProductId = "";
 let editingProductId = "";
 let variantManagerTarget = "";
 let toastTimer;
+let internalUnlocked = false;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
@@ -335,6 +335,7 @@ const els = {
   duplicateProductButton: document.querySelector("#duplicateProductButton"),
   deleteProductButton: document.querySelector("#deleteProductButton"),
   editProductCancel: document.querySelector("#editProductCancel"),
+  managementLock: document.querySelector("#managementLock"),
   variantManagerOverlay: document.querySelector("#variantManagerOverlay"),
   variantManagerForm: document.querySelector("#variantManagerForm"),
   variantManagerText: document.querySelector("#variantManagerText"),
@@ -344,9 +345,13 @@ const els = {
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
-    if (button.dataset.managementEntry === "true") currentRole = "owner";
     setView(button.dataset.view);
   });
+});
+
+els.managementLock?.addEventListener("click", () => {
+  if (!requestInternalAccess()) return;
+  setView("admin");
 });
 
 els.searchInput.addEventListener("input", renderCatalog);
@@ -4499,6 +4504,10 @@ function setView(view, preserveRole = false) {
   const managementViews = getManagementViews();
   if (!["catalogo", ...managementViews].includes(view)) view = "catalogo";
   let isManagementView = managementViews.includes(view);
+  if (isManagementView && !internalUnlocked && !requestInternalAccess()) {
+    view = "catalogo";
+    isManagementView = false;
+  }
   if (view === "reportes" && !reportsUnlocked && !requestReportsAccess()) {
     view = currentView && currentView !== "reportes" ? currentView : "admin";
     isManagementView = managementViews.includes(view);
@@ -4531,6 +4540,19 @@ function requestReportsAccess() {
     return true;
   }
   showToast("Contraseña incorrecta. Reportes permanece bloqueado");
+  return false;
+}
+
+function requestInternalAccess() {
+  if (internalUnlocked) return true;
+  const password = window.prompt("Ingresá la contraseña de Gestión Interna");
+  if (password === REPORTS_PASSWORD) {
+    internalUnlocked = true;
+    reportsUnlocked = true;
+    currentRole = "owner";
+    return true;
+  }
+  showToast("Contraseña incorrecta. Gestión Interna permanece bloqueada");
   return false;
 }
 
