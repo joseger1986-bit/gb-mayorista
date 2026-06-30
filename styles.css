@@ -366,6 +366,18 @@ main {
   gap: 8px;
 }
 
+.admin-section-switch {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-section-switch .ghost-button {
+  border-width: 2px;
+  font-weight: 900;
+}
+
 .management-access {
   display: grid;
   gap: 8px;
@@ -391,6 +403,45 @@ main {
 
 .private-management-mode main {
   width: min(1180px, calc(100% - 32px));
+}
+
+.admin-private-nav {
+  margin: 24px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 24px rgba(24, 33, 28, 0.06);
+}
+
+.admin-private-nav div {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-private-nav span {
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+
+.admin-private-nav nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.admin-catalog-preview #catalogView {
+  padding-top: 24px;
+}
+
+.admin-return-button {
+  white-space: nowrap;
 }
 
 .internal-login-view {
@@ -3005,6 +3056,7 @@ th .table-sort-button[data-sort-products="stock"] {
   .topbar,
   .section-head,
   .role-switcher,
+  .admin-private-nav,
   .hero {
     align-items: stretch;
     flex-direction: column;
@@ -3025,6 +3077,22 @@ th .table-sort-button[data-sort-products="stock"] {
 
   .management-access {
     justify-items: start;
+  }
+
+  .admin-private-nav nav {
+    justify-content: stretch;
+  }
+
+  .admin-private-nav button {
+    flex: 1;
+  }
+
+  .admin-section-switch {
+    justify-content: stretch;
+  }
+
+  .admin-section-switch button {
+    flex: 1;
   }
 
   .management-access div {

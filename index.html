@@ -29,6 +29,17 @@
     </div>
 
     <main>
+      <section id="adminNav" class="admin-private-nav hidden" aria-label="Navegación de administrador">
+        <div>
+          <strong>GB Mayorista</strong>
+          <span>Administrador</span>
+        </div>
+        <nav>
+          <button class="ghost-button" id="adminNavManagement" type="button">Gestión</button>
+          <button class="ghost-button" id="adminNavCatalog" type="button">Ver Catálogo</button>
+        </nav>
+      </section>
+
       <section class="hero" data-catalog-only>
         <div class="hero-copy">
           <span class="eyebrow">Carrito mayorista</span>
@@ -57,6 +68,7 @@
             <span>Buscar</span>
             <input id="searchInput" type="search" placeholder="Nombre del producto">
           </label>
+          <button class="primary-button admin-return-button hidden" id="backToManagement" type="button">Volver a Gestión</button>
         </div>
 
         <div class="category-row" id="categoryFilters" aria-label="Categorías"></div>
@@ -82,6 +94,10 @@
           <span class="eyebrow dark">Panel interno de gestión</span>
           <h2>Panel de Gestión GB Mayorista</h2>
           <p>Administrá productos, stock, pedidos, clientes y reportes.</p>
+        </div>
+        <div class="admin-section-switch" aria-label="Navegación principal de administrador">
+          <button class="ghost-button active" id="adminNavManagementInline" type="button">Gestión</button>
+          <button class="ghost-button" id="adminNavCatalogInline" type="button">Ver Catálogo</button>
         </div>
         <div class="management-tabs" aria-label="Secciones de gestión interna">
           <button class="ghost-button" data-view="admin">Productos</button>

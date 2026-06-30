@@ -340,6 +340,12 @@ const els = {
   internalLoginForm: document.querySelector("#internalLoginForm"),
   internalPassword: document.querySelector("#internalPassword"),
   internalLoginError: document.querySelector("#internalLoginError"),
+  adminNav: document.querySelector("#adminNav"),
+  adminNavManagement: document.querySelector("#adminNavManagement"),
+  adminNavCatalog: document.querySelector("#adminNavCatalog"),
+  adminNavManagementInline: document.querySelector("#adminNavManagementInline"),
+  adminNavCatalogInline: document.querySelector("#adminNavCatalogInline"),
+  backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
   variantManagerOverlay: document.querySelector("#variantManagerOverlay"),
@@ -356,6 +362,11 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 });
 
 els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
+els.adminNavManagement?.addEventListener("click", () => setView("admin"));
+els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
+els.adminNavManagementInline?.addEventListener("click", () => setView("admin"));
+els.adminNavCatalogInline?.addEventListener("click", () => setView("catalogo"));
+els.backToManagement?.addEventListener("click", () => setView("admin"));
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -4526,12 +4537,19 @@ function setView(view, preserveRole = false) {
     isManagementView = managementViews.includes(view);
   }
   if (!preserveRole) {
-    currentRole = isManagementView ? "owner" : "client";
+    currentRole = isPrivateManagementRoute() && internalUnlocked ? "owner" : "client";
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
   currentView = view;
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
+  document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
   els.internalLoginView?.classList.add("hidden");
+  els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked));
+  els.adminNavManagement?.classList.toggle("active", isManagementView);
+  els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
+  els.adminNavManagementInline?.classList.toggle("active", isManagementView);
+  els.adminNavCatalogInline?.classList.toggle("active", view === "catalogo");
+  els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
   els.catalogView.classList.toggle("hidden", view !== "catalogo");
   els.managementShell.classList.toggle("hidden", !isManagementView);
   els.adminView.classList.toggle("hidden", view !== "admin");
@@ -4577,8 +4595,11 @@ function showInternalLogin(showError = false) {
   currentRole = "client";
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
+  document.body.classList.remove("admin-catalog-preview");
   els.topbar?.classList.add("hidden");
   els.siteFooter?.classList.add("hidden");
+  els.adminNav?.classList.add("hidden");
+  els.backToManagement?.classList.add("hidden");
   els.catalogView?.classList.add("hidden");
   els.managementShell?.classList.add("hidden");
   els.adminView?.classList.add("hidden");
