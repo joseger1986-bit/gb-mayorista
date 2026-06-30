@@ -32,7 +32,7 @@
       <section id="adminNav" class="admin-private-nav hidden" aria-label="Navegación de administrador">
         <div>
           <strong>GB Mayorista</strong>
-          <span>Administrador</span>
+          <span>Gestión interna</span>
         </div>
         <nav>
           <button class="ghost-button" id="adminNavManagement" type="button">Gestión</button>
@@ -79,7 +79,14 @@
         <form class="internal-login-card" id="internalLoginForm">
           <div class="brand-mark login-brand">GB</div>
           <p class="eyebrow">Acceso privado</p>
-          <h2 id="internalLoginTitle">Administrador</h2>
+          <h2 id="internalLoginTitle">Gestión interna</h2>
+          <label>
+            Usuario
+            <select id="internalUserRole" name="role">
+              <option value="admin">Administrador</option>
+              <option value="employee">Empleado</option>
+            </select>
+          </label>
           <label>
             Contraseña
             <input id="internalPassword" name="password" type="password" autocomplete="current-password" required>
@@ -103,8 +110,8 @@
           <button class="ghost-button" data-view="admin">Productos</button>
           <button class="ghost-button" data-view="pedidos">Pedidos</button>
           <button class="ghost-button" data-view="clientes">Clientes</button>
-          <button class="ghost-button" data-view="reportes">Reportes</button>
-          <button class="ghost-button" data-view="importacion" data-owner-only>Importación Excel</button>
+          <button class="ghost-button" data-view="reportes" data-reports-only>Reportes</button>
+          <button class="ghost-button" data-view="importacion" data-import-export-only>Importación Excel</button>
         </div>
       </section>
 
@@ -114,7 +121,7 @@
             <h2>Productos</h2>
             <p>Catálogo interno por categorías con precios y stock en una sola pantalla.</p>
           </div>
-          <button class="secondary-button" id="resetProducts" type="button" data-owner-only>Restaurar prueba</button>
+          <button class="secondary-button" id="resetProducts" type="button" data-manage-products-only>Restaurar prueba</button>
         </div>
 
         <div class="internal-product-toolbar">
@@ -129,12 +136,12 @@
         </div>
 
         <div class="admin-layout">
-          <div class="product-action-bar" data-owner-only>
-            <button class="primary-button add-product-button" id="addProductToggle" type="button">+ Agregar producto</button>
-            <button class="secondary-button" id="manageCategoriesButton" type="button">Agregar categoría</button>
-            <button class="secondary-button" id="importProductsButton" type="button">Importar Excel</button>
-            <button class="secondary-button" id="exportProductsButton" type="button">Exportar Excel</button>
-            <button class="secondary-button" id="downloadProductsTemplate" type="button">Descargar plantilla Excel</button>
+          <div class="product-action-bar">
+            <button class="primary-button add-product-button" id="addProductToggle" type="button" data-manage-products-only>+ Agregar producto</button>
+            <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categoría</button>
+            <button class="secondary-button" id="importProductsButton" type="button" data-import-export-only>Importar Excel</button>
+            <button class="secondary-button" id="exportProductsButton" type="button" data-import-export-only>Exportar Excel</button>
+            <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
             <input class="hidden" id="importProductsInput" type="file" accept=".csv,.txt">
           </div>
 
@@ -186,7 +193,7 @@
                   Presentación
                   <input name="presentation" type="text">
                 </label>
-                <label data-owner-only>
+                <label data-admin-only>
                   Precio de costo
                   <input name="cost" type="text" inputmode="numeric" data-money-input>
                 </label>
@@ -221,8 +228,9 @@
                   <th>Categoría</th>
                   <th>Precio costo</th>
                   <th>Precio venta</th>
+                  <th>Margen</th>
                   <th>Presentación</th>
-                  <th>Catálogo</th>
+                  <th>Mostrar catálogo</th>
                   <th>Foto</th>
                   <th>Stock</th>
                 </tr>
@@ -240,18 +248,20 @@
               <h2>Importación Excel</h2>
               <p>Plantilla preparada para cargar productos con presentaciÃ³n libre.</p>
             </div>
-            <button class="secondary-button" id="downloadTemplate" type="button">Descargar planilla modelo Excel</button>
+            <button class="secondary-button" id="downloadTemplate" type="button" data-import-export-only>Descargar planilla modelo Excel</button>
           </div>
           <div class="template-columns" aria-label="Columnas de la plantilla">
             <span>Producto</span>
+            <span>Marca</span>
             <span>Categoría</span>
             <span>Precio costo</span>
             <span>Precio venta</span>
             <span>Presentación</span>
             <span>Stock</span>
+            <span>Mostrar catálogo</span>
           </div>
           <div class="template-example">
-            Boxer Adulto Lody Art. 742 T1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24
+            Boxer Adulto Lody Art. 742 T1 | Lody | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
           </div>
         </div>
       </section>
@@ -273,7 +283,7 @@
             <h2>Clientes</h2>
             <p>Base automática de clientes para futuras campañas de WhatsApp.</p>
           </div>
-          <button class="secondary-button" id="exportClientsButton" type="button">Exportar Excel</button>
+          <button class="secondary-button" id="exportClientsButton" type="button" data-import-export-only>Exportar Excel</button>
         </div>
         <div class="internal-product-toolbar">
           <label class="search-box internal-search">
@@ -447,7 +457,7 @@
             <input id="editProductPresentation" name="presentation" type="text">
           </label>
           <label>
-            Catálogo
+            Mostrar en catálogo
             <select id="editProductCatalog" name="showInCatalog">
               <option value="yes">Sí</option>
               <option value="no">No</option>

@@ -13,7 +13,8 @@ const APP_DATA_VERSION = "apparel-original-images-v5";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
-const REPORTS_PASSWORD = "1234";
+const DEFAULT_ADMIN_PASSWORD = "1234";
+const DEFAULT_EMPLOYEE_PASSWORD = "0000";
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Crect width='900' height='675' fill='%23f5f6f2'/%3E%3Crect x='56' y='56' width='788' height='563' rx='28' fill='%23ffffff' stroke='%23d9ded4' stroke-width='4'/%3E%3Ccircle cx='450' cy='275' r='92' fill='%23eef4e8'/%3E%3Ctext x='450' y='255' text-anchor='middle' font-family='Arial,sans-serif' font-size='68' font-weight='800' fill='%233f6b3a'%3EGB%3C/text%3E%3Ctext x='450' y='335' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='800' fill='%232b332d'%3EMayorista%3C/text%3E%3Ctext x='450' y='408' text-anchor='middle' font-family='Arial,sans-serif' font-size='28' fill='%23778378'%3EProducto sin foto%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
@@ -43,15 +44,37 @@ const roles = {
     label: "Catálogo cliente",
     description: "El cliente ve productos, precios y arma una consulta por WhatsApp. No ve administración ni stock."
   },
-  owner: {
-    label: "Gestión interna",
-    description: "Acceso completo a productos, stock, pedidos, clientes y funciones del sistema."
+  admin: {
+    label: "Administrador",
+    description: "Acceso total a productos, costos, márgenes, reportes, importación y exportación."
+  },
+  employee: {
+    label: "Empleado",
+    description: "Puede trabajar productos, precios de venta y stock. No ve costos, márgenes, reportes ni exportaciones."
   }
 };
 
-const roleRank = {
-  client: 1,
-  owner: 2
+const userProfiles = [
+  {
+    id: "admin",
+    name: "Administrador",
+    role: "admin",
+    password: DEFAULT_ADMIN_PASSWORD,
+    active: true
+  },
+  {
+    id: "empleado",
+    name: "Empleado",
+    role: "employee",
+    password: DEFAULT_EMPLOYEE_PASSWORD,
+    active: true
+  }
+];
+
+const rolePermissions = {
+  client: [],
+  employee: ["internal", "products", "stock", "orders", "clients"],
+  admin: ["internal", "products", "stock", "orders", "clients", "reports", "costs", "margins", "importExport", "manageProducts", "editAll"]
 };
 
 const sampleProducts = [
@@ -225,7 +248,6 @@ let previewMode = "budget";
 let openOrderId = "";
 let selectedClientPhone = "";
 let editingClientPhone = "";
-let reportsUnlocked = false;
 let currentPrintHtml = "";
 let currentPrintType = "";
 let currentPrintFilename = "";
@@ -338,6 +360,7 @@ const els = {
   editProductCancel: document.querySelector("#editProductCancel"),
   internalLoginView: document.querySelector("#internalLoginView"),
   internalLoginForm: document.querySelector("#internalLoginForm"),
+  internalUserRole: document.querySelector("#internalUserRole"),
   internalPassword: document.querySelector("#internalPassword"),
   internalLoginError: document.querySelector("#internalLoginError"),
   adminNav: document.querySelector("#adminNav"),
@@ -381,7 +404,7 @@ els.addProductOverlay?.addEventListener("click", (event) => {
 });
 els.manageProductVariants?.addEventListener("click", () => openVariantManager("new"));
 els.importProductsButton?.addEventListener("click", () => {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("importExport")) return;
   els.importProductsInput?.click();
 });
 els.exportProductsButton?.addEventListener("click", exportProductsToExcel);
@@ -393,6 +416,7 @@ els.adminSearchInput?.addEventListener("input", renderAdmin);
 document.querySelectorAll("[data-money-input]").forEach(setupMoneyInput);
 setupEnterToNextField(els.productForm);
 els.manageCategoriesButton?.addEventListener("click", () => {
+  if (!hasPermission("manageProducts")) return;
   els.categoryManager?.classList.remove("hidden");
   els.categoryManager?.setAttribute("aria-hidden", "false");
   window.setTimeout(() => els.newCategoryName?.focus(), 0);
@@ -425,7 +449,7 @@ els.clearCart.addEventListener("click", () => {
 
 els.productForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   if (!validateProductForm(event.currentTarget)) return;
   const form = new FormData(event.currentTarget);
   const presentation = String(form.get("presentation") || "").trim();
@@ -468,7 +492,7 @@ els.productForm.addEventListener("submit", async (event) => {
 });
 
 els.resetProducts.addEventListener("click", () => {
-  if (!canAccess("owner")) return;
+  if (!canAccess("admin")) return;
   products = freshSampleProducts();
   ensureRequestedProductCatalog();
   cart = [];
@@ -486,7 +510,7 @@ els.resetProducts.addEventListener("click", () => {
 });
 
 els.addSampleOrder.addEventListener("click", () => {
-  if (!canAccess("owner")) return;
+  if (!canAccess("admin")) return;
   orders.unshift(makeConsultation({ name: "Cliente WhatsApp", phone: "2477000000", location: "Sin localidad" }, "Consulta de prueba sin productos."));
   syncClientsFromOrders();
   saveOrders();
@@ -955,14 +979,18 @@ function renderAll() {
     renderStock();
     renderOrders();
     renderClients();
-    renderReports();
+    if (hasPermission("reports")) {
+      renderReports();
+    } else if (els.reportGrid) {
+      els.reportGrid.innerHTML = "";
+    }
   }
   renderCart();
   applyRoleVisibility();
 }
 
 function renderRole() {
-  const role = roles[currentRole];
+  const role = roles[currentRole] || roles.client;
   if (els.roleTitle) els.roleTitle.textContent = role.label;
   if (els.roleDescription) els.roleDescription.textContent = role.description;
 }
@@ -1320,19 +1348,21 @@ function toggleCatalogDetails(groupId, button) {
 
 function renderAdmin() {
   renderAdminCategories();
-  const isOwner = canAccess("owner");
+  const isAdmin = canAccess("admin");
+  const canEditSaleData = hasPermission("editSaleData") || isAdmin;
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
       <th>${renderSortHeader("name", "Producto")}</th>
       <th>${renderSortHeader("category", "Categoría")}</th>
-      ${isOwner ? "<th>Precio costo</th>" : ""}
+      ${isAdmin ? "<th>Precio costo</th>" : ""}
       <th>${renderSortHeader("price", "Precio venta")}</th>
+      ${isAdmin ? "<th>Margen</th>" : ""}
       <th>Presentación</th>
-      <th>Catálogo</th>
-      ${isOwner ? "<th>Foto</th>" : ""}
+      <th>Mostrar catálogo</th>
+      ${isAdmin ? "<th>Foto</th>" : ""}
       <th>${renderSortHeader("stock", "Stock")}</th>
-      ${isOwner ? "<th>Editar</th>" : ""}
+      ${isAdmin ? "<th>Editar</th>" : ""}
     `;
     adminHead.querySelectorAll("[data-sort-products]").forEach((button) => {
       button.addEventListener("click", () => updateAdminProductSort(button.dataset.sortProducts));
@@ -1355,7 +1385,7 @@ function renderAdmin() {
   if (!orderedProducts.length) {
     els.adminProducts.innerHTML = `
       <tr>
-        <td colspan="${isOwner ? 9 : 6}">
+        <td colspan="${isAdmin ? 10 : 6}">
           <div class="empty-state compact">No hay productos para mostrar en esta categoría. Podés agregar uno nuevo o cambiar el filtro.</div>
         </td>
       </tr>
@@ -1367,22 +1397,23 @@ function renderAdmin() {
     <tr class="${getAdminProductRowClass(product)}">
       <td data-label="Producto"><strong>${escapeHtml(getProductDisplayName(product))}</strong></td>
       <td data-label="Categoría">${escapeHtml(product.category)}</td>
-      ${isOwner ? `<td data-label="Precio costo" class="metric-cell price-column">${formatMoney(product.cost || 0)}</td>` : ""}
+      ${isAdmin ? `<td data-label="Precio costo" class="metric-cell price-column">${formatMoney(product.cost || 0)}</td>` : ""}
       <td data-label="Precio venta" class="metric-cell price-column ${Number(product.price) > 0 ? "" : "missing-price"}">
-        ${isOwner ? `<input class="inline-edit-input price-inline-input ${Number(product.price) > 0 ? "" : "missing-price"}" type="text" inputmode="numeric" value="${escapeHtml(formatInputMoney(product.price))}" aria-label="Precio de venta" data-inline-product-field="price" data-product-id="${product.id}">` : Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}
+        ${canEditSaleData ? `<input class="inline-edit-input price-inline-input ${Number(product.price) > 0 ? "" : "missing-price"}" type="text" inputmode="numeric" value="${escapeHtml(formatInputMoney(product.price))}" aria-label="Precio de venta" data-inline-product-field="price" data-product-id="${product.id}">` : Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}
       </td>
+      ${isAdmin ? `<td data-label="Margen" class="metric-cell">${Number(product.price) > 0 ? `${getProductMargin(product).toFixed(1)}%` : "Sin precio"}</td>` : ""}
       <td data-label="Presentación">
-        ${isOwner ? `<input class="inline-edit-input" type="text" value="${escapeHtml(getProductPresentation(product))}" aria-label="Presentación" data-inline-product-field="presentation" data-product-id="${product.id}">` : escapeHtml(getProductPresentation(product))}
+        ${canEditSaleData ? `<input class="inline-edit-input" type="text" value="${escapeHtml(getProductPresentation(product))}" aria-label="Presentación" data-inline-product-field="presentation" data-product-id="${product.id}">` : escapeHtml(getProductPresentation(product))}
       </td>
-      <td data-label="Catálogo">
-        ${isOwner ? `
+      <td data-label="Mostrar catálogo">
+        ${canEditSaleData ? `
           <select class="compact-select" data-product-catalog="${product.id}">
             <option value="yes" ${product.showInCatalog !== false ? "selected" : ""}>Sí</option>
             <option value="no" ${product.showInCatalog === false ? "selected" : ""}>No</option>
           </select>
         ` : `<span class="catalog-status">${product.showInCatalog !== false ? "Sí" : "No"}</span>`}
       </td>
-      ${isOwner ? `
+      ${isAdmin ? `
         <td data-label="Foto">
           <label class="small-file-button image-upload-cell">
             ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}
@@ -1393,7 +1424,7 @@ function renderAdmin() {
       <td data-label="Stock" class="stock-column">
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
-      ${isOwner ? `
+      ${isAdmin ? `
         <td data-label="Editar" class="edit-column">
           <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">✏️</button>
         </td>
@@ -1429,7 +1460,7 @@ function renderAdmin() {
 }
 
 function updateProductCatalogVisibility(productId, showInCatalog) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("editSaleData") && !canAccess("admin")) return;
   const product = products.find((item) => item.id === productId);
   if (!product) return;
   const scrollTop = getAdminTableScrollTop();
@@ -1479,7 +1510,7 @@ function sortAdminProducts(productList) {
 }
 
 async function updateProductImage(productId, file) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === productId);
   if (!product || !(file instanceof File) || !file.size) return;
 
@@ -1496,7 +1527,7 @@ async function updateProductImage(productId, file) {
 }
 
 function updateInlineProductField(input) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("editSaleData") && !canAccess("admin")) return;
   const product = products.find((item) => item.id === input.dataset.productId);
   if (!product) return;
   const field = input.dataset.inlineProductField;
@@ -1578,7 +1609,7 @@ function setupEnterToNextField(form) {
 }
 
 function openEditProductModal(productId) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === productId);
   if (!product || !els.editProductOverlay || !els.editProductForm) return;
   editingProductId = productId;
@@ -1595,7 +1626,7 @@ function openEditProductModal(productId) {
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? "Cambiar foto" : "Agregar foto";
   if (els.editProductImagePreview) els.editProductImagePreview.src = getCatalogImage(product.image);
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
-  els.editProductCostWrap?.classList.toggle("hidden", !canAccess("owner"));
+  els.editProductCostWrap?.classList.toggle("hidden", !canAccess("admin"));
   els.editProductOverlay.classList.remove("hidden");
   els.editProductOverlay.setAttribute("aria-hidden", "false");
   window.setTimeout(() => els.editProductName?.focus(), 0);
@@ -1618,7 +1649,7 @@ function closeEditProductModal() {
 }
 
 function duplicateEditingProduct() {
-  if (!canAccess("owner") || !editingProductId) return;
+  if (!hasPermission("manageProducts") || !editingProductId) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
   const scrollTop = getAdminTableScrollTop();
@@ -1640,7 +1671,7 @@ function duplicateEditingProduct() {
 }
 
 function deleteEditingProduct() {
-  if (!canAccess("owner") || !editingProductId) return;
+  if (!hasPermission("manageProducts") || !editingProductId) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
   const confirmed = window.confirm(`¿Eliminar "${product.name}"? Esta acción no borra pedidos históricos.`);
@@ -1699,7 +1730,7 @@ function setProductFieldError(field, message) {
 }
 
 function openVariantManager(target) {
-  if (!canAccess("owner") || !els.variantManagerOverlay || !els.variantManagerText) return;
+  if (!hasPermission("manageProducts") || !els.variantManagerOverlay || !els.variantManagerText) return;
   variantManagerTarget = target;
   const value = target === "edit"
     ? els.editProductVariants?.value || ""
@@ -1755,7 +1786,7 @@ async function previewEditProductImage() {
 
 async function saveEditedProduct(event) {
   event.preventDefault();
-  if (!canAccess("owner") || !editingProductId) return;
+  if (!hasPermission("manageProducts") || !editingProductId) return;
   if (!validateProductForm(event.currentTarget)) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
@@ -1765,7 +1796,7 @@ async function saveEditedProduct(event) {
   product.category = normalizeCategory(String(els.editProductCategory?.value || product.category).trim());
   const scrollTop = getAdminTableScrollTop();
   product.price = Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value)));
-  if (canAccess("owner")) product.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
+  if (canAccess("admin")) product.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
   product.presentation = String(els.editProductPresentation?.value || "").trim();
   product.saleType = getSaleTypeFromPresentation(product.presentation);
   product.packQuantity = getPackQuantityFromPresentation(product.presentation);
@@ -1785,6 +1816,7 @@ async function saveEditedProduct(event) {
 }
 
 function openStockModal(productId) {
+  if (!hasPermission("stock")) return;
   const product = products.find((item) => item.id === productId);
   if (!product || !els.stockModalOverlay || !els.stockModalForm) return;
   stockModalProductId = productId;
@@ -1829,7 +1861,7 @@ function confirmStockModal(event) {
 }
 
 function openAddProductModal() {
-  if (!canAccess("owner") || !els.addProductOverlay || !els.productForm) return;
+  if (!hasPermission("manageProducts") || !els.addProductOverlay || !els.productForm) return;
   els.productForm.reset();
   clearProductValidation(els.productForm);
   renderProductFormCategories();
@@ -2910,6 +2942,7 @@ function buildClientWhatsappLink(client) {
 }
 
 function exportClientsToExcel() {
+  if (!hasPermission("importExport")) return;
   const headers = ["Nombre", "Teléfono", "Localidad", "Dirección", "Observaciones", "Fecha de alta", "Cantidad de pedidos", "Total comprado", "Última compra"];
   const rows = getSortedClients().map((client) => [
     client.name || "",
@@ -3191,8 +3224,8 @@ function saveCatalogConsultation(items, totalPrice, customer) {
 }
 
 function updateProductField(id, field, value) {
-  if (!canAccess("owner")) return;
-  if (field === "cost" && !canAccess("owner")) return;
+  if (!hasPermission("editSaleData") && !canAccess("admin")) return;
+  if (field === "cost" && !canAccess("admin")) return;
   const product = products.find((item) => item.id === id);
   if (!product) return;
   if (field === "variants") {
@@ -3210,7 +3243,7 @@ function isInternalOrder(order) {
 }
 
 function setProductStock(id, nextStock, reason = "Ajuste manual", variantName = "Base / sin variante", options = {}) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("stock")) return;
   const product = products.find((item) => item.id === id);
   if (!product) return;
   const previousStock = getProductStock(product, variantName);
@@ -3224,7 +3257,7 @@ function setProductStock(id, nextStock, reason = "Ajuste manual", variantName = 
 }
 
 function adjustProductStock(id, delta, variantName = "Base / sin variante") {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("stock")) return;
   const product = products.find((item) => item.id === id);
   if (!product) return;
   const adjustment = Math.round(delta || 0);
@@ -3260,7 +3293,7 @@ function recordStockMovement(product, delta, previousStock, nextStock, reason, m
 }
 
 function duplicateProduct(id) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === id);
   if (!product) return;
   products.push({
@@ -3276,7 +3309,7 @@ function duplicateProduct(id) {
 }
 
 function toggleProduct(id) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === id);
   if (!product) return;
   product.active = !product.active;
@@ -3286,7 +3319,7 @@ function toggleProduct(id) {
 }
 
 function moveProduct(id, direction) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("manageProducts")) return;
   const ordered = getOrderedProducts();
   const currentIndex = ordered.findIndex((product) => product.id === id);
   const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
@@ -3393,7 +3426,7 @@ function updateRecordStatus(id, status) {
 }
 
 function buildInternalOrderFromConsultation(id) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("orders")) return;
   const consultation = orders.find((item) => item.id === id);
   if (!consultation || isInternalOrder(consultation)) return;
   if (consultation.linkedOrderId) {
@@ -3614,7 +3647,7 @@ function renderBudgetPreview(order) {
 }
 
 function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   if (!isInternalOrder(order)) {
@@ -4055,7 +4088,7 @@ function getPrintStyles() {
 }
 
 function cancelOrder(id) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   if (!canEditOrder(order)) return;
@@ -4217,11 +4250,11 @@ function removeBudgetItem(orderId, productId) {
 }
 
 function canEditOrder(order) {
-  return order.status !== "Cancelado" && (!order.stockApplied || canAccess("owner"));
+  return order.status !== "Cancelado" && (!order.stockApplied || canAccess("admin"));
 }
 
 function canChangeOrderStatus(order) {
-  return canAccess("owner") && order.status !== "Cancelado";
+  return hasPermission("orders") && order.status !== "Cancelado";
 }
 
 function restoreConfirmedStock(order) {
@@ -4532,12 +4565,18 @@ function setView(view, preserveRole = false) {
     view = "catalogo";
     isManagementView = false;
   }
-  if (view === "reportes" && !reportsUnlocked && !requestReportsAccess()) {
+  if (view === "reportes" && !hasPermission("reports")) {
+    showToast("Reportes disponible solo para Administrador");
     view = currentView && currentView !== "reportes" ? currentView : "admin";
     isManagementView = managementViews.includes(view);
   }
+  if (view === "importacion" && !hasPermission("importExport")) {
+    showToast("Importación Excel disponible solo para Administrador");
+    view = currentView && currentView !== "importacion" ? currentView : "admin";
+    isManagementView = managementViews.includes(view);
+  }
   if (!preserveRole) {
-    currentRole = isPrivateManagementRoute() && internalUnlocked ? "owner" : "client";
+    currentRole = isPrivateManagementRoute() && internalUnlocked && currentRole !== "client" ? currentRole : "client";
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
   currentView = view;
@@ -4566,16 +4605,6 @@ function setView(view, preserveRole = false) {
   applyRoleVisibility();
   renderRole();
   renderNav();
-}
-
-function requestReportsAccess() {
-  const password = window.prompt("Ingresá la contraseña de Reportes");
-  if (password === REPORTS_PASSWORD) {
-    reportsUnlocked = true;
-    return true;
-  }
-  showToast("Contraseña incorrecta. Reportes permanece bloqueado");
-  return false;
 }
 
 function getInitialView() {
@@ -4616,8 +4645,10 @@ function showInternalLogin(showError = false) {
 
 function handleInternalLogin(event) {
   event.preventDefault();
+  const selectedRole = String(els.internalUserRole?.value || "admin");
   const password = String(els.internalPassword?.value || "");
-  if (password !== REPORTS_PASSWORD) {
+  const user = userProfiles.find((profile) => profile.active && profile.role === selectedRole && profile.password === password);
+  if (!user) {
     if (els.internalPassword) {
       els.internalPassword.value = "";
       els.internalPassword.focus();
@@ -4626,8 +4657,7 @@ function handleInternalLogin(event) {
     return;
   }
   internalUnlocked = true;
-  reportsUnlocked = true;
-  currentRole = "owner";
+  currentRole = user.role;
   els.internalLoginError?.classList.add("hidden");
   if (els.internalPassword) els.internalPassword.value = "";
   renderAll();
@@ -4643,13 +4673,31 @@ function applyRoleVisibility() {
     element.classList.toggle("hidden", !canAccess(element.dataset.minRole));
   });
   document.querySelectorAll("[data-owner-only]").forEach((element) => {
-    element.classList.toggle("hidden", !canAccess("owner"));
+    element.classList.toggle("hidden", !canAccess("admin"));
+  });
+  document.querySelectorAll("[data-admin-only]").forEach((element) => {
+    element.classList.toggle("hidden", !canAccess("admin"));
+  });
+  document.querySelectorAll("[data-manage-products-only]").forEach((element) => {
+    element.classList.toggle("hidden", !hasPermission("manageProducts"));
+  });
+  document.querySelectorAll("[data-reports-only]").forEach((element) => {
+    element.classList.toggle("hidden", !hasPermission("reports"));
+  });
+  document.querySelectorAll("[data-import-export-only]").forEach((element) => {
+    element.classList.toggle("hidden", !hasPermission("importExport"));
   });
 }
 
 function canAccess(role) {
-  if (currentRole === "owner") return true;
-  return role === "client";
+  if (role === "owner") role = "admin";
+  if (role === "client") return true;
+  if (currentRole === "admin") return true;
+  return currentRole === role;
+}
+
+function hasPermission(permission) {
+  return (rolePermissions[currentRole] || []).includes(permission);
 }
 
 function openCart() {
@@ -5032,7 +5080,7 @@ function getProductEstimatedProfit(product) {
 }
 
 async function importProductsFromFile(event) {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("importExport")) return;
   const file = event.target.files?.[0];
   if (!file) return;
 
@@ -5077,6 +5125,7 @@ function buildImportedProducts(rows) {
   const priceIndex = headers.indexOf("precio venta");
   const presentationIndex = headers.indexOf("presentacion");
   const stockIndex = headers.indexOf("stock");
+  const showInCatalogIndex = headers.indexOf("mostrar catalogo");
   let nextSortOrder = getNextSortOrder();
 
   return rows.slice(1).map((row) => {
@@ -5103,7 +5152,7 @@ function buildImportedProducts(rows) {
       minimum: 1,
       cost: Math.max(0, parseImportNumber(row[costIndex])),
       active: true,
-      showInCatalog: true,
+      showInCatalog: parseImportCatalogVisibility(row[showInCatalogIndex], true),
       sortOrder: nextSortOrder++
     };
   }).filter(Boolean);
@@ -5168,8 +5217,20 @@ function parseImportNumber(value) {
   return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
 }
 
+function parseImportCatalogVisibility(value, fallback = true) {
+  const normalized = normalizeHeader(value);
+  if (!normalized) return fallback;
+  if (normalized === "si") return true;
+  if (normalized === "no") return false;
+  return fallback;
+}
+
+function formatCatalogVisibility(value) {
+  return value === false ? "No" : "Sí";
+}
+
 function downloadImportTemplate() {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
     "Marca",
@@ -5177,7 +5238,8 @@ function downloadImportTemplate() {
     "Precio costo",
     "Precio venta",
     "Presentación",
-    "Stock"
+    "Stock",
+    "Mostrar catálogo"
   ];
   const example = [
     "Boxer Adulto Lody Art. 742 T1",
@@ -5186,7 +5248,8 @@ function downloadImportTemplate() {
     "42000",
     "60000",
     "1 Docena",
-    "24"
+    "24",
+    "Sí"
   ];
   const csv = [headers, example].map((row) => row.map(escapeCsv).join(";")).join("\n");
   const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
@@ -5199,7 +5262,7 @@ function downloadImportTemplate() {
 }
 
 function exportProductsToExcel() {
-  if (!canAccess("owner")) return;
+  if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
     "Marca",
@@ -5207,7 +5270,8 @@ function exportProductsToExcel() {
     "Precio costo",
     "Precio venta",
     "Presentación",
-    "Stock"
+    "Stock",
+    "Mostrar catálogo"
   ];
   const rows = getOrderedProducts().map((product) => [
     getProductDisplayName(product),
@@ -5216,7 +5280,8 @@ function exportProductsToExcel() {
     product.cost || 0,
     product.price || 0,
     getProductPresentation(product),
-    getProductTotalStock(product)
+    getProductTotalStock(product),
+    formatCatalogVisibility(product.showInCatalog)
   ]);
   const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(";")).join("\n");
   const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
@@ -5229,6 +5294,7 @@ function exportProductsToExcel() {
 }
 
 function exportSalesToExcel() {
+  if (!hasPermission("importExport")) return;
   const headers = ["Pedido", "Fecha", "Cliente", "Teléfono", "Localidad", "Subtotal", "Descuento", "Envío", "Total final", "Productos"];
   const rows = orders.filter((order) => isConfirmed(order.status)).map((order) => [
     formatConsultationNumber(order),
@@ -5247,6 +5313,7 @@ function exportSalesToExcel() {
 }
 
 function exportStockToExcel() {
+  if (!hasPermission("importExport")) return;
   const headers = ["Producto", "Categoría", "Precio costo", "Precio venta", "Presentación", "Stock", "Valor costo", "Valor venta", "Margen potencial"];
   const rows = getOrderedProducts().map((product) => {
     const stock = getProductTotalStock(product);
