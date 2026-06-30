@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GB Mayorista</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">GB</div>
+        <div>
+          <h1>GB Mayorista</h1>
+          <p>Catálogo mayorista simple</p>
+        </div>
+      </div>
+      <nav class="top-actions" aria-label="Navegación principal">
+        <a class="direct-whatsapp whatsapp-only" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer" aria-label="WhatsApp"><span class="whatsapp-icon" aria-hidden="true"></span></a>
+        <button class="ghost-button" data-view="catalogo">Catálogo</button>
+        <button class="ghost-button" data-view="admin" data-management-entry="true">Gestión interna</button>
+        <button class="cart-button" id="openCart" type="button" data-catalog-only>
+          Carrito <span id="cartCount">0</span>
+        </button>
+      </nav>
+    </header>
+
+    <div class="minimum-banner" role="note" data-catalog-only>
+      Compra mínima mayorista: <strong>$100.000</strong>
+    </div>
+
+    <main>
+      <section class="hero" data-catalog-only>
+        <div class="hero-copy">
+          <span class="eyebrow">Carrito mayorista</span>
+          <h2>Armá tu pedido rápido y envialo por WhatsApp.</h2>
+          <p>Catálogo listo para cargar productos reales de indumentaria mayorista.</p>
+        </div>
+        <div class="hero-panel" aria-label="Resumen del negocio">
+          <div>
+            <strong id="heroProducts">0</strong>
+            <span>productos activos</span>
+          </div>
+          <div>
+            <strong id="heroCategories">0</strong>
+            <span>categorías</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="catalogView" class="content-view">
+        <div class="section-head">
+          <div>
+            <h2>Catálogo</h2>
+            <p>Filtrá por categoría y agregá productos respetando la compra mínima.</p>
+          </div>
+          <label class="search-box">
+            <span>Buscar</span>
+            <input id="searchInput" type="search" placeholder="Nombre del producto">
+          </label>
+        </div>
+
+        <div class="category-row" id="categoryFilters" aria-label="Categorías"></div>
+        <div class="product-grid" id="productGrid"></div>
+      </section>
+
+      <section id="managementShell" class="management-shell hidden">
+        <div>
+          <span class="eyebrow dark">Panel interno de gestión</span>
+          <h2>Panel de Gestión GB Mayorista</h2>
+          <p>Administrá productos, stock, pedidos, clientes y reportes.</p>
+        </div>
+        <div class="management-tabs" aria-label="Secciones de gestión interna">
+          <button class="ghost-button" data-view="admin">Productos</button>
+          <button class="ghost-button" data-view="pedidos">Pedidos</button>
+          <button class="ghost-button" data-view="clientes">Clientes</button>
+          <button class="ghost-button" data-view="reportes">Reportes</button>
+          <button class="ghost-button" data-view="importacion" data-owner-only>Importación Excel</button>
+        </div>
+      </section>
+
+      <section id="adminView" class="content-view hidden">
+        <div class="section-head">
+          <div>
+            <h2>Productos</h2>
+            <p>Catálogo interno por categorías con precios y stock en una sola pantalla.</p>
+          </div>
+          <button class="secondary-button" id="resetProducts" type="button" data-owner-only>Restaurar prueba</button>
+        </div>
+
+        <div class="internal-product-toolbar">
+          <label class="search-box internal-search">
+            Buscar producto o categoría
+            <input id="adminSearchInput" type="search">
+          </label>
+          <div>
+            <span class="toolbar-label">Categorías</span>
+            <div id="adminCategoryFilters" class="category-row" aria-label="Categorías internas"></div>
+          </div>
+        </div>
+
+        <div class="admin-layout">
+          <div class="product-action-bar" data-owner-only>
+            <button class="primary-button add-product-button" id="addProductToggle" type="button">+ Agregar producto</button>
+            <button class="secondary-button" id="manageCategoriesButton" type="button">Agregar categoría</button>
+            <button class="secondary-button" id="importProductsButton" type="button">Importar Excel</button>
+            <button class="secondary-button" id="exportProductsButton" type="button">Exportar Excel</button>
+            <button class="secondary-button" id="downloadProductsTemplate" type="button">Descargar plantilla Excel</button>
+            <input class="hidden" id="importProductsInput" type="file" accept=".csv,.txt">
+          </div>
+
+          <div class="stock-modal-overlay hidden" id="addProductOverlay" aria-hidden="true">
+          <form id="productForm" class="stock-modal product-edit-modal product-create-modal">
+            <h3>Nuevo producto</h3>
+            <fieldset class="form-section">
+              <legend>Datos generales</legend>
+              <label>
+                Nombre del producto
+                <input name="name" type="text" required>
+              </label>
+              <label>
+                Marca
+                <input name="brand" type="text">
+              </label>
+              <label>
+                Categoría
+                <select name="category" required>
+                  <option value="Medias">Medias</option>
+                  <option value="Ropa Interior Hombre">Ropa Interior Hombre</option>
+                  <option value="Ropa Interior Dama">Ropa Interior Dama</option>
+                  <option value="Ropa Interior Niño">Ropa Interior Niño</option>
+                  <option value="Blanquería">Blanquería</option>
+                </select>
+              </label>
+              <label>
+                Mostrar en catálogo
+                <select name="showInCatalog">
+                  <option value="yes">Sí</option>
+                  <option value="no">No</option>
+                </select>
+              </label>
+              <label class="full-field">
+                Foto
+                <input id="productImageInput" name="imageFile" type="file" accept="image/*">
+                <small>Seleccionar imagen o cambiar imagen. Si no tiene foto, se muestra GB Mayorista por defecto.</small>
+              </label>
+              <div class="image-preview-box full-field">
+                <img id="productImagePreview" alt="Vista previa de foto" hidden>
+                <span id="imagePreviewText">La vista previa de la foto aparecera antes de guardar.</span>
+              </div>
+            </fieldset>
+
+            <fieldset class="form-section">
+              <legend>Datos comerciales</legend>
+              <div class="form-grid">
+                <label>
+                  Presentación
+                  <input name="presentation" type="text">
+                </label>
+                <label data-owner-only>
+                  Precio de costo
+                  <input name="cost" type="text" inputmode="numeric" data-money-input>
+                </label>
+                <label>
+                  Precio de venta
+                  <input name="price" type="text" inputmode="numeric" data-money-input>
+                </label>
+                <label>
+                  Stock inicial
+                  <input name="stock" type="number" min="0" step="1" value="0">
+                </label>
+              </div>
+            </fieldset>
+            <input id="productVariants" name="variants" type="hidden">
+            <button class="secondary-button variant-manage-button" id="manageProductVariants" type="button">Administrar variantes</button>
+            <div class="stock-modal-actions">
+              <button class="secondary-button small-button" id="productFormCancel" type="button">Cancelar</button>
+              <button class="primary-button small-button" type="submit">Agregar producto</button>
+            </div>
+          </form>
+          </div>
+
+          <div class="admin-table-wrap">
+            <div class="table-caption">
+              <strong id="adminCategoryTitle">Productos</strong>
+              <span id="adminCategorySummary"></span>
+            </div>
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Categoría</th>
+                  <th>Precio costo</th>
+                  <th>Precio venta</th>
+                  <th>Presentación</th>
+                  <th>Catálogo</th>
+                  <th>Foto</th>
+                  <th>Stock</th>
+                </tr>
+              </thead>
+              <tbody id="adminProducts"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="importView" class="content-view hidden">
+        <div class="import-planner">
+          <div class="section-head compact">
+            <div>
+              <h2>Importación Excel</h2>
+              <p>Plantilla preparada para cargar productos con presentaciÃ³n libre.</p>
+            </div>
+            <button class="secondary-button" id="downloadTemplate" type="button">Descargar planilla modelo Excel</button>
+          </div>
+          <div class="template-columns" aria-label="Columnas de la plantilla">
+            <span>Producto</span>
+            <span>Categoría</span>
+            <span>Precio costo</span>
+            <span>Precio venta</span>
+            <span>Presentación</span>
+            <span>Stock</span>
+          </div>
+          <div class="template-example">
+            Boxer Adulto Lody Art. 742 T1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24
+          </div>
+        </div>
+      </section>
+
+      <section id="ordersView" class="content-view hidden">
+        <div class="section-head">
+          <div>
+            <h2>Consultas y pedidos</h2>
+            <p>Separá consultas del catálogo y pedidos reales para revisar productos, pago, entrega y stock.</p>
+          </div>
+          <button class="secondary-button" id="addSampleOrder" type="button">Agregar consulta de prueba</button>
+        </div>
+        <div class="orders-list" id="ordersList"></div>
+      </section>
+
+      <section id="clientsView" class="content-view hidden">
+        <div class="section-head">
+          <div>
+            <h2>Clientes</h2>
+            <p>Base automática de clientes para futuras campañas de WhatsApp.</p>
+          </div>
+          <button class="secondary-button" id="exportClientsButton" type="button">Exportar Excel</button>
+        </div>
+        <div class="internal-product-toolbar">
+          <label class="search-box internal-search">
+            Buscar cliente
+            <input id="clientsSearch" type="search" placeholder="Nombre, teléfono o localidad">
+          </label>
+          <label class="search-box internal-search">
+            Filtros
+            <select id="clientsSort">
+              <option value="total">Más compraron</option>
+              <option value="purchases">Más compras hicieron</option>
+              <option value="last">Última compra</option>
+              <option value="location">Localidad</option>
+            </select>
+          </label>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table clients-table">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Teléfono</th>
+                <th>Localidad</th>
+                <th>Pedidos</th>
+                <th>Total comprado</th>
+                <th>Última compra</th>
+                <th>Ver</th>
+              </tr>
+            </thead>
+            <tbody id="clientsList"></tbody>
+          </table>
+        </div>
+        <div id="clientDetail"></div>
+      </section>
+
+      <section id="reportsView" class="content-view hidden">
+        <div class="section-head">
+          <div>
+            <h2>Panel de reportes</h2>
+            <p>Ventas, clientes, productos y stock en bloques simples para operar rápido.</p>
+          </div>
+        </div>
+        <div class="report-grid" id="reportGrid"></div>
+      </section>
+    </main>
+
+    <div class="category-modal-overlay hidden" id="categoryManager" aria-hidden="true">
+      <section class="category-modal" role="dialog" aria-modal="true" aria-labelledby="categoryManagerTitle">
+        <div class="section-head compact">
+          <div>
+            <h3 id="categoryManagerTitle">Categorías</h3>
+            <p>Creá, modificá, ocultá o eliminá categorías.</p>
+          </div>
+          <button class="secondary-button small-button" id="closeCategoryManager" type="button">Cerrar</button>
+        </div>
+        <div class="category-add-row">
+          <input id="newCategoryName" type="text" placeholder="Nueva categoría">
+          <button class="primary-button small-button" id="addCategoryButton" type="button">Crear categoría</button>
+        </div>
+        <div class="category-manager-list" id="categoryManagerList"></div>
+      </section>
+    </div>
+
+    <footer class="site-footer">
+      <div>
+        <strong>GB Mayorista</strong>
+        <span>Tel: 2477520456</span>
+      </div>
+      <a class="direct-whatsapp" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp directo</a>
+    </footer>
+
+    <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
+      <div class="cart-panel">
+        <div class="cart-head">
+          <div>
+            <h2>Carrito</h2>
+            <p id="cartSubtitle">Sin productos</p>
+          </div>
+          <button class="icon-button" id="closeCart" type="button" aria-label="Cerrar carrito">x</button>
+        </div>
+        <div class="cart-items" id="cartItems"></div>
+        <div class="customer-fields">
+          <label>
+            Nombre
+            <input id="customerName" type="text" placeholder="Nombre del cliente">
+          </label>
+          <label>
+            Teléfono (con característica)
+            <input id="customerPhone" type="tel" autocomplete="off" placeholder="Ej: 2477123456">
+          </label>
+          <label>
+            Localidad
+            <input id="customerLocation" type="text" placeholder="Localidad">
+          </label>
+        </div>
+        <div class="cart-total">
+          <span>Total</span>
+          <strong id="cartTotal">$0</strong>
+        </div>
+        <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
+        <div class="cart-error hidden" id="cartError" role="alert"></div>
+        <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar consulta por WhatsApp</a>
+        <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
+      </div>
+    </aside>
+
+    <div class="print-preview-overlay hidden" id="printPreviewOverlay" aria-hidden="true">
+      <div class="print-preview-panel">
+        <div class="print-preview-actions">
+          <strong id="printPreviewTitle">Vista imprimible</strong>
+          <div>
+            <button class="secondary-button small-button" id="printPreviewClose" type="button">Cerrar</button>
+            <a class="secondary-button small-button disabled" id="printPreviewPdf" href="#">Descargar PDF</a>
+            <button class="primary-button small-button" id="printPreviewPrint" type="button">Imprimir</button>
+          </div>
+        </div>
+        <div class="pdf-download-slot hidden" id="pdfDownloadSlot"></div>
+        <div class="print-preview-body print-area" id="printPreviewBody"></div>
+      </div>
+    </div>
+
+    <div class="stock-modal-overlay hidden" id="stockModalOverlay" aria-hidden="true">
+      <form class="stock-modal" id="stockModalForm">
+        <div>
+          <p class="eyebrow">Stock</p>
+          <h2 id="stockModalTitle">Modificar stock</h2>
+          <p class="stock-current-line" id="stockModalCurrent">Stock actual: 0</p>
+        </div>
+        <div class="stock-mode-options" role="radiogroup" aria-label="Tipo de ajuste de stock">
+          <label><input type="radio" name="stockMode" value="add" checked> Sumar stock</label>
+          <label><input type="radio" name="stockMode" value="subtract"> Restar stock</label>
+          <label><input type="radio" name="stockMode" value="replace"> Reemplazar stock final</label>
+        </div>
+        <label class="stock-modal-quantity">
+          Cantidad
+          <input id="stockModalQuantity" type="number" min="0" step="1" placeholder="0" required>
+        </label>
+        <div class="stock-modal-actions">
+          <button class="secondary-button small-button" id="stockModalCancel" type="button">Cancelar</button>
+          <button class="primary-button small-button" type="submit">Confirmar</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="stock-modal-overlay hidden" id="editProductOverlay" aria-hidden="true">
+      <form class="stock-modal product-edit-modal product-create-modal" id="editProductForm">
+        <h3 id="editProductTitle">Editar producto</h3>
+        <div class="product-edit-grid">
+          <label>
+            Nombre
+            <input id="editProductName" name="name" type="text" required>
+          </label>
+          <label>
+            Marca
+            <input id="editProductBrand" name="brand" type="text">
+          </label>
+          <label>
+            Categoría
+            <select id="editProductCategory" name="category" required></select>
+          </label>
+          <label>
+            Precio de venta
+            <input id="editProductPrice" name="price" type="text" inputmode="numeric" data-money-input>
+          </label>
+          <label id="editProductCostWrap">
+            Precio de costo
+            <input id="editProductCost" name="cost" type="text" inputmode="numeric" data-money-input>
+          </label>
+          <label>
+            Presentación
+            <input id="editProductPresentation" name="presentation" type="text">
+          </label>
+          <label>
+            Catálogo
+            <select id="editProductCatalog" name="showInCatalog">
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+          <label>
+            <span id="editProductImageLabel">Agregar foto</span>
+            <input id="editProductImage" name="imageFile" type="file" accept="image/*">
+          </label>
+        </div>
+        <div class="edit-image-preview full-field">
+          <img id="editProductImagePreview" alt="Foto del producto">
+        </div>
+        <input id="editProductVariants" name="variants" type="hidden">
+        <button class="secondary-button variant-manage-button" id="editProductVariantsButton" type="button">Administrar variantes</button>
+        <div class="stock-modal-actions">
+          <button class="secondary-button small-button" id="duplicateProductButton" type="button">Duplicar producto</button>
+          <button class="danger-button small-button" id="deleteProductButton" type="button">Eliminar producto</button>
+          <button class="secondary-button small-button" id="editProductCancel" type="button">Cancelar</button>
+          <button class="primary-button small-button" type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="stock-modal-overlay hidden" id="variantManagerOverlay" aria-hidden="true">
+      <form class="stock-modal" id="variantManagerForm">
+        <div>
+          <p class="eyebrow">Variantes</p>
+          <h2>Administrar variantes</h2>
+        </div>
+        <label class="stock-modal-quantity">
+          Opciones
+          <textarea id="variantManagerText" rows="7" placeholder="Talle 1&#10;Talle 2&#10;Rojo&#10;Surtido"></textarea>
+        </label>
+        <p class="context-line">Escribí una variante por línea. Se guardan en el producto para usarlas en el catálogo.</p>
+        <div class="stock-modal-actions">
+          <button class="secondary-button small-button" id="variantManagerCancel" type="button">Cancelar</button>
+          <button class="primary-button small-button" type="submit">Guardar variantes</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase_config.js?v=supabase-4"></script>
+    <script src="supabase_client.js?v=supabase-4"></script>
+    <script>
+      window.addEventListener("error", function (event) {
+        document.documentElement.dataset.gbAppError = event.message || "error";
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
+      });
+    </script>
+    <script src="app.js?v=supabase-4"></script>
+  </body>
+</html>
