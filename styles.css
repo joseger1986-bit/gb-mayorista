@@ -544,6 +544,16 @@ textarea:focus {
   margin-bottom: 20px;
 }
 
+.desktop-category-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mobile-category-menu {
+  display: none;
+}
+
 .category-row button {
   min-height: 42px;
   border: 1px solid var(--line);
@@ -558,6 +568,10 @@ textarea:focus {
   border-color: var(--accent);
   background: var(--surface-2);
   color: var(--accent-dark);
+}
+
+.button-label-short {
+  display: none;
 }
 
 .product-grid {
@@ -3702,15 +3716,73 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 
   .category-row {
-    flex-wrap: wrap;
+    display: block;
+    flex-wrap: initial;
     overflow: visible;
-    padding-bottom: 6px;
+    padding-bottom: 2px;
   }
 
-  .category-row button {
-    flex: 1 1 calc(50% - 8px);
-    min-height: 44px;
-    padding: 0 18px;
+  .desktop-category-buttons {
+    display: none;
+  }
+
+  .mobile-category-menu {
+    display: block;
+  }
+
+  .mobile-category-menu summary {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 12px;
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 900;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .mobile-category-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mobile-category-menu summary::after {
+    content: "▾";
+    color: var(--accent-dark);
+    font-size: 0.9rem;
+  }
+
+  .mobile-category-menu[open] summary::after {
+    content: "▴";
+  }
+
+  .mobile-category-menu summary strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--accent-dark);
+    font-size: 0.82rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-category-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 8px;
+  }
+
+  .mobile-category-options button {
+    min-height: 36px;
+    min-width: 0;
+    padding: 0 8px;
+    justify-content: center;
+    font-size: 0.78rem;
+    text-align: center;
   }
 
   .product-grid {
@@ -3821,6 +3893,14 @@ th .table-sort-button[data-sort-products="stock"] {
     font-size: 0.78rem;
   }
 
+  .button-label-full {
+    display: none;
+  }
+
+  .button-label-short {
+    display: inline;
+  }
+
   .pack-main-price {
     font-size: 1.18rem;
   }
@@ -3899,12 +3979,7 @@ th .table-sort-button[data-sort-products="stock"] {
   .hero-panel,
   .management-tabs,
   .management-access div,
-  .product-action-bar,
-  .category-row {
+  .product-action-bar {
     grid-template-columns: 1fr;
-  }
-
-  .category-row button {
-    flex-basis: 100%;
   }
 }

@@ -16,7 +16,7 @@ const WHOLESALE_MINIMUM = 100000;
 const DEFAULT_ADMIN_PASSWORD = "1234";
 const DEFAULT_EMPLOYEE_PASSWORD = "0000";
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
-const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Crect width='900' height='675' fill='%23f5f6f2'/%3E%3Crect x='56' y='56' width='788' height='563' rx='28' fill='%23ffffff' stroke='%23d9ded4' stroke-width='4'/%3E%3Ccircle cx='450' cy='275' r='92' fill='%23eef4e8'/%3E%3Ctext x='450' y='255' text-anchor='middle' font-family='Arial,sans-serif' font-size='68' font-weight='800' fill='%233f6b3a'%3EGB%3C/text%3E%3Ctext x='450' y='335' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='800' fill='%232b332d'%3EMayorista%3C/text%3E%3Ctext x='450' y='408' text-anchor='middle' font-family='Arial,sans-serif' font-size='28' fill='%23778378'%3EProducto sin foto%3C/text%3E%3C/svg%3E";
+const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EGB Mayorista%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
 
@@ -1011,11 +1011,18 @@ function renderStats() {
 function renderCategories() {
   const categoryNames = ["Todas", ...getVisibleCategories()];
   if (currentCategory !== "Todas" && !categoryNames.includes(currentCategory)) currentCategory = "Todas";
-  els.categoryFilters.innerHTML = categoryNames.map((category) => `
+  const categoryButtons = categoryNames.map((category) => `
     <button type="button" class="${category === currentCategory ? "active" : ""}" data-category="${escapeHtml(category)}">
       ${escapeHtml(category)}
     </button>
   `).join("");
+  els.categoryFilters.innerHTML = `
+    <details class="mobile-category-menu">
+      <summary>Categorías <strong>${escapeHtml(currentCategory)}</strong></summary>
+      <div class="mobile-category-options">${categoryButtons}</div>
+    </details>
+    <div class="desktop-category-buttons">${categoryButtons}</div>
+  `;
 
   els.categoryFilters.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1066,7 +1073,7 @@ function renderCatalog() {
           <label for="qty-${group.id}">Cantidad</label>
           <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="Cantidad para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
           <div class="catalog-card-total">Subtotal: <strong data-catalog-total="${group.id}">${hasCatalogVariantChoices(group) ? "" : formatCatalogSubtotal(group.variants[0]?.price || 0, group.minimum)}</strong></div>
-          <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}>Agregar al carrito</button>
+          <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}><span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span></button>
         </div>
       </div>
     </article>
