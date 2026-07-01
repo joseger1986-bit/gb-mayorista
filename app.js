@@ -260,6 +260,7 @@ let internalUnlocked = false;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
+var supabaseProductDescriptionSupported = false;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -348,6 +349,7 @@ const els = {
   editProductCostWrap: document.querySelector("#editProductCostWrap"),
   editProductCost: document.querySelector("#editProductCost"),
   editProductPresentation: document.querySelector("#editProductPresentation"),
+  editProductDescription: document.querySelector("#editProductDescription"),
   editProductCatalog: document.querySelector("#editProductCatalog"),
   editProductImage: document.querySelector("#editProductImage"),
   editProductImageLabel: document.querySelector("#editProductImageLabel"),
@@ -374,6 +376,10 @@ const els = {
   variantManagerForm: document.querySelector("#variantManagerForm"),
   variantManagerText: document.querySelector("#variantManagerText"),
   variantManagerCancel: document.querySelector("#variantManagerCancel"),
+  descriptionModalOverlay: document.querySelector("#descriptionModalOverlay"),
+  descriptionModalTitle: document.querySelector("#descriptionModalTitle"),
+  descriptionModalText: document.querySelector("#descriptionModalText"),
+  descriptionModalClose: document.querySelector("#descriptionModalClose"),
   toast: document.querySelector("#toast")
 };
 
@@ -466,7 +472,7 @@ els.productForm.addEventListener("submit", async (event) => {
     brand: "",
     category: normalizeCategory(String(form.get("category")).trim()),
     presentation,
-    description: "",
+    description: String(form.get("description") || "").trim(),
     saleType,
     price,
     packQuantity: getPackQuantityFromPresentation(presentation),
@@ -539,6 +545,10 @@ els.editProductForm?.addEventListener("submit", saveEditedProduct);
 els.editProductVariantsButton?.addEventListener("click", () => openVariantManager("edit"));
 els.duplicateProductButton?.addEventListener("click", duplicateEditingProduct);
 els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
+els.descriptionModalClose?.addEventListener("click", closeDescriptionModal);
+els.descriptionModalOverlay?.addEventListener("click", (event) => {
+  if (event.target === els.descriptionModalOverlay) closeDescriptionModal();
+});
 els.variantManagerCancel?.addEventListener("click", closeVariantManager);
 els.variantManagerOverlay?.addEventListener("click", (event) => {
   if (event.target === els.variantManagerOverlay) closeVariantManager();
@@ -703,6 +713,7 @@ async function initializeSupabaseCatalog() {
 async function loadCatalogFromSupabase() {
   const client = getSupabaseCatalogClient();
   if (!client) return { categories: [], products: [] };
+  supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
 
   const { data: categoryRows, error: categoryError } = await client
     .from("categories")
@@ -722,6 +733,18 @@ async function loadCatalogFromSupabase() {
     categories: mapSupabaseCategoriesToLocal(categoryRows || []),
     products: mapSupabaseProductsToLocal(productRows || [])
   };
+}
+
+async function detectSupabaseProductDescriptionSupport(client) {
+  try {
+    const { error } = await client
+      .from("products")
+      .select("description")
+      .limit(1);
+    return !error;
+  } catch (error) {
+    return false;
+  }
 }
 
 async function syncCatalogToSupabase(reason = "manual") {
@@ -757,20 +780,24 @@ async function syncCatalogToSupabase(reason = "manual") {
       category.id
     ]));
 
-    const productRows = products.map((product, index) => ({
-      id: product.id,
-      category_id: categoryIdByName.get(normalizeCategoryNameForCompare(product.category)) || null,
-      name: product.name || "",
-      brand: product.brand || "",
-      presentation: getProductPresentation(product),
-      cost_price: Math.max(0, Number(product.cost) || 0),
-      sale_price: Math.max(0, Number(product.price) || 0),
-      stock: Math.max(0, Number(product.stock) || 0),
-      show_in_catalog: product.showInCatalog !== false,
-      image_path: getSupabaseImagePath(product.image),
-      active: product.active !== false,
-      sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
-    })).filter((product) => product.name);
+    const productRows = products.map((product, index) => {
+      const row = {
+        id: product.id,
+        category_id: categoryIdByName.get(normalizeCategoryNameForCompare(product.category)) || null,
+        name: product.name || "",
+        brand: product.brand || "",
+        presentation: getProductPresentation(product),
+        cost_price: Math.max(0, Number(product.cost) || 0),
+        sale_price: Math.max(0, Number(product.price) || 0),
+        stock: Math.max(0, Number(product.stock) || 0),
+        show_in_catalog: product.showInCatalog !== false,
+        image_path: getSupabaseImagePath(product.image),
+        active: product.active !== false,
+        sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
+      };
+      if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
+      return row;
+    }).filter((product) => product.name);
 
     if (productRows.length) {
       const { data: savedProducts, error: productError } = await client
@@ -886,7 +913,7 @@ function mapSupabaseProductsToLocal(rows) {
       brand: row.brand || "",
       category: row.categories?.name || defaultProductCategories[0],
       presentation,
-      description: "",
+      description: row.description || getLocalProductDescription(row.id),
       saleType: getSaleTypeFromPresentation(presentation),
       price: Math.max(0, Number(row.sale_price) || 0),
       packQuantity: getPackQuantityFromPresentation(presentation),
@@ -908,6 +935,11 @@ function getProductVariantNames(product) {
     .split(/[\n,;]+/)
     .map((variant) => variant.split("|")[0]?.trim())
     .filter(Boolean);
+}
+
+function getLocalProductDescription(productId) {
+  const localProduct = products.find((product) => product.id === productId);
+  return String(localProduct?.description || "").trim();
 }
 
 function getSupabaseImagePath(image) {
@@ -1046,12 +1078,7 @@ function renderCatalog() {
   const catalogProducts = getCatalogProducts();
   const filtered = catalogProducts.filter((group) => {
     const matchesCategory = currentCategory === "Todas" || group.category === currentCategory;
-    const haystack = normalizeProductSearchText([
-      group.name,
-      group.brand,
-      group.category,
-      ...group.variants.map((variant) => variant.label)
-    ].join(" "));
+    const haystack = normalizeProductSearchText(group.name);
     const matchesSearch = !query || haystack.includes(query);
     return matchesCategory && matchesSearch;
   });
@@ -1065,7 +1092,10 @@ function renderCatalog() {
     <article class="product-card ${hasCatalogVariantChoices(group) ? "has-variants" : "no-variants"}">
       <img class="product-image" src="${escapeHtml(getCatalogImage(group.image))}" alt="${escapeHtml(group.name)}" loading="lazy" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
       <div class="product-body">
-        <div class="product-title">${formatCatalogTitleForCard(group.name)}</div>
+        <div class="product-title-row">
+          <div class="product-title">${formatCatalogTitleForCard(group.name)}</div>
+          ${renderDescriptionInfoButton(group)}
+        </div>
         ${renderCatalogVariantControl(group)}
         ${renderCatalogGroupPrice(group)}
         <div class="quantity-row">
@@ -1103,6 +1133,13 @@ function renderCatalog() {
     select.addEventListener("change", () => updateCatalogCardSelection(select.dataset.catalogVariant, catalogProducts));
   });
 
+  els.productGrid.querySelectorAll("[data-product-description]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const group = catalogProducts.find((item) => item.id === button.dataset.productDescription);
+      openDescriptionModal(group);
+    });
+  });
+
   els.productGrid.querySelectorAll("[data-catalog-qty]").forEach((input) => {
     input.addEventListener("input", () => updateCatalogCardSelection(input.dataset.catalogQty, catalogProducts));
   });
@@ -1127,6 +1164,7 @@ function getCatalogProducts() {
           name: info.name,
           brand: product.brand || "GB Mayorista",
           category: product.category,
+          description: product.description || "",
           image: getCatalogImage(product.image),
           saleType: product.saleType,
           minimum: product.minimum || 1,
@@ -1134,6 +1172,7 @@ function getCatalogProducts() {
         });
       }
       const group = groups.get(key);
+      if (!group.description && product.description) group.description = product.description;
       const variantsToAdd = customVariants.length
         ? customVariants.map((variant, index) => ({
           id: `${product.id}__${index}`,
@@ -1286,6 +1325,25 @@ function renderCatalogGroupPrice(group) {
       <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice(selectedVariant.price || 0) : ""}</div>
     </div>
   `;
+}
+
+function renderDescriptionInfoButton(group) {
+  if (!String(group?.description || "").trim()) return "";
+  return `<button class="product-info-button" type="button" data-product-description="${escapeHtml(group.id)}" aria-label="Ver descripción de ${escapeHtml(group.name)}">ℹ️</button>`;
+}
+
+function openDescriptionModal(group) {
+  const description = String(group?.description || "").trim();
+  if (!description || !els.descriptionModalOverlay) return;
+  if (els.descriptionModalTitle) els.descriptionModalTitle.textContent = group?.name || "Descripción del producto";
+  if (els.descriptionModalText) els.descriptionModalText.textContent = description;
+  els.descriptionModalOverlay.classList.remove("hidden");
+  els.descriptionModalOverlay.setAttribute("aria-hidden", "false");
+}
+
+function closeDescriptionModal() {
+  els.descriptionModalOverlay?.classList.add("hidden");
+  els.descriptionModalOverlay?.setAttribute("aria-hidden", "true");
 }
 
 function renderCatalogVariantControl(group) {
@@ -1626,6 +1684,7 @@ function openEditProductModal(productId) {
   if (els.editProductPrice) els.editProductPrice.value = formatInputMoney(product.price);
   if (els.editProductCost) els.editProductCost.value = formatInputMoney(product.cost);
   if (els.editProductPresentation) els.editProductPresentation.value = getProductPresentation(product);
+  if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? "Cambiar foto" : "Agregar foto";
@@ -1803,6 +1862,7 @@ async function saveEditedProduct(event) {
   product.price = Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value)));
   if (canAccess("admin")) product.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
   product.presentation = String(els.editProductPresentation?.value || "").trim();
+  product.description = String(els.editProductDescription?.value || "").trim();
   product.saleType = getSaleTypeFromPresentation(product.presentation);
   product.packQuantity = getPackQuantityFromPresentation(product.presentation);
   product.variants = String(els.editProductVariants?.value || "").trim();
