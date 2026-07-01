@@ -155,10 +155,6 @@
                 <input name="name" type="text" required>
               </label>
               <label>
-                Marca
-                <input name="brand" type="text">
-              </label>
-              <label>
                 Categoría
                 <select name="category" required>
                   <option value="Medias">Medias</option>
@@ -252,7 +248,6 @@
           </div>
           <div class="template-columns" aria-label="Columnas de la plantilla">
             <span>Producto</span>
-            <span>Marca</span>
             <span>Categoría</span>
             <span>Precio costo</span>
             <span>Precio venta</span>
@@ -261,7 +256,7 @@
             <span>Mostrar catálogo</span>
           </div>
           <div class="template-example">
-            Boxer Adulto Lody Art. 742 T1 | Lody | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
+            Boxer Adulto Lody Art. 742 T1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
           </div>
         </div>
       </section>
@@ -437,10 +432,6 @@
             <input id="editProductName" name="name" type="text" required>
           </label>
           <label>
-            Marca
-            <input id="editProductBrand" name="brand" type="text">
-          </label>
-          <label>
             Categoría
             <select id="editProductCategory" name="category" required></select>
           </label>
@@ -512,6 +503,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=mobile-store-1"></script>
+    <script src="/app.js?v=no-brand-1"></script>
   </body>
 </html>

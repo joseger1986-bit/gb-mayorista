@@ -343,7 +343,6 @@ const els = {
   editProductForm: document.querySelector("#editProductForm"),
   editProductTitle: document.querySelector("#editProductTitle"),
   editProductName: document.querySelector("#editProductName"),
-  editProductBrand: document.querySelector("#editProductBrand"),
   editProductCategory: document.querySelector("#editProductCategory"),
   editProductPrice: document.querySelector("#editProductPrice"),
   editProductCostWrap: document.querySelector("#editProductCostWrap"),
@@ -464,7 +463,7 @@ els.productForm.addEventListener("submit", async (event) => {
     id: productId,
     image: uploadedImage || DEFAULT_PRODUCT_IMAGE,
     name: String(form.get("name")).trim(),
-    brand: String(form.get("brand") || "").trim(),
+    brand: "",
     category: normalizeCategory(String(form.get("category")).trim()),
     presentation,
     description: "",
@@ -1624,7 +1623,6 @@ function openEditProductModal(productId) {
   fillEditCategoryOptions(product.category);
   if (els.editProductTitle) els.editProductTitle.textContent = `Editar: ${product.name}`;
   if (els.editProductName) els.editProductName.value = product.name || "";
-  if (els.editProductBrand) els.editProductBrand.value = product.brand || "";
   if (els.editProductPrice) els.editProductPrice.value = formatInputMoney(product.price);
   if (els.editProductCost) els.editProductCost.value = formatInputMoney(product.cost);
   if (els.editProductPresentation) els.editProductPresentation.value = getProductPresentation(product);
@@ -1799,7 +1797,7 @@ async function saveEditedProduct(event) {
   if (!product) return;
 
   product.name = String(els.editProductName?.value || "").trim() || product.name;
-  product.brand = String(els.editProductBrand?.value || "").trim();
+  product.brand = product.brand || "";
   product.category = normalizeCategory(String(els.editProductCategory?.value || product.category).trim());
   const scrollTop = getAdminTableScrollTop();
   product.price = Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value)));
@@ -2270,7 +2268,6 @@ function renderStock() {
   els.stockProducts.innerHTML = stockRows.map(({ product, variant }) => `
     <tr class="${product.active ? "" : "is-hidden-product"}">
       <td data-label="Producto"><strong>${escapeHtml(product.name)}</strong></td>
-      <td data-label="Marca">${escapeHtml(product.brand)}</td>
       <td data-label="Categoría">${escapeHtml(product.category)}</td>
       <td data-label="Variante"><span class="muted-cell">${escapeHtml(variant.name)}</span></td>
       <td data-label="Presentación">${escapeHtml(variant.saleLabel)}</td>
@@ -4986,7 +4983,7 @@ function freshSampleProducts() {
 function normalizeProducts(productList) {
   return productList.map((product, index) => ({
     ...product,
-    brand: product.brand || "Sin marca",
+    brand: product.brand || "",
     category: normalizeCategory(product.category),
     presentation: product.presentation || getProductPresentation(product),
     description: product.description || "",
@@ -5048,7 +5045,7 @@ function normalizeBudgets(budgetList) {
       updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
       items: (order.items || []).map((item) => ({
         ...item,
-        brand: item.brand || "Sin marca",
+        brand: item.brand || "",
         saleType: item.saleType === "pack" ? "pack" : "unit",
         packQuantity: item.saleType === "pack" ? Math.max(1, Number(item.packQuantity) || 1) : 1,
         variant: item.variant || "",
@@ -5126,7 +5123,6 @@ function buildImportedProducts(rows) {
   if (!rows.length) return [];
   const headers = rows[0].map(normalizeHeader);
   const productIndex = headers.indexOf("producto");
-  const brandIndex = headers.indexOf("marca");
   const categoryIndex = headers.indexOf("categoria");
   const costIndex = headers.indexOf("precio costo");
   const priceIndex = headers.indexOf("precio venta");
@@ -5146,7 +5142,7 @@ function buildImportedProducts(rows) {
       id: crypto.randomUUID(),
       image: DEFAULT_PRODUCT_IMAGE,
       name,
-      brand: String(row[brandIndex] || "").trim(),
+      brand: "",
       category: normalizeCategory(category),
       presentation,
       description: "",
@@ -5240,7 +5236,6 @@ function downloadImportTemplate() {
   if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
-    "Marca",
     "Categoría",
     "Precio costo",
     "Precio venta",
@@ -5250,7 +5245,6 @@ function downloadImportTemplate() {
   ];
   const example = [
     "Boxer Adulto Lody Art. 742 T1",
-    "Lody",
     "Ropa Interior Hombre",
     "42000",
     "60000",
@@ -5272,7 +5266,6 @@ function exportProductsToExcel() {
   if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
-    "Marca",
     "Categoría",
     "Precio costo",
     "Precio venta",
@@ -5282,7 +5275,6 @@ function exportProductsToExcel() {
   ];
   const rows = getOrderedProducts().map((product) => [
     getProductDisplayName(product),
-    product.brand || "",
     product.category,
     product.cost || 0,
     product.price || 0,
