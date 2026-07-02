@@ -1165,30 +1165,40 @@ function getCatalogProducts() {
 function getCatalogGroupInfo(product, rangesByBase) {
   const name = getProductDisplayName(product);
   const parts = getCatalogProductParts(name);
+  const priceKey = Math.max(0, Number(product.price) || 0);
+  const presentationKey = normalizeProductSearchText(getProductPresentation(product));
   if (!parts) {
     return {
-      key: `single-${product.id}`,
+      key: `${normalizeProductSearchText(name)}-${priceKey}-${presentationKey}`,
       name,
       variantLabel: ""
     };
   }
 
-  const baseName = toCatalogTitle(parts.baseName);
-  const range = getCatalogSizeRange(parts.variantRaw, rangesByBase.get(normalizeProductSearchText(parts.baseName)) || []);
+  const baseName = normalizeCatalogBaseName(parts.baseName);
   return {
-    key: `${normalizeProductSearchText(baseName)}-${range.key}`,
-    name: `${baseName} - ${range.title}`,
+    key: `${normalizeProductSearchText(baseName)}-${priceKey}-${presentationKey}`,
+    name: baseName,
     variantLabel: getCatalogVariantLabel(parts.variantRaw)
   };
 }
 
 function getCatalogProductParts(name) {
-  const match = String(name || "").match(/^(Boxer\s+Adulto\s+.+?)\s+(T\d+(?:-\d+)?(?:\s+Surtido)?|Surtido)$/i);
-  if (!match) return null;
+  const cleanName = String(name || "").trim().replace(/\s+/g, " ");
+  const patterns = [
+    /^(.*?)\s+(Talle\s+[\w½]+)$/i,
+    /^(.*?)\s+(Surtido\s+T\d+\s*-\s*\d+)$/i
+  ];
+  const match = patterns.map((pattern) => cleanName.match(pattern)).find(Boolean);
+  if (!match || !match[1] || !match[2]) return null;
   return {
     baseName: match[1],
     variantRaw: match[2]
   };
+}
+
+function normalizeCatalogBaseName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
 }
 
 function buildCatalogRanges(productList) {
@@ -1233,7 +1243,7 @@ function getCatalogVariantLabel(value) {
   const rangeMatch = text.match(/T?(\d+)-(\d+)/i);
   if (rangeMatch) {
     return surtido
-      ? `Surtido ${rangeMatch[1]}-${rangeMatch[2]}`
+      ? `Surtido T${rangeMatch[1]}-${rangeMatch[2]}`
       : `Talles ${rangeMatch[1]} al ${rangeMatch[2]}`;
   }
   const sizeMatch = text.match(/T(\d+)/i);
@@ -1299,9 +1309,9 @@ function renderCatalogVariantControl(group) {
   if (!hasCatalogVariantChoices(group)) return `<div class="variant-placeholder" aria-hidden="true"></div>`;
   return `
     <label class="variant-select-row" for="variant-${group.id}">
-      Variante
+      Elegir opción
       <select id="variant-${group.id}" data-catalog-variant="${group.id}">
-        <option value="">Seleccionar variante</option>
+        <option value="">Elegir opción</option>
         ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(variant.label)}</option>`).join("")}
       </select>
     </label>
@@ -3201,7 +3211,7 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
       internalProductId: variant.productId,
       internalProductName: internalProduct?.name || variant.internalName || "",
       catalogGroupId: group.id,
-      name: group.name,
+      name: getCartProductNameFromCatalog(group, variant),
       brand: group.brand,
       category: group.category,
       image: group.image,
@@ -3216,6 +3226,12 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
   saveCart();
   renderCart();
   showToast("Producto agregado al carrito");
+}
+
+function getCartProductNameFromCatalog(group, variant) {
+  const label = String(variant?.label || "").trim();
+  if (!label || isPresentationOnlyLabel(label)) return group.name;
+  return `${group.name} - ${label}`;
 }
 
 function addToCart(product, quantity) {
@@ -4336,7 +4352,7 @@ function buildWhatsappUrl(items, totalPrice, customer) {
     "",
     ...items.flatMap((item) => [
       `- ${item.name}`,
-      ...(item.variantLabel && !isPresentationOnlyLabel(item.variantLabel) ? [`  Variante: ${item.variantLabel}`] : []),
+      ...(shouldShowCartOptionLine(item) ? [`  Opción: ${item.variantLabel}`] : []),
       `  Presentación: ${formatCartPresentation(item)}`,
       `  Cantidad: ${formatWhatsappQuantity(item)}`,
       `  Subtotal: ${formatCustomerLineSubtotal(item)}`,
@@ -4529,8 +4545,14 @@ function formatCartPresentation(item) {
 
 function renderCartVariantLine(item) {
   const label = String(item?.variantLabel || "").trim();
-  if (!label || isPresentationOnlyLabel(label)) return "";
-  return `<span>Variante: ${escapeHtml(label)}</span>`;
+  if (!shouldShowCartOptionLine(item)) return "";
+  return `<span>Opción: ${escapeHtml(label)}</span>`;
+}
+
+function shouldShowCartOptionLine(item) {
+  const label = String(item?.variantLabel || "").trim();
+  if (!label || isPresentationOnlyLabel(label)) return false;
+  return !String(item?.name || "").toLowerCase().includes(label.toLowerCase());
 }
 
 function isPresentationOnlyLabel(value) {
