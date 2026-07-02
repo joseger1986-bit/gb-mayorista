@@ -207,6 +207,7 @@ let currentPdfUrl = "";
 let stockModalProductId = "";
 let editingProductId = "";
 let variantManagerTarget = "";
+let activeDescriptionPopoverId = "";
 let toastTimer;
 let internalUnlocked = false;
 var supabaseCatalogSyncTimer = null;
@@ -500,6 +501,9 @@ els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
 els.descriptionModalClose?.addEventListener("click", closeDescriptionModal);
 els.descriptionModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.descriptionModalOverlay) closeDescriptionModal();
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.(".product-info-wrap")) closeCatalogDescriptionPopovers();
 });
 els.variantManagerCancel?.addEventListener("click", closeVariantManager);
 els.variantManagerOverlay?.addEventListener("click", (event) => {
@@ -1051,9 +1055,8 @@ function renderCatalog() {
         ${renderCatalogVariantControl(group)}
         ${renderCatalogGroupPrice(group)}
         <div class="quantity-row">
-          <label for="qty-${group.id}">Cantidad</label>
+          <label for="qty-${group.id}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
           <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="Cantidad para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
-          <div class="catalog-card-total">Subtotal: <strong data-catalog-total="${group.id}">${hasCatalogVariantChoices(group) ? "" : formatCatalogSubtotal(group.variants[0]?.price || 0, group.minimum)}</strong></div>
           <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}><span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span></button>
         </div>
       </div>
@@ -1085,12 +1088,7 @@ function renderCatalog() {
     select.addEventListener("change", () => updateCatalogCardSelection(select.dataset.catalogVariant, catalogProducts));
   });
 
-  els.productGrid.querySelectorAll("[data-product-description]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const group = catalogProducts.find((item) => item.id === button.dataset.productDescription);
-      openDescriptionModal(group);
-    });
-  });
+  setupCatalogDescriptionPopovers();
 
   els.productGrid.querySelectorAll("[data-catalog-qty]").forEach((input) => {
     input.addEventListener("input", () => updateCatalogCardSelection(input.dataset.catalogQty, catalogProducts));
@@ -1281,26 +1279,66 @@ function formatCatalogTitleForCard(value) {
 }
 
 function renderCatalogGroupPrice(group) {
-  const selectedVariant = hasCatalogVariantChoices(group) ? null : group.variants[0];
+  const selectedVariant = group.variants[0];
   return `
     <div class="pack-price">
       <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice(selectedVariant.price || 0) : ""}</div>
+      ${renderCatalogSaleDetail(group, selectedVariant)}
     </div>
   `;
 }
 
 function renderDescriptionInfoButton(group) {
-  if (!String(group?.description || "").trim()) return "";
-  return `<button class="product-info-button" type="button" data-product-description="${escapeHtml(group.id)}" aria-label="Ver descripción de ${escapeHtml(group.name)}">ℹ️</button>`;
+  const description = String(group?.description || "").trim();
+  if (!description) return "";
+  return `
+    <span class="product-info-wrap">
+      <button class="product-info-button" type="button" data-product-description="${escapeHtml(group.id)}" aria-label="Ver descripción de ${escapeHtml(group.name)}" aria-expanded="false">ℹ️</button>
+      <span class="product-info-popover" role="tooltip">${escapeHtml(description).replace(/\n/g, "<br>")}</span>
+    </span>
+  `;
 }
 
-function openDescriptionModal(group) {
-  const description = String(group?.description || "").trim();
-  if (!description || !els.descriptionModalOverlay) return;
-  if (els.descriptionModalTitle) els.descriptionModalTitle.textContent = group?.name || "Descripción del producto";
-  if (els.descriptionModalText) els.descriptionModalText.textContent = description;
-  els.descriptionModalOverlay.classList.remove("hidden");
-  els.descriptionModalOverlay.setAttribute("aria-hidden", "false");
+function setupCatalogDescriptionPopovers() {
+  els.productGrid.querySelectorAll("[data-product-description]").forEach((button) => {
+    const wrap = button.closest(".product-info-wrap");
+    if (!wrap) return;
+    const open = () => openCatalogDescriptionPopover(button.dataset.productDescription);
+    const close = () => closeCatalogDescriptionPopover(button.dataset.productDescription);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isOpen = wrap.classList.contains("is-open");
+      closeCatalogDescriptionPopovers();
+      if (!isOpen) openCatalogDescriptionPopover(button.dataset.productDescription);
+    });
+    button.addEventListener("mouseenter", open);
+    button.addEventListener("focus", open);
+    wrap.addEventListener("mouseleave", close);
+    button.addEventListener("blur", close);
+  });
+}
+
+function openCatalogDescriptionPopover(id) {
+  activeDescriptionPopoverId = id || "";
+  document.querySelectorAll(".product-info-wrap").forEach((wrap) => {
+    const button = wrap.querySelector("[data-product-description]");
+    const isOpen = button?.dataset.productDescription === activeDescriptionPopoverId;
+    wrap.classList.toggle("is-open", isOpen);
+    button?.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  });
+}
+
+function closeCatalogDescriptionPopover(id) {
+  if (activeDescriptionPopoverId && activeDescriptionPopoverId !== id) return;
+  closeCatalogDescriptionPopovers();
+}
+
+function closeCatalogDescriptionPopovers() {
+  activeDescriptionPopoverId = "";
+  document.querySelectorAll(".product-info-wrap.is-open").forEach((wrap) => {
+    wrap.classList.remove("is-open");
+    wrap.querySelector("[data-product-description]")?.setAttribute("aria-expanded", "false");
+  });
 }
 
 function closeDescriptionModal() {
@@ -1309,7 +1347,7 @@ function closeDescriptionModal() {
 }
 
 function renderCatalogVariantControl(group) {
-  if (!hasCatalogVariantChoices(group)) return `<div class="variant-placeholder" aria-hidden="true"></div>`;
+  if (!hasCatalogVariantChoices(group)) return "";
   return `
     <label class="variant-select-row" for="variant-${group.id}">
       Elegir opción
@@ -1336,10 +1374,10 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   const quantity = Math.max(group.minimum || 1, Math.round(Number(quantityInput?.value) || group.minimum || 1));
   const price = Number(variant?.price) || 0;
   const priceEl = document.querySelector(`[data-catalog-price="${CSS.escape(groupId)}"]`);
-  const totalEl = document.querySelector(`[data-catalog-total="${CSS.escape(groupId)}"]`);
+  const saleDetailEl = document.querySelector(`[data-catalog-sale-detail="${CSS.escape(groupId)}"]`);
   const addButton = document.querySelector(`[data-add-catalog="${CSS.escape(groupId)}"]`);
   if (priceEl) priceEl.textContent = variant ? formatCatalogPrice(price) : "";
-  if (totalEl) totalEl.textContent = variant ? formatCatalogSubtotal(price, quantity) : "";
+  if (saleDetailEl) saleDetailEl.innerHTML = variant ? getCatalogSaleDetailHtml(variant) : "";
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(price);
 }
 
@@ -1351,6 +1389,44 @@ function formatCatalogPrice(price) {
 function formatCatalogSubtotal(price, quantity) {
   const amount = Number(price) || 0;
   return amount > 0 ? formatMoney(amount * Math.max(1, Number(quantity) || 1)) : "";
+}
+
+function renderCatalogSaleDetail(group, variant) {
+  return `<div class="pack-sale-detail" data-catalog-sale-detail="${escapeHtml(group.id)}">${variant ? getCatalogSaleDetailHtml(variant) : ""}</div>`;
+}
+
+function getCatalogSaleDetailHtml(variant) {
+  const presentation = getPresentationLabelForCatalog(variant?.presentation);
+  const unitPrice = getCatalogUnitPriceLabel(variant);
+  return [
+    presentation ? `<span>${escapeHtml(presentation)}</span>` : "",
+    unitPrice ? `<span>${escapeHtml(unitPrice)}</span>` : ""
+  ].filter(Boolean).join("");
+}
+
+function getPresentationLabelForCatalog(presentation) {
+  const text = String(presentation || "").trim();
+  if (!text) return "";
+  if (/docena/i.test(text)) return "Venta por docena";
+  if (/unidad/i.test(text)) return "Venta por unidad";
+  if (/pack/i.test(text)) return text;
+  return text;
+}
+
+function getCatalogUnitPriceLabel(variant) {
+  const price = Number(variant?.price) || 0;
+  const presentation = String(variant?.presentation || "").trim();
+  if (!price || !/docena/i.test(presentation)) return "";
+  const docenas = Math.max(1, Number(presentation.match(/\d+/)?.[0]) || 1);
+  return `Pagás por unidad: ${formatMoney(Math.round(price / (docenas * 12)))}`;
+}
+
+function getCatalogQuantityLabel(group) {
+  const presentation = String(group?.variants?.[0]?.presentation || "").trim();
+  if (/docena/i.test(presentation)) return "Docenas";
+  if (/pack/i.test(presentation)) return "Packs";
+  if (/unidad/i.test(presentation)) return "Unidades";
+  return "Cantidad";
 }
 
 function hasCatalogPrice(price) {
