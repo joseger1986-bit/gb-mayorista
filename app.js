@@ -654,6 +654,9 @@ async function initializeSupabaseCatalog() {
         products: products.length,
         categories: categories.length
       });
+      if (supabaseProductOptionSupported) {
+        window.setTimeout(() => syncCatalogToSupabase("product-option-field-migration"), 300);
+      }
       return;
     }
 
