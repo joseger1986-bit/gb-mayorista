@@ -3898,24 +3898,26 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 
   .product-card {
-    height: 356px;
-    grid-template-rows: 96px 1fr;
+    height: auto;
+    min-height: 354px;
+    grid-template-rows: 86px 1fr;
+    overflow: visible;
   }
 
   .product-image {
-    height: 96px;
+    height: 86px;
   }
 
   .product-body {
-    padding: 9px;
-    gap: 6px;
+    padding: 8px;
+    gap: 5px;
   }
 
   .product-title {
-    font-size: 0.78rem;
-    height: 44px;
-    line-height: 1.16;
-    -webkit-line-clamp: 2;
+    font-size: 0.76rem;
+    height: 52px;
+    line-height: 1.14;
+    -webkit-line-clamp: 3;
   }
 
   .product-info-button {
@@ -3943,20 +3945,20 @@ th .table-sort-button[data-sort-products="stock"] {
 
   .variant-select-row,
   .presentation-box {
-    height: 46px;
-    min-height: 46px;
+    height: 42px;
+    min-height: 42px;
   }
 
   .variant-select-row {
-    gap: 3px;
-    font-size: 0.74rem;
+    gap: 2px;
+    font-size: 0.7rem;
   }
 
   .variant-select-row select {
-    height: 30px;
-    min-height: 30px;
-    padding: 5px 26px 5px 8px;
-    font-size: 0.76rem;
+    height: 28px;
+    min-height: 28px;
+    padding: 4px 24px 4px 7px;
+    font-size: 0.72rem;
   }
 
   .presentation-box {
@@ -3972,8 +3974,8 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 
   .pack-price {
-    min-height: 58px;
-    gap: 3px;
+    min-height: 50px;
+    gap: 2px;
   }
 
   .primary-button,
@@ -3988,19 +3990,19 @@ th .table-sort-button[data-sort-products="stock"] {
 
   .quantity-row {
     grid-template-columns: 1fr;
-    grid-template-rows: 14px 30px 34px;
-    gap: 5px;
+    grid-template-rows: 13px 28px 34px;
+    gap: 4px;
   }
 
   .quantity-row label {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
   }
 
   .quantity-row input {
-    height: 32px;
-    min-height: 32px;
-    padding: 6px 8px;
-    font-size: 0.84rem;
+    height: 28px;
+    min-height: 28px;
+    padding: 4px 7px;
+    font-size: 0.78rem;
   }
 
   .catalog-card-total {
@@ -4029,13 +4031,13 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 
   .pack-main-price {
-    font-size: 1.18rem;
+    font-size: 1.08rem;
   }
 
   .pack-sale-detail {
-    min-height: 28px;
-    font-size: 0.66rem;
-    line-height: 1.16;
+    min-height: 24px;
+    font-size: 0.62rem;
+    line-height: 1.12;
   }
 
   .cart-panel {
@@ -4091,12 +4093,13 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 
   .product-card {
-    height: 348px;
-    grid-template-rows: 90px 1fr;
+    height: auto;
+    min-height: 344px;
+    grid-template-rows: 82px 1fr;
   }
 
   .product-image {
-    height: 90px;
+    height: 82px;
   }
 
   .admin-table td {
