@@ -218,6 +218,10 @@ let variantManagerTarget = "";
 let activeDescriptionPopoverId = "";
 let toastTimer;
 let internalUnlocked = false;
+let appHistoryReady = false;
+let suppressHistoryUpdate = false;
+let allowExternalBack = false;
+let lastExitBackPress = 0;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
@@ -526,7 +530,8 @@ els.variantManagerOverlay?.addEventListener("click", (event) => {
 els.variantManagerForm?.addEventListener("submit", saveVariantManager);
 
 renderAll();
-setView(getInitialView());
+setView(getInitialView(), false, { skipHistory: true });
+initializeAppHistory();
 document.documentElement.dataset.gbApp = "loaded";
 initializeSupabaseCatalog();
 
@@ -4782,7 +4787,7 @@ function formatCustomerLineSubtotal(item) {
   return price > 0 ? formatMoney(price * Math.max(1, Number(item.quantity) || 1)) : "Sin precio cargado";
 }
 
-function setView(view, preserveRole = false) {
+function setView(view, preserveRole = false, historyOptions = {}) {
   const managementViews = getManagementViews();
   if (!["catalogo", ...managementViews].includes(view)) view = "catalogo";
   let isManagementView = managementViews.includes(view);
@@ -4838,6 +4843,84 @@ function setView(view, preserveRole = false) {
   applyRoleVisibility();
   renderRole();
   renderNav();
+  if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
+    updateAppHistory(view, historyOptions);
+  }
+}
+
+function initializeAppHistory() {
+  if (appHistoryReady || !window.history?.pushState) return;
+  appHistoryReady = true;
+  const url = getCurrentHistoryUrl();
+  window.history.replaceState(makeAppHistoryState(currentView, true), "", url);
+  window.history.pushState(makeAppHistoryState(currentView), "", url);
+  window.addEventListener("popstate", handleAppPopState);
+}
+
+function updateAppHistory(view, options = {}) {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  const url = getCurrentHistoryUrl();
+  const currentState = window.history.state;
+  const nextState = makeAppHistoryState(view);
+  if (
+    currentState?.gbMayorista
+    && !currentState.guard
+    && currentState.view === view
+    && currentState.path === nextState.path
+  ) {
+    return;
+  }
+  if (options.replace) {
+    window.history.replaceState(nextState, "", url);
+    return;
+  }
+  window.history.pushState(nextState, "", url);
+}
+
+function handleAppPopState(event) {
+  if (allowExternalBack) {
+    allowExternalBack = false;
+    return;
+  }
+
+  const state = event.state;
+  if (state?.gbMayorista) {
+    if (state.guard) {
+      handleAppExitBack();
+      return;
+    }
+    suppressHistoryUpdate = true;
+    setView(state.view || getInitialView(), true, { skipHistory: true });
+    suppressHistoryUpdate = false;
+    return;
+  }
+
+  handleAppExitBack();
+}
+
+function handleAppExitBack() {
+  const now = Date.now();
+  if (now - lastExitBackPress <= 2000) {
+    allowExternalBack = true;
+    window.history.back();
+    return;
+  }
+  lastExitBackPress = now;
+  showToast("Presioná atrás otra vez para salir.");
+  window.history.pushState(makeAppHistoryState(currentView), "", getCurrentHistoryUrl());
+}
+
+function makeAppHistoryState(view, guard = false) {
+  return {
+    gbMayorista: true,
+    guard,
+    view,
+    path: normalizeRoutePath(window.location.pathname)
+  };
+}
+
+function getCurrentHistoryUrl() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
 function getInitialView() {
