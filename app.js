@@ -77,145 +77,94 @@ const rolePermissions = {
   admin: ["internal", "products", "stock", "orders", "clients", "reports", "costs", "margins", "importExport", "manageProducts", "editAll"]
 };
 
-const sampleProducts = [
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Talle 1 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 42000,
-    packQuantity: 12,
-    cost: 30000,
-    stock: 30,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Talle 2 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 42000,
-    packQuantity: 12,
-    cost: 30000,
-    stock: 24,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Talle 3 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 42000,
-    packQuantity: 12,
-    cost: 30000,
-    stock: 22,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Talle 4 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 42000,
-    packQuantity: 12,
-    cost: 30000,
-    stock: 18,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Surtido 1-4 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack surtido por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 42000,
-    packQuantity: 12,
-    cost: 30000,
-    stock: 20,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Talle 5-6 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 45000,
-    packQuantity: 12,
-    cost: 32000,
-    stock: 16,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "Boxer Lody Surtido 5-6 Pack x12",
-    brand: "Lody",
-    category: "Ropa Interior",
-    description: "Pack surtido por docena. Stock expresado en docenas.",
-    saleType: "pack",
-    price: 45000,
-    packQuantity: 12,
-    cost: 32000,
-    stock: 16,
-    minimum: 1,
-    image: DEFAULT_PRODUCT_IMAGE
-  }
-];
+const definitiveProductCatalog = [];
+const definitiveDescriptions = {
+  conjunto728: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless.\nDocena surtida de talles y colores.",
+  conjunto746: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless regulable.\nDocena surtida de talles y colores.",
+  conjunto741: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless.\nDocena surtida de talles y colores.",
+  nino: "Docena surtida de talles y colores.",
+  medias: "Talle único.\nComposición: poliéster y algodón.\nSurtido de colores.",
+  deportivas: "Talle único.\nComposición: poliéster y algodón.\nSurtido de colores.\nCon antideslizantes.",
+  elementoPack: "Talle único.\nComposición: 100% algodón.\nSurtido de colores.\nLa docena se presenta en 4 packs de 3 pares.",
+  elementoNino: "Composición: 100% algodón.\nSurtido de colores.\nLa docena se presenta en 4 packs de 3 pares.",
+  elemento13: "Talle único.\nComposición: 100% algodón.\nSurtido de colores.",
+  repasador: "Algodón.\nSurtido de colores."
+};
 
-const requestedProductCatalog = [
-  ["Boxer Adulto Lody Art. 742 T1", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T2", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T3", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T4", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T5", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T6", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T1-4 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Lody Art. 742 T5-6 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T1", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T2", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T3", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T4", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T5", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T6", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T1-4 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto XY Art. 1387 T5-6 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T2", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T3", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T4", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T5", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T6", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T2-4 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Maxton Liso T5-6 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Uomo Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Dufour Art. 11855 T2", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Dufour Art. 11855 T3", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Dufour Art. 11855 T4", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Dufour Art. 11855 T5", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Dufour Art. 11855 T2-5 Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Boxer Adulto Capicúa Surtido", "Ropa Interior Hombre", "1 Docena"],
-  ["Soquetes Importados Adultos", "Medias", "3 Docenas"],
-  ["Soquetes Importados Niños", "Medias", "3 Docenas"],
-  ["Medias Importadas Adultos", "Medias", "3 Docenas"],
-  ["Medias Importadas Niños", "Medias", "3 Docenas"],
-  ["Medias Toalla Adultos", "Medias", "3 Docenas"],
-  ["Medias Jean Cartier Adultos", "Medias", "3 Docenas"]
-];
+function addDefinitiveProduct(name, category, presentation = "1 Docena", description = "") {
+  definitiveProductCatalog.push({ name, category, presentation, description });
+}
+
+["Talle 1", "Talle 2", "Talle 3", "Talle 4", "Talle 5", "Talle 6", "Surtido T1-4", "Surtido T5-6"]
+  .forEach((option) => addDefinitiveProduct(`Boxer Lody Adulto Art. 742 ${option}`, "Ropa Interior Hombre"));
+["Talle 1", "Talle 2", "Talle 3", "Talle 4", "Talle 5", "Talle 6"]
+  .forEach((option) => addDefinitiveProduct(`Boxer XY Art. 1387 Liso ${option}`, "Ropa Interior Hombre"));
+addDefinitiveProduct("Boxer Uomo Surtido de talles M al 4XL", "Ropa Interior Hombre");
+["Talle 2", "Talle 3", "Talle 4", "Talle 5", "Surtido T2-5"]
+  .forEach((option) => addDefinitiveProduct(`Boxer Dufour Art. 11855 ${option}`, "Ropa Interior Hombre"));
+addDefinitiveProduct("Boxer Capicúa Surtido de talles", "Ropa Interior Hombre");
+
+[
+  "Colaless Algodón Íntima",
+  "Vedetina Algodón Íntima",
+  "Vedetina Especial Algodón Íntima",
+  "Universal Algodón Íntima",
+  "Especial Algodón Íntima",
+  "Colaless Algodón Línea Económica",
+  "Vedetina Algodón Línea Económica",
+  "Regulable Línea Económica"
+].forEach((name) => addDefinitiveProduct(name, "Ropa Interior Dama"));
+addDefinitiveProduct("Conjunto Taza Soft Art.728", "Ropa Interior Dama", "1 Docena", definitiveDescriptions.conjunto728);
+addDefinitiveProduct("Conjunto Triángulo Soft Art.746", "Ropa Interior Dama", "1 Docena", definitiveDescriptions.conjunto746);
+addDefinitiveProduct("Conjunto Triángulo Soft Art.741", "Ropa Interior Dama", "1 Docena", definitiveDescriptions.conjunto741);
+
+[
+  "Bombachas Algodón Niñas",
+  "Bombachas Algodón Juvenil",
+  "Boxers Uomo Niño Pañalero",
+  "Boxers Uomo Niño Intermedio",
+  "Boxers Uomo Juvenil"
+].forEach((name) => addDefinitiveProduct(name, "Ropa Interior Niño", "1 Docena", definitiveDescriptions.nino));
+
+[
+  "Soquetes Elastizados Adultos",
+  "Soquetes Elastizados Niños",
+  "Medias Elastizadas Adultos",
+  "Medias Toalla Adultos"
+].forEach((name) => addDefinitiveProduct(name, "Medias", "1 Docena", definitiveDescriptions.medias));
+[
+  "Medias 1/2 Caña Deportivas Adultos",
+  "Medias 3/4 Deportivas Adultos",
+  "Medias Deportivas Juveniles"
+].forEach((name) => addDefinitiveProduct(name, "Medias", "1 Docena", definitiveDescriptions.deportivas));
+["Soquete Elemento Hombre 102L", "Soquete Elemento Dama 101L"]
+  .forEach((name) => addDefinitiveProduct(name, "Medias", "1 Docena", definitiveDescriptions.elementoPack));
+["Talle 1", "Talle 2", "Talle 3", "Talle 4"]
+  .forEach((option) => addDefinitiveProduct(`Soquete Elemento Niño 104 ${option}`, "Medias", "1 Docena", definitiveDescriptions.elementoNino));
+["Medias 1/3 Elemento Hombre 402L", "Medias 1/3 Elemento Dama 401L"]
+  .forEach((name) => addDefinitiveProduct(name, "Medias", "1 Docena", definitiveDescriptions.elemento13));
+
+[
+  ["Toalla de Visita F. Valente 450 g", "Medida: 30 x 50 cm."],
+  ["Toalla de Mano F. Valente 400 g", "Medida: 50 x 80 cm."],
+  ["Toallón F. Valente 400 g", "Medida: 70 x 140 cm."],
+  ["Toalla de Mano F. Valente 500 g", "Medida: 50 x 80 cm."],
+  ["Toallón F. Valente 500 g", "Medida: 70 x 140 cm."],
+  ["Juego T+T F. Valente 400 g", "Incluye toalla de mano 50 x 80 cm y toallón 70 x 140 cm."],
+  ["Juego T+T F. Valente 500 g", "Incluye toalla de mano 50 x 80 cm y toallón 70 x 140 cm."],
+  ["Juego T+T Palette 420 g", "Incluye toalla de mano 50 x 80 cm y toallón 70 x 140 cm."],
+  ["Toalla de Mano Fantasía", "Medida: 50 x 80 cm."],
+  ["Toallón Algodón Fantasía", "Medida: 70 x 140 cm."]
+].forEach(([name, detail]) => addDefinitiveProduct(name, "Blanquería", "Pack x3", `Algodón.\nSurtido de colores.\n${detail}`));
+["Repasadores F. Valente", "Repasador Corazón", "Repasador Algodón Económico"]
+  .forEach((name) => addDefinitiveProduct(name, "Blanquería", "1 Docena", definitiveDescriptions.repasador));
+addDefinitiveProduct("Juego de Sábanas París Basic 1½ Plaza", "Blanquería", "Pack x3", "Juego de sábanas París Basic.\nMedidas 1½ plaza: sábana plana 160 x 240 cm, sábana ajustable 90 x 190 cm y 1 funda.\nSurtido de colores y diseños.");
+addDefinitiveProduct("Juego de Sábanas París Basic 2½ Plazas", "Blanquería", "Pack x3", "Juego de sábanas París Basic.\nMedidas 2½ plazas: sábana plana 220 x 240 cm, sábana ajustable 140 x 190 cm y 2 fundas.\nSurtido de colores y diseños.");
+addDefinitiveProduct("Juego de Sábanas París Cotton Touch 1½ Plaza", "Blanquería", "Pack x3", "Juego de sábanas París Cotton Touch.\nMedidas 1½ plaza: sábana plana 160 x 240 cm, sábana ajustable 90 x 190 cm y 1 funda.\nSurtido de colores y diseños.");
+addDefinitiveProduct("Juego de Sábanas París Cotton Touch 2½ Plazas", "Blanquería", "Pack x3", "Juego de sábanas París Cotton Touch.\nMedidas 2½ plazas: sábana plana 220 x 240 cm, sábana ajustable 140 x 190 cm y 2 fundas.\nSurtido de colores y diseños.");
+
+const sampleProducts = definitiveProductCatalog.map(makeDefinitiveProduct);
+const requestedProductCatalog = definitiveProductCatalog.map(({ name, category, presentation }) => [name, category, presentation]);
 
 const legacyProductRenames = {
   "Boxer Lody Talle 1 Pack x12": "Boxer Adulto Lody Art. 742 T1",
@@ -731,7 +680,7 @@ async function loadCatalogFromSupabase() {
 
   return {
     categories: mapSupabaseCategoriesToLocal(categoryRows || []),
-    products: mapSupabaseProductsToLocal(productRows || [])
+    products: mapSupabaseProductsToLocal(productRows || []).filter((product) => product.active !== false)
   };
 }
 
@@ -913,7 +862,7 @@ function mapSupabaseProductsToLocal(rows) {
       brand: row.brand || "",
       category: row.categories?.name || defaultProductCategories[0],
       presentation,
-      description: row.description || getLocalProductDescription(row.id),
+      description: row.description || getDefinitiveProductDescription(row.name) || getLocalProductDescription(row.id),
       saleType: getSaleTypeFromPresentation(presentation),
       price: Math.max(0, Number(row.sale_price) || 0),
       packQuantity: getPackQuantityFromPresentation(presentation),
@@ -2111,6 +2060,7 @@ function ensureRequestedProductCatalog() {
 
   let nextSortOrder = getNextSortOrder();
   requestedProductCatalog.forEach(([name, category, presentation]) => {
+    const description = getDefinitiveProductDescription(name);
     const existing = products.find((product) => product.name.toLowerCase() === name.toLowerCase());
     if (existing) {
       if (existing.category !== category) {
@@ -2131,6 +2081,10 @@ function ensureRequestedProductCatalog() {
         existing.image = LODY_742_IMAGE;
         changed = true;
       }
+      if (!existing.description && description) {
+        existing.description = description;
+        changed = true;
+      }
       return;
     }
 
@@ -2141,7 +2095,7 @@ function ensureRequestedProductCatalog() {
       brand: getBrandFromProductName(name),
       category,
       presentation,
-      description: "",
+      description,
       saleType: getSaleTypeFromPresentation(presentation),
       price: 0,
       packQuantity: getPackQuantityFromPresentation(presentation),
@@ -5038,6 +4992,36 @@ function sampleBudgets(productList) {
 
 function freshSampleProducts() {
   return sampleProducts.map((product, index) => ({ ...product, id: crypto.randomUUID(), active: true, sortOrder: index + 1 }));
+}
+
+function makeDefinitiveProduct(product, index = 0) {
+  const presentation = product.presentation || "1 Docena";
+  const name = product.name || "";
+  return {
+    id: crypto.randomUUID(),
+    image: name.includes("Lody Adulto Art. 742") ? LODY_742_IMAGE : DEFAULT_PRODUCT_IMAGE,
+    name,
+    brand: getBrandFromProductName(name),
+    category: product.category,
+    presentation,
+    description: product.description || "",
+    saleType: getSaleTypeFromPresentation(presentation),
+    price: 0,
+    packQuantity: getPackQuantityFromPresentation(presentation),
+    variants: "",
+    variantStock: {},
+    stock: 0,
+    minimum: 1,
+    cost: 0,
+    active: true,
+    showInCatalog: true,
+    sortOrder: index + 1
+  };
+}
+
+function getDefinitiveProductDescription(name) {
+  const product = definitiveProductCatalog.find((item) => item.name.toLowerCase() === String(name || "").toLowerCase());
+  return product?.description || "";
 }
 
 function normalizeProducts(productList) {
