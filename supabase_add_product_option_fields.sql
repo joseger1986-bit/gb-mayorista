@@ -8,6 +8,8 @@ set
     when trim(coalesce(option_name, '')) <> '' then trim(option_name)
     when name ~* '\s+Surtido\s+T[0-9]+\s*-\s*[0-9]+$'
       then regexp_replace(name, '^.*\s+(Surtido\s+T[0-9]+\s*-\s*[0-9]+)$', '\1', 'i')
+    when name ~* '\s+Surtido\s+Talle\s*[0-9]+\s*-\s*[0-9]+$'
+      then regexp_replace(name, '^.*\s+Surtido\s+Talle\s*([0-9]+)\s*-\s*([0-9]+)$', 'Surtido T\1-\2', 'i')
     when name ~* '\s+Talle\s+[[:alnum:]]+$'
       then regexp_replace(name, '^.*\s+(Talle\s+[[:alnum:]]+)$', '\1', 'i')
     when name ~* '\s+T[0-9]+\s*-\s*[0-9]+\s+Surtido$'
@@ -20,6 +22,8 @@ set
     when trim(coalesce(base_name, '')) <> '' then trim(base_name)
     when name ~* '\s+Surtido\s+T[0-9]+\s*-\s*[0-9]+$'
       then trim(regexp_replace(name, '\s+Surtido\s+T[0-9]+\s*-\s*[0-9]+$', '', 'i'))
+    when name ~* '\s+Surtido\s+Talle\s*[0-9]+\s*-\s*[0-9]+$'
+      then trim(regexp_replace(name, '\s+Surtido\s+Talle\s*[0-9]+\s*-\s*[0-9]+$', '', 'i'))
     when name ~* '\s+Talle\s+[[:alnum:]]+$'
       then trim(regexp_replace(name, '\s+Talle\s+[[:alnum:]]+$', '', 'i'))
     when name ~* '\s+T[0-9]+\s*-\s*[0-9]+\s+Surtido$'

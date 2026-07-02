@@ -2096,6 +2096,7 @@ function inferProductIdentityFromLegacyName(name) {
   const patterns = [
     /^(.*?)\s+(Talle\s+[\w½]+)$/i,
     /^(.*?)\s+(T\d+)$/i,
+    /^(.*?)\s+(Surtido\s+Talle\s*\d+\s*-\s*\d+)$/i,
     /^(.*?)\s+(Surtido\s+T\d+\s*-\s*\d+)$/i,
     /^(.*?)\s+(T\d+\s*-\s*\d+\s*Surtido)$/i
   ];
@@ -2113,6 +2114,8 @@ function normalizeProductOptionLabel(value) {
   if (compactTalle) return `Talle ${compactTalle[1]}`;
   const rangeSurtido = text.match(/^T(\d+)\s*-\s*(\d+)\s*Surtido$/i);
   if (rangeSurtido) return `Surtido T${rangeSurtido[1]}-${rangeSurtido[2]}`;
+  const surtidoTalleRange = text.match(/^Surtido\s+Talle\s*(\d+)\s*-\s*(\d+)$/i);
+  if (surtidoTalleRange) return `Surtido T${surtidoTalleRange[1]}-${surtidoTalleRange[2]}`;
   const surtidoRange = text.match(/^Surtido\s+T(\d+)\s*-\s*(\d+)$/i);
   if (surtidoRange) return `Surtido T${surtidoRange[1]}-${surtidoRange[2]}`;
   return text;
