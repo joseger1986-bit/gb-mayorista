@@ -79,6 +79,7 @@ const rolePermissions = {
 
 const definitiveProductCatalog = [];
 const definitiveDescriptions = {
+  maxton: "Docena surtida de talles y colores.",
   conjunto728: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless.\nDocena surtida de talles y colores.",
   conjunto746: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless regulable.\nDocena surtida de talles y colores.",
   conjunto741: "Talles 85 al 100.\nConjunto algodón y lycra.\nIncluye colaless.\nDocena surtida de talles y colores.",
@@ -100,6 +101,8 @@ function addDefinitiveProduct(name, category, presentation = "1 Docena", descrip
 ["Talle 1", "Talle 2", "Talle 3", "Talle 4", "Talle 5", "Talle 6"]
   .forEach((option) => addDefinitiveProduct(`Boxer XY Art. 1387 Liso ${option}`, "Ropa Interior Hombre"));
 addDefinitiveProduct("Boxer Uomo Surtido de talles M al 4XL", "Ropa Interior Hombre");
+["Talle 2", "Talle 3", "Talle 4", "Talle 5", "Talle 6", "Surtido T2-6"]
+  .forEach((option) => addDefinitiveProduct(`Boxer Maxton ${option}`, "Ropa Interior Hombre", "1 Docena", definitiveDescriptions.maxton));
 ["Talle 2", "Talle 3", "Talle 4", "Talle 5", "Surtido T2-5"]
   .forEach((option) => addDefinitiveProduct(`Boxer Dufour Art. 11855 ${option}`, "Ropa Interior Hombre"));
 addDefinitiveProduct("Boxer Capicúa Surtido de talles", "Ropa Interior Hombre");
