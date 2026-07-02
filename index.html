@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=catalog-card-design-1">
+    <link rel="stylesheet" href="/styles.css?v=product-option-field-1">
   </head>
   <body>
     <header class="topbar">
@@ -155,6 +155,10 @@
                 <input name="name" type="text" required>
               </label>
               <label>
+                Opción
+                <input name="option" type="text" placeholder="Talle 1, Surtido T1-4, color, medida">
+              </label>
+              <label>
                 Categoría
                 <select name="category" required>
                   <option value="Medias">Medias</option>
@@ -225,6 +229,7 @@
               <thead>
                 <tr>
                   <th>Producto</th>
+                  <th>Opción</th>
                   <th>Categoría</th>
                   <th>Precio costo</th>
                   <th>Precio venta</th>
@@ -252,6 +257,7 @@
           </div>
           <div class="template-columns" aria-label="Columnas de la plantilla">
             <span>Producto</span>
+            <span>Opción</span>
             <span>Categoría</span>
             <span>Precio costo</span>
             <span>Precio venta</span>
@@ -260,7 +266,7 @@
             <span>Mostrar catálogo</span>
           </div>
           <div class="template-example">
-            Boxer Adulto Lody Art. 742 T1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
+            Boxer Adulto Lody Art. 742 | Talle 1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
           </div>
         </div>
       </section>
@@ -436,6 +442,10 @@
             <input id="editProductName" name="name" type="text" required>
           </label>
           <label>
+            Opción
+            <input id="editProductOption" name="option" type="text" placeholder="Talle 1, Surtido T1-4, color, medida">
+          </label>
+          <label>
             Categoría
             <select id="editProductCategory" name="category" required></select>
           </label>
@@ -521,6 +531,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=catalog-card-design-1"></script>
+    <script src="/app.js?v=product-option-field-1"></script>
   </body>
 </html>
