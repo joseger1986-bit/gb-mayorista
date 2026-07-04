@@ -3324,7 +3324,7 @@ function renderCart() {
   els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   els.cartTotal.textContent = formatMoney(totalPrice);
-  els.cartSubtitle.textContent = items.length ? `${items.length} producto(s), ${totalUnits} unidad(es)` : "Sin productos";
+  els.cartSubtitle.textContent = items.length ? `${items.length} producto${items.length === 1 ? "" : "s"}` : "Sin productos";
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
   els.minimumStatus.textContent = minimumReached
     ? "✓ Compra mínima alcanzada"
@@ -3340,19 +3340,23 @@ function renderCart() {
   }
 
   els.cartItems.innerHTML = items.map((item) => `
-    <div class="cart-item">
-      <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
-      <div>
+    <article class="cart-item">
+      <img class="cart-item-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
+      <div class="cart-item-main">
         <strong>${escapeHtml(item.name.toUpperCase())}</strong>
-        ${renderCartVariantLine(item)}
-        <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
-        <span>Cantidad: ${escapeHtml(formatCartQuantity(item))}</span>
-        <span>Subtotal: ${escapeHtml(formatCartSubtotal(item))}</span>
+        <div class="cart-item-meta">
+          ${renderCartVariantLine(item)}
+          <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
+          <span>Cantidad: ${escapeHtml(formatCartQuantity(item))}</span>
+        </div>
       </div>
-      <button class="danger-button" type="button" data-remove="${item.cartId || item.id}">Quitar</button>
-    </div>
+      <div class="cart-item-side">
+        <span>Subtotal</span>
+        <strong>${escapeHtml(formatCartSubtotal(item))}</strong>
+        <button class="cart-remove-button" type="button" data-remove="${item.cartId || item.id}" aria-label="Quitar ${escapeHtml(item.name)}">Quitar</button>
+      </div>
+    </article>
   `).join("");
-
   els.cartItems.querySelectorAll("[data-remove]").forEach((button) => {
     button.addEventListener("click", () => {
       cart = cart.filter((item) => (item.cartId || item.id) !== button.dataset.remove);

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=catalog-card-fix-1">
+    <link rel="stylesheet" href="/styles.css?v=cart-redesign-2">
   </head>
   <body>
     <header class="topbar">
@@ -366,7 +366,7 @@
       <span class="floating-cart-label">Carrito</span>
       <span class="floating-cart-count" id="floatingCartCount">0</span>
     </button>
-    <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
+        <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
       <div class="cart-panel">
         <div class="cart-head">
           <div>
@@ -375,33 +375,47 @@
           </div>
           <button class="icon-button" id="closeCart" type="button" aria-label="Cerrar carrito">x</button>
         </div>
-        <div class="cart-items" id="cartItems"></div>
-        <div class="customer-fields">
-          <label>
-            Nombre
-            <input id="customerName" type="text" placeholder="Nombre del cliente">
-          </label>
-          <label>
-            Teléfono (con característica)
-            <input id="customerPhone" type="tel" autocomplete="off" placeholder="Ej: 2477123456">
-          </label>
-          <label>
-            Localidad
-            <input id="customerLocation" type="text" placeholder="Localidad">
-          </label>
+        <div class="cart-layout">
+          <section class="cart-products-section" aria-label="Productos del carrito">
+            <h3>Productos del carrito</h3>
+            <div class="cart-items" id="cartItems"></div>
+          </section>
+          <aside class="cart-sidebar" aria-label="Datos y resumen del carrito">
+            <section class="cart-section customer-section">
+              <h3>Datos del cliente</h3>
+              <div class="customer-fields">
+                <label>
+                  Nombre
+                  <input id="customerName" type="text" placeholder="Nombre del cliente">
+                </label>
+                <label>
+                  Teléfono (con característica)
+                  <input id="customerPhone" type="tel" autocomplete="off" placeholder="Ej: 2477123456">
+                </label>
+                <label>
+                  Localidad
+                  <input id="customerLocation" type="text" placeholder="Localidad">
+                </label>
+              </div>
+            </section>
+            <section class="cart-section cart-summary-section">
+              <h3>Resumen de compra</h3>
+              <div class="cart-total">
+                <span>Total</span>
+                <strong id="cartTotal">$0</strong>
+              </div>
+              <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
+            </section>
+            <section class="cart-section cart-action-section">
+              <div class="cart-error hidden" id="cartError" role="alert"></div>
+              <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar consulta por WhatsApp</a>
+              <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
+            </section>
+          </aside>
         </div>
-        <div class="cart-total">
-          <span>Total</span>
-          <strong id="cartTotal">$0</strong>
-        </div>
-        <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
-        <div class="cart-error hidden" id="cartError" role="alert"></div>
-        <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar consulta por WhatsApp</a>
-        <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
       </div>
     </aside>
-
-    <div class="print-preview-overlay hidden" id="printPreviewOverlay" aria-hidden="true">
+<div class="print-preview-overlay hidden" id="printPreviewOverlay" aria-hidden="true">
       <div class="print-preview-panel">
         <div class="print-preview-actions">
           <strong id="printPreviewTitle">Vista imprimible</strong>
@@ -548,6 +562,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=catalog-card-fix-1"></script>
+    <script src="/app.js?v=cart-redesign-2"></script>
   </body>
 </html>
