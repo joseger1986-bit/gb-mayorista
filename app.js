@@ -248,6 +248,8 @@ const els = {
   cartDrawer: document.querySelector("#cartDrawer"),
   cartItems: document.querySelector("#cartItems"),
   cartCount: document.querySelector("#cartCount"),
+  floatingCartButton: document.querySelector("#floatingCartButton"),
+  floatingCartCount: document.querySelector("#floatingCartCount"),
   cartTotal: document.querySelector("#cartTotal"),
   cartSubtitle: document.querySelector("#cartSubtitle"),
   customerName: document.querySelector("#customerName"),
@@ -420,6 +422,7 @@ els.newCategoryName?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") addCategoryFromManager();
 });
 els.openCart.addEventListener("click", openCart);
+els.floatingCartButton?.addEventListener("click", openCart);
 els.closeCart.addEventListener("click", closeCart);
 els.cartDrawer.addEventListener("click", (event) => {
   if (event.target === els.cartDrawer) closeCart();
@@ -3370,6 +3373,9 @@ function renderCart() {
     els.openCart.innerHTML = `Carrito <span id="cartCount">${totalUnits ? `(${totalUnits})` : "(0)"}</span>`;
     els.cartCount = document.querySelector("#cartCount");
   }
+  if (els.floatingCartCount) els.floatingCartCount.textContent = totalUnits;
+  els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
+  els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   els.cartTotal.textContent = formatMoney(totalPrice);
   els.cartSubtitle.textContent = items.length ? `${items.length} producto(s), ${totalUnits} unidad(es)` : "Sin productos";
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;

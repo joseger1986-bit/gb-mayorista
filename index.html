@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=product-gallery-1">
+    <link rel="stylesheet" href="/styles.css?v=product-gallery-cart-1">
   </head>
   <body>
     <header class="topbar">
@@ -361,6 +361,11 @@
       <a class="direct-whatsapp" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp directo</a>
     </footer>
 
+
+    <button class="floating-cart-button" id="floatingCartButton" type="button" data-catalog-only aria-label="Abrir carrito">
+      <span class="floating-cart-label">Carrito</span>
+      <span class="floating-cart-count" id="floatingCartCount">0</span>
+    </button>
     <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
       <div class="cart-panel">
         <div class="cart-head">
@@ -543,6 +548,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=product-gallery-1"></script>
+    <script src="/app.js?v=product-gallery-cart-1"></script>
   </body>
 </html>
