@@ -19,6 +19,9 @@ const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EGB Mayorista%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
+const CATALOG_IMAGE_SIZE = 1200;
+const CATALOG_IMAGE_CONTENT_RATIO = 0.88;
+const CATALOG_IMAGE_MAX_SOURCE_SIZE = 1800;
 
 const defaultProductCategories = [
   "Medias",
@@ -1719,7 +1722,8 @@ async function updateProductImage(productId, file) {
 
   try {
     const scrollTop = getAdminTableScrollTop();
-    const image = await uploadProductImageToSupabase(product.id, file) || await readFileAsDataUrl(file);
+    const processedFile = await prepareProductImageFile(file);
+    const image = await uploadProductImageToSupabase(product.id, processedFile) || await readFileAsDataUrl(processedFile);
     setProductImages(product, [image, ...getStoredProductImages(product)]);
     saveProducts();
     renderAll();
@@ -1985,7 +1989,7 @@ async function previewEditProductImage() {
   const file = els.editProductImage?.files?.[0];
   if (!(file instanceof File) || !file.size || !els.editProductImagePreview) return;
   try {
-    els.editProductImagePreview.src = await readFileAsDataUrl(file);
+    els.editProductImagePreview.src = await processProductImageToDataUrl(file);
     if (els.editProductImageLabel) els.editProductImageLabel.textContent = "Cambiar foto";
   } catch (error) {
     showToast("No se pudo cargar la imagen");
@@ -3651,6 +3655,186 @@ function getFileList(files) {
   return Array.from(files || []).filter((file) => file instanceof File && file.size);
 }
 
+async function prepareProductImageFile(file) {
+  try {
+    return await processProductImageFile(file);
+  } catch (error) {
+    console.warn("GB Mayorista image processing fallback:", error);
+    return file;
+  }
+}
+
+async function processProductImageToDataUrl(file) {
+  const processedFile = await prepareProductImageFile(file);
+  return readFileAsDataUrl(processedFile);
+}
+
+async function processProductImageFile(file) {
+  if (!(file instanceof File) || !file.size) return file;
+  const source = await loadImageSource(file);
+  try {
+    const scale = Math.min(1, CATALOG_IMAGE_MAX_SOURCE_SIZE / Math.max(source.width, source.height));
+    const sourceWidth = Math.max(1, Math.round(source.width * scale));
+    const sourceHeight = Math.max(1, Math.round(source.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(source.image, 0, 0, sourceWidth, sourceHeight);
+
+    const imageData = ctx.getImageData(0, 0, sourceWidth, sourceHeight);
+    const data = imageData.data;
+    const background = estimateImageBackground(data, sourceWidth, sourceHeight);
+    const threshold = getBackgroundThreshold(background);
+    const bounds = findForegroundBounds(data, sourceWidth, sourceHeight, background, threshold);
+    replaceDetectedBackground(data, sourceWidth, sourceHeight, background, threshold);
+    ctx.putImageData(imageData, 0, 0);
+
+    const crop = expandBounds(bounds || { left: 0, top: 0, right: sourceWidth - 1, bottom: sourceHeight - 1 }, sourceWidth, sourceHeight);
+    const output = document.createElement("canvas");
+    output.width = CATALOG_IMAGE_SIZE;
+    output.height = CATALOG_IMAGE_SIZE;
+    const outputCtx = output.getContext("2d");
+    outputCtx.fillStyle = "#ffffff";
+    outputCtx.fillRect(0, 0, output.width, output.height);
+
+    const cropWidth = Math.max(1, crop.right - crop.left + 1);
+    const cropHeight = Math.max(1, crop.bottom - crop.top + 1);
+    const maxContent = Math.round(CATALOG_IMAGE_SIZE * CATALOG_IMAGE_CONTENT_RATIO);
+    const fitScale = Math.min(maxContent / cropWidth, maxContent / cropHeight);
+    const drawWidth = Math.max(1, Math.round(cropWidth * fitScale));
+    const drawHeight = Math.max(1, Math.round(cropHeight * fitScale));
+    const drawX = Math.round((CATALOG_IMAGE_SIZE - drawWidth) / 2);
+    const drawY = Math.round((CATALOG_IMAGE_SIZE - drawHeight) / 2);
+    outputCtx.drawImage(canvas, crop.left, crop.top, cropWidth, cropHeight, drawX, drawY, drawWidth, drawHeight);
+
+    const blob = await canvasToBlob(output, "image/jpeg", 0.92);
+    const baseName = String(file.name || "producto").replace(/\.[^.]+$/, "").slice(0, 80) || "producto";
+    return new File([blob], `${baseName}-catalogo.jpg`, { type: "image/jpeg" });
+  } finally {
+    source.close?.();
+  }
+}
+
+async function loadImageSource(file) {
+  if (window.createImageBitmap) {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return { image: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close?.() };
+    } catch (error) {
+      // Fallback below for browsers/files that cannot create an ImageBitmap.
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+    return { image, width: image.naturalWidth || image.width, height: image.naturalHeight || image.height, close: () => URL.revokeObjectURL(url) };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
+function estimateImageBackground(data, width, height) {
+  const samples = [];
+  const sampleSize = Math.max(8, Math.min(32, Math.round(Math.min(width, height) * 0.035)));
+  const corners = [
+    [0, 0],
+    [Math.max(0, width - sampleSize), 0],
+    [0, Math.max(0, height - sampleSize)],
+    [Math.max(0, width - sampleSize), Math.max(0, height - sampleSize)]
+  ];
+  corners.forEach(([startX, startY]) => {
+    for (let y = startY; y < Math.min(height, startY + sampleSize); y += 2) {
+      for (let x = startX; x < Math.min(width, startX + sampleSize); x += 2) {
+        const index = (y * width + x) * 4;
+        if (data[index + 3] > 12) samples.push([data[index], data[index + 1], data[index + 2]]);
+      }
+    }
+  });
+  if (!samples.length) return { r: 255, g: 255, b: 255, spread: 0 };
+  const average = samples.reduce((acc, color) => {
+    acc.r += color[0];
+    acc.g += color[1];
+    acc.b += color[2];
+    return acc;
+  }, { r: 0, g: 0, b: 0 });
+  average.r /= samples.length;
+  average.g /= samples.length;
+  average.b /= samples.length;
+  const spread = samples.reduce((sum, color) => sum + colorDistance(color[0], color[1], color[2], average), 0) / samples.length;
+  return { ...average, spread };
+}
+
+function getBackgroundThreshold(background) {
+  return Math.max(34, Math.min(78, 34 + background.spread * 1.7));
+}
+
+function findForegroundBounds(data, width, height, background, threshold) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = (y * width + x) * 4;
+      if (!isBackgroundPixel(data, index, background, threshold)) {
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  if (right < left || bottom < top) return null;
+  const area = (right - left + 1) * (bottom - top + 1);
+  return area < width * height * 0.008 ? null : { left, top, right, bottom };
+}
+
+function replaceDetectedBackground(data, width, height, background, threshold) {
+  for (let index = 0; index < data.length; index += 4) {
+    if (isBackgroundPixel(data, index, background, threshold)) {
+      data[index] = 255;
+      data[index + 1] = 255;
+      data[index + 2] = 255;
+      data[index + 3] = 255;
+    } else if (data[index + 3] < 255) {
+      data[index + 3] = 255;
+    }
+  }
+}
+
+function isBackgroundPixel(data, index, background, threshold) {
+  const alpha = data[index + 3];
+  if (alpha < 18) return true;
+  return colorDistance(data[index], data[index + 1], data[index + 2], background) <= threshold;
+}
+
+function colorDistance(r, g, b, color) {
+  return Math.sqrt((r - color.r) ** 2 + (g - color.g) ** 2 + (b - color.b) ** 2);
+}
+
+function expandBounds(bounds, width, height) {
+  const pad = Math.round(Math.max(bounds.right - bounds.left + 1, bounds.bottom - bounds.top + 1) * 0.035);
+  return {
+    left: Math.max(0, bounds.left - pad),
+    top: Math.max(0, bounds.top - pad),
+    right: Math.min(width - 1, bounds.right + pad),
+    bottom: Math.min(height - 1, bounds.bottom + pad)
+  };
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No se pudo procesar la imagen")), type, quality);
+  });
+}
+
 async function getImagesFromProductForm(form, productId) {
   return uploadOrReadImageFiles(productId, getFileList(form.getAll("imageFile")));
 }
@@ -3658,7 +3842,8 @@ async function getImagesFromProductForm(form, productId) {
 async function uploadOrReadImageFiles(productId, files) {
   const images = [];
   for (const file of files) {
-    const image = await uploadProductImageToSupabase(productId, file) || await readFileAsDataUrl(file);
+    const processedFile = await prepareProductImageFile(file);
+    const image = await uploadProductImageToSupabase(productId, processedFile) || await readFileAsDataUrl(processedFile);
     if (image) images.push(image);
   }
   return images;
@@ -3711,13 +3896,13 @@ async function handleProductImagePreview() {
 
   try {
     const previews = [];
-    for (const file of files) previews.push(await readFileAsDataUrl(file));
+    for (const file of files) previews.push(await processProductImageToDataUrl(file));
     processedProductImage = previews[0] || "";
     if (els.productImagePreview && processedProductImage) {
       els.productImagePreview.src = processedProductImage;
       els.productImagePreview.hidden = false;
     }
-    if (els.imagePreviewText) els.imagePreviewText.textContent = `${previews.length} foto(s) seleccionada(s). La primera será la principal.`;
+    if (els.imagePreviewText) els.imagePreviewText.textContent = `${previews.length} foto(s) procesada(s). La primera sera la principal.`;
     renderSelectedProductImageGallery(previews);
   } catch (error) {
     resetImagePreview();
@@ -3725,13 +3910,13 @@ async function handleProductImagePreview() {
   }
 }
 
-function resetImagePreview(message = "La vista previa de la foto aparecerá antes de guardar.") {
+function resetImagePreview(message = "La vista previa procesada aparecera antes de guardar.") {
   if (!message || !message.startsWith("Cargando")) processedProductImage = "";
   if (els.productImagePreview) {
     els.productImagePreview.removeAttribute("src");
     els.productImagePreview.hidden = true;
   }
-  if (els.imagePreviewText) els.imagePreviewText.textContent = message || "La vista previa de la foto aparecerá antes de guardar.";
+  if (els.imagePreviewText) els.imagePreviewText.textContent = message || "La vista previa procesada aparecera antes de guardar.";
   if (els.productImageGallery) els.productImageGallery.innerHTML = "";
 }
 
@@ -3805,7 +3990,8 @@ async function replaceProductGalleryImage(index, file) {
   if (!product || !hasPermission("manageProducts") || !(file instanceof File) || !file.size) return;
   const images = getStoredProductImages(product);
   if (index < 0 || index >= images.length) return;
-  const replacement = await uploadProductImageToSupabase(product.id, file) || await readFileAsDataUrl(file);
+  const processedFile = await prepareProductImageFile(file);
+  const replacement = await uploadProductImageToSupabase(product.id, processedFile) || await readFileAsDataUrl(processedFile);
   if (!replacement) return;
   images[index] = replacement;
   setProductImages(product, images);
