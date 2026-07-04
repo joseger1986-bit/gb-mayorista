@@ -654,65 +654,6 @@ textarea:focus {
   min-width: 0;
 }
 
-.product-info-button {
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(74, 122, 62, 0.22);
-  border-radius: 999px;
-  background: #f4f8ef;
-  color: var(--accent-dark);
-  display: inline-grid;
-  place-items: center;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  box-shadow: none;
-}
-
-.product-info-button:hover {
-  background: #eaf4df;
-  border-color: rgba(74, 122, 62, 0.42);
-}
-
-.product-info-wrap {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-}
-
-.product-info-popover {
-  position: absolute;
-  z-index: 20;
-  top: 50%;
-  left: calc(100% + 8px);
-  width: min(260px, 68vw);
-  max-height: 180px;
-  overflow: auto;
-  transform: translateY(-50%) scale(0.98);
-  transform-origin: left center;
-  border: 1px solid rgba(74, 122, 62, 0.24);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  color: var(--text);
-  font-size: 0.84rem;
-  font-weight: 700;
-  line-height: 1.35;
-  box-shadow: 0 14px 34px rgba(24, 33, 28, 0.16);
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s ease;
-}
-
-.product-info-wrap:hover .product-info-popover,
-.product-info-wrap:focus-within .product-info-popover,
-.product-info-wrap.is-open .product-info-popover {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-  pointer-events: auto;
-  visibility: visible;
-}
 
 .brand-line {
   color: var(--muted);
@@ -3924,29 +3865,6 @@ th .table-sort-button[data-sort-products="stock"] {
     -webkit-line-clamp: 3;
   }
 
-  .product-info-button {
-    width: 28px;
-    height: 28px;
-    font-size: 0.86rem;
-  }
-
-  .product-info-popover {
-    top: calc(100% + 6px);
-    right: 0;
-    left: auto;
-    width: min(230px, 74vw);
-    max-height: 150px;
-    transform: translateY(0) scale(0.98);
-    transform-origin: right top;
-    font-size: 0.78rem;
-  }
-
-  .product-info-wrap:hover .product-info-popover,
-  .product-info-wrap:focus-within .product-info-popover,
-  .product-info-wrap.is-open .product-info-popover {
-    transform: translateY(0) scale(1);
-  }
-
   .variant-select-row,
   .presentation-box {
     height: 42px;
@@ -4396,5 +4314,33 @@ body.lightbox-open {
   .floating-cart-count {
     min-width: 26px;
     height: 26px;
+  }
+}
+
+.product-title-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.image-lightbox-frame figcaption {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.image-lightbox-frame figcaption span {
+  max-width: 680px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.96rem;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+@media (max-width: 760px) {
+  .image-lightbox-frame figcaption span {
+    max-width: calc(100vw - 40px);
+    font-size: 0.9rem;
   }
 }

@@ -218,7 +218,6 @@ let currentPdfUrl = "";
 let stockModalProductId = "";
 let editingProductId = "";
 let variantManagerTarget = "";
-let activeDescriptionPopoverId = "";
 let toastTimer;
 let internalUnlocked = false;
 let appHistoryReady = false;
@@ -234,6 +233,7 @@ var supabaseProductGallerySupported = false;
 let lightboxImages = [];
 let lightboxIndex = 0;
 let lightboxTitle = "";
+let lightboxDescription = "";
 let lightboxTouchStartX = 0;
 
 const els = {
@@ -558,9 +558,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeImageLightbox();
   if (event.key === "ArrowLeft") showLightboxImage(lightboxIndex - 1);
   if (event.key === "ArrowRight") showLightboxImage(lightboxIndex + 1);
-});
-document.addEventListener("click", (event) => {
-  if (!event.target.closest?.(".product-info-wrap")) closeCatalogDescriptionPopovers();
 });
 els.variantManagerCancel?.addEventListener("click", closeVariantManager);
 els.variantManagerOverlay?.addEventListener("click", (event) => {
@@ -1150,7 +1147,6 @@ function renderCatalog() {
       <div class="product-body">
         <div class="product-title-row">
           <div class="product-title">${formatCatalogTitleForCard(group.name)}</div>
-          ${renderDescriptionInfoButton(group)}
         </div>
         ${renderCatalogVariantControl(group)}
         ${renderCatalogGroupPrice(group)}
@@ -1166,7 +1162,7 @@ function renderCatalog() {
   els.productGrid.querySelectorAll("[data-open-gallery]").forEach((button) => {
     button.addEventListener("click", () => {
       const group = catalogProducts.find((item) => item.id === button.dataset.openGallery);
-      if (group) openImageLightbox(group.images || [group.image], group.name);
+      if (group) openImageLightbox(group.images || [group.image], { title: group.name, description: group.description || "" });
     });
   });
 
@@ -1194,8 +1190,6 @@ function renderCatalog() {
   els.productGrid.querySelectorAll("[data-catalog-variant]").forEach((select) => {
     select.addEventListener("change", () => updateCatalogCardSelection(select.dataset.catalogVariant, catalogProducts));
   });
-
-  setupCatalogDescriptionPopovers();
 
   els.productGrid.querySelectorAll("[data-catalog-qty]").forEach((input) => {
     input.addEventListener("input", () => updateCatalogCardSelection(input.dataset.catalogQty, catalogProducts));
@@ -1386,59 +1380,6 @@ function renderCatalogGroupPrice(group) {
       ${renderCatalogSaleDetail(group, selectedVariant)}
     </div>
   `;
-}
-
-function renderDescriptionInfoButton(group) {
-  const description = String(group?.description || "").trim();
-  if (!description) return "";
-  return `
-    <span class="product-info-wrap">
-      <button class="product-info-button" type="button" data-product-description="${escapeHtml(group.id)}" aria-label="Ver descripción de ${escapeHtml(group.name)}" aria-expanded="false">ℹ️</button>
-      <span class="product-info-popover" role="tooltip">${escapeHtml(description).replace(/\n/g, "<br>")}</span>
-    </span>
-  `;
-}
-
-function setupCatalogDescriptionPopovers() {
-  els.productGrid.querySelectorAll("[data-product-description]").forEach((button) => {
-    const wrap = button.closest(".product-info-wrap");
-    if (!wrap) return;
-    const open = () => openCatalogDescriptionPopover(button.dataset.productDescription);
-    const close = () => closeCatalogDescriptionPopover(button.dataset.productDescription);
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const isOpen = wrap.classList.contains("is-open");
-      closeCatalogDescriptionPopovers();
-      if (!isOpen) openCatalogDescriptionPopover(button.dataset.productDescription);
-    });
-    button.addEventListener("mouseenter", open);
-    button.addEventListener("focus", open);
-    wrap.addEventListener("mouseleave", close);
-    button.addEventListener("blur", close);
-  });
-}
-
-function openCatalogDescriptionPopover(id) {
-  activeDescriptionPopoverId = id || "";
-  document.querySelectorAll(".product-info-wrap").forEach((wrap) => {
-    const button = wrap.querySelector("[data-product-description]");
-    const isOpen = button?.dataset.productDescription === activeDescriptionPopoverId;
-    wrap.classList.toggle("is-open", isOpen);
-    button?.setAttribute("aria-expanded", isOpen ? "true" : "false");
-  });
-}
-
-function closeCatalogDescriptionPopover(id) {
-  if (activeDescriptionPopoverId && activeDescriptionPopoverId !== id) return;
-  closeCatalogDescriptionPopovers();
-}
-
-function closeCatalogDescriptionPopovers() {
-  activeDescriptionPopoverId = "";
-  document.querySelectorAll(".product-info-wrap.is-open").forEach((wrap) => {
-    wrap.classList.remove("is-open");
-    wrap.querySelector("[data-product-description]")?.setAttribute("aria-expanded", "false");
-  });
 }
 
 function closeDescriptionModal() {
@@ -4002,10 +3943,12 @@ async function replaceProductGalleryImage(index, file) {
   showToast("Foto reemplazada", "success");
 }
 
-function openImageLightbox(images, title = "Producto", startIndex = 0) {
+function openImageLightbox(images, options = "Producto", startIndex = 0) {
   lightboxImages = mergeProductImages(images);
   if (!lightboxImages.length) lightboxImages = [DEFAULT_PRODUCT_IMAGE];
-  lightboxTitle = title;
+  const config = typeof options === "object" && options !== null ? options : { title: options };
+  lightboxTitle = String(config.title || "Producto");
+  lightboxDescription = String(config.description || "").trim();
   lightboxIndex = Math.max(0, Math.min(Number(startIndex) || 0, lightboxImages.length - 1));
   showLightboxImage(lightboxIndex);
   els.imageLightbox?.classList.remove("hidden");
@@ -4018,9 +3961,10 @@ function showLightboxImage(index) {
   lightboxIndex = (index + lightboxImages.length) % lightboxImages.length;
   if (els.imageLightboxImage) els.imageLightboxImage.src = lightboxImages[lightboxIndex];
   if (els.imageLightboxCaption) {
-    els.imageLightboxCaption.textContent = lightboxImages.length > 1
+    const title = lightboxImages.length > 1
       ? `${lightboxTitle} (${lightboxIndex + 1}/${lightboxImages.length})`
       : lightboxTitle;
+    els.imageLightboxCaption.innerHTML = `${escapeHtml(title)}${lightboxDescription ? `<span>${escapeHtml(lightboxDescription).replace(/\n/g, "<br>")}</span>` : ""}`;
   }
   const hasMultiple = lightboxImages.length > 1;
   els.imageLightboxPrev?.classList.toggle("hidden", !hasMultiple);
@@ -4034,6 +3978,7 @@ function closeImageLightbox() {
   lightboxImages = [];
   lightboxIndex = 0;
   lightboxTitle = "";
+  lightboxDescription = "";
 }
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
