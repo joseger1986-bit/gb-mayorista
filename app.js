@@ -1,4 +1,4 @@
-﻿const STORAGE_PRODUCTS = "gb_mayorista_products";
+const STORAGE_PRODUCTS = "gb_mayorista_products";
 document.documentElement.dataset.gbApp = "loading";
 
 const STORAGE_CART = "gb_mayorista_cart";
@@ -227,6 +227,11 @@ var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
+var supabaseProductGallerySupported = false;
+let lightboxImages = [];
+let lightboxIndex = 0;
+let lightboxTitle = "";
+let lightboxTouchStartX = 0;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -264,6 +269,7 @@ const els = {
   productFormCancel: document.querySelector("#productFormCancel"),
   productImageInput: document.querySelector("#productImageInput"),
   productImagePreview: document.querySelector("#productImagePreview"),
+  productImageGallery: document.querySelector("#productImageGallery"),
   imagePreviewText: document.querySelector("#imagePreviewText"),
   productVariants: document.querySelector("#productVariants"),
   manageProductVariants: document.querySelector("#manageProductVariants"),
@@ -321,6 +327,7 @@ const els = {
   editProductImage: document.querySelector("#editProductImage"),
   editProductImageLabel: document.querySelector("#editProductImageLabel"),
   editProductImagePreview: document.querySelector("#editProductImagePreview"),
+  editProductImageGallery: document.querySelector("#editProductImageGallery"),
   editProductVariants: document.querySelector("#editProductVariants"),
   editProductVariantsButton: document.querySelector("#editProductVariantsButton"),
   duplicateProductButton: document.querySelector("#duplicateProductButton"),
@@ -347,6 +354,12 @@ const els = {
   descriptionModalTitle: document.querySelector("#descriptionModalTitle"),
   descriptionModalText: document.querySelector("#descriptionModalText"),
   descriptionModalClose: document.querySelector("#descriptionModalClose"),
+  imageLightbox: document.querySelector("#imageLightbox"),
+  imageLightboxImage: document.querySelector("#imageLightboxImage"),
+  imageLightboxCaption: document.querySelector("#imageLightboxCaption"),
+  imageLightboxClose: document.querySelector("#imageLightboxClose"),
+  imageLightboxPrev: document.querySelector("#imageLightboxPrev"),
+  imageLightboxNext: document.querySelector("#imageLightboxNext"),
   toast: document.querySelector("#toast")
 };
 
@@ -430,13 +443,12 @@ els.productForm.addEventListener("submit", async (event) => {
   const productId = crypto.randomUUID();
   const baseName = String(form.get("name") || "").trim();
   const optionName = String(form.get("option") || "").trim();
-  const imageFile = form.get("imageFile");
-  const uploadedImage = await uploadProductImageToSupabase(productId, imageFile)
-    || processedProductImage
-    || await getUploadedImage(form);
+  const selectedImages = await getImagesFromProductForm(form, productId);
+  const primaryImage = selectedImages[0] || DEFAULT_PRODUCT_IMAGE;
   const product = {
     id: productId,
-    image: uploadedImage || DEFAULT_PRODUCT_IMAGE,
+    image: primaryImage,
+    images: selectedImages.length ? selectedImages : [],
     name: buildProductArticleName(baseName, optionName),
     baseName,
     optionName: normalizeProductOptionLabel(optionName),
@@ -519,6 +531,27 @@ els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
 els.descriptionModalClose?.addEventListener("click", closeDescriptionModal);
 els.descriptionModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.descriptionModalOverlay) closeDescriptionModal();
+});
+els.imageLightboxClose?.addEventListener("click", closeImageLightbox);
+els.imageLightbox?.addEventListener("click", (event) => {
+  if (event.target === els.imageLightbox) closeImageLightbox();
+});
+els.imageLightboxPrev?.addEventListener("click", () => showLightboxImage(lightboxIndex - 1));
+els.imageLightboxNext?.addEventListener("click", () => showLightboxImage(lightboxIndex + 1));
+els.imageLightbox?.addEventListener("touchstart", (event) => {
+  lightboxTouchStartX = event.touches?.[0]?.clientX || 0;
+}, { passive: true });
+els.imageLightbox?.addEventListener("touchend", (event) => {
+  const endX = event.changedTouches?.[0]?.clientX || 0;
+  const delta = endX - lightboxTouchStartX;
+  if (Math.abs(delta) < 45) return;
+  showLightboxImage(lightboxIndex + (delta < 0 ? 1 : -1));
+}, { passive: true });
+document.addEventListener("keydown", (event) => {
+  if (els.imageLightbox?.classList.contains("hidden")) return;
+  if (event.key === "Escape") closeImageLightbox();
+  if (event.key === "ArrowLeft") showLightboxImage(lightboxIndex - 1);
+  if (event.key === "ArrowRight") showLightboxImage(lightboxIndex + 1);
 });
 document.addEventListener("click", (event) => {
   if (!event.target.closest?.(".product-info-wrap")) closeCatalogDescriptionPopovers();
@@ -693,6 +726,7 @@ async function loadCatalogFromSupabase() {
   if (!client) return { categories: [], products: [] };
   supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
   supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
+  supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
 
   const { data: categoryRows, error: categoryError } = await client
     .from("categories")
@@ -731,6 +765,18 @@ async function detectSupabaseProductOptionSupport(client) {
     const { error } = await client
       .from("products")
       .select("base_name, option_name")
+      .limit(1);
+    return !error;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function detectSupabaseProductGallerySupport(client) {
+  try {
+    const { error } = await client
+      .from("products")
+      .select("gallery_images")
       .limit(1);
     return !error;
   } catch (error) {
@@ -787,6 +833,7 @@ async function syncCatalogToSupabase(reason = "manual") {
         sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
       };
       if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
+      if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
       if (supabaseProductOptionSupported) {
         row.base_name = getProductBaseName(product);
         row.option_name = getProductOptionName(product);
@@ -902,6 +949,8 @@ function mapSupabaseProductsToLocal(rows) {
     });
     const presentation = row.presentation || "";
     const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "");
+    const galleryImages = Array.isArray(row.gallery_images) ? row.gallery_images.map(getCatalogImage).filter(Boolean) : [];
+    const primaryImage = row.image_path || galleryImages[0] || DEFAULT_PRODUCT_IMAGE;
 
     return {
       id: row.id,
@@ -918,7 +967,8 @@ function mapSupabaseProductsToLocal(rows) {
       cost: Math.max(0, Number(row.cost_price) || 0),
       stock: Math.max(0, Number(row.stock) || 0),
       minimum: 1,
-      image: row.image_path || DEFAULT_PRODUCT_IMAGE,
+      image: getCatalogImage(primaryImage),
+      images: galleryImages.length ? mergeProductImages(galleryImages, row.image_path ? [row.image_path] : []) : (row.image_path ? [getCatalogImage(row.image_path)] : []),
       variants: variantRows.map((variant) => variant.name).join("\n"),
       variantStock,
       active: row.active !== false,
@@ -1088,7 +1138,9 @@ function renderCatalog() {
 
   els.productGrid.innerHTML = filtered.map((group) => `
     <article class="product-card ${hasCatalogVariantChoices(group) ? "has-variants" : "no-variants"}">
-      <img class="product-image" src="${escapeHtml(getCatalogImage(group.image))}" alt="${escapeHtml(group.name)}" loading="lazy" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
+      <button class="product-image-button" type="button" data-open-gallery="${escapeHtml(group.id)}" aria-label="Ver fotos de ${escapeHtml(group.name)}">
+        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
+      </button>
       <div class="product-body">
         <div class="product-title-row">
           <div class="product-title">${formatCatalogTitleForCard(group.name)}</div>
@@ -1104,6 +1156,13 @@ function renderCatalog() {
       </div>
     </article>
   `).join("");
+
+  els.productGrid.querySelectorAll("[data-open-gallery]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const group = catalogProducts.find((item) => item.id === button.dataset.openGallery);
+      if (group) openImageLightbox(group.images || [group.image], group.name);
+    });
+  });
 
   els.productGrid.querySelectorAll("[data-add-catalog]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1156,7 +1215,8 @@ function getCatalogProducts() {
           brand: product.brand || "GB Mayorista",
           category: product.category,
           description: product.description || "",
-          image: getCatalogImage(product.image),
+          image: getPrimaryProductImage(product),
+          images: getProductImages(product),
           saleType: product.saleType,
           minimum: product.minimum || 1,
           variants: []
@@ -1164,6 +1224,8 @@ function getCatalogProducts() {
       }
       const group = groups.get(key);
       if (!group.description && product.description) group.description = product.description;
+      group.images = mergeProductImages(group.images, getProductImages(product));
+      group.image = group.images[0] || DEFAULT_PRODUCT_IMAGE;
       const variantsToAdd = customVariants.length
         ? customVariants.map((variant, index) => ({
           id: `${product.id}__${index}`,
@@ -1654,7 +1716,8 @@ async function updateProductImage(productId, file) {
 
   try {
     const scrollTop = getAdminTableScrollTop();
-    product.image = await uploadProductImageToSupabase(product.id, file) || await readFileAsDataUrl(file);
+    const image = await uploadProductImageToSupabase(product.id, file) || await readFileAsDataUrl(file);
+    setProductImages(product, [image, ...getStoredProductImages(product)]);
     saveProducts();
     renderAll();
     restoreAdminTableScroll(scrollTop);
@@ -1762,8 +1825,9 @@ function openEditProductModal(productId) {
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductImage) els.editProductImage.value = "";
-  if (els.editProductImageLabel) els.editProductImageLabel.textContent = product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? "Cambiar foto" : "Agregar foto";
-  if (els.editProductImagePreview) els.editProductImagePreview.src = getCatalogImage(product.image);
+  if (els.editProductImageLabel) els.editProductImageLabel.textContent = getStoredProductImages(product).length ? "Agregar fotos" : "Agregar foto";
+  if (els.editProductImagePreview) els.editProductImagePreview.src = getPrimaryProductImage(product);
+  renderEditProductImageGallery(product);
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
   els.editProductCostWrap?.classList.toggle("hidden", !canAccess("admin"));
   els.editProductOverlay.classList.remove("hidden");
@@ -1785,6 +1849,7 @@ function closeEditProductModal() {
   els.editProductOverlay?.setAttribute("aria-hidden", "true");
   clearProductValidation(els.editProductForm);
   els.editProductForm?.reset();
+  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = "";
 }
 
 function duplicateEditingProduct() {
@@ -1796,6 +1861,7 @@ function duplicateEditingProduct() {
     ...product,
     id: crypto.randomUUID(),
     name: `${product.name} copia`,
+    images: getStoredProductImages(product),
     stock: 0,
     variantStock: {},
     active: true,
@@ -1945,9 +2011,11 @@ async function saveEditedProduct(event) {
   product.variants = String(els.editProductVariants?.value || "").trim();
   product.showInCatalog = els.editProductCatalog?.value !== "no";
 
-  const imageFile = els.editProductImage?.files?.[0];
-  if (imageFile instanceof File && imageFile.size) {
-    product.image = await uploadProductImageToSupabase(product.id, imageFile) || await readFileAsDataUrl(imageFile);
+  const imageFiles = getFileList(els.editProductImage?.files);
+  if (imageFiles.length) {
+    const nextImages = await uploadOrReadImageFiles(product.id, imageFiles);
+    const currentImages = getStoredProductImages(product);
+    setProductImages(product, [...currentImages, ...nextImages]);
   }
 
   saveProducts();
@@ -3573,26 +3641,78 @@ function getNextSortOrder() {
   return products.reduce((max, product) => Math.max(max, product.sortOrder || 0), 0) + 1;
 }
 
-function getUploadedImage(form) {
-  const file = form.get("imageFile");
-  if (!(file instanceof File) || !file.size) return Promise.resolve("");
-  return readFileAsDataUrl(file);
+function getFileList(files) {
+  return Array.from(files || []).filter((file) => file instanceof File && file.size);
+}
+
+async function getImagesFromProductForm(form, productId) {
+  return uploadOrReadImageFiles(productId, getFileList(form.getAll("imageFile")));
+}
+
+async function uploadOrReadImageFiles(productId, files) {
+  const images = [];
+  for (const file of files) {
+    const image = await uploadProductImageToSupabase(productId, file) || await readFileAsDataUrl(file);
+    if (image) images.push(image);
+  }
+  return images;
+}
+
+function normalizeProductImages(product) {
+  const rawImages = [
+    ...(Array.isArray(product?.images) ? product.images : []),
+    product?.image
+  ];
+  return mergeProductImages(rawImages);
+}
+
+function mergeProductImages(...imageGroups) {
+  const seen = new Set();
+  const images = [];
+  imageGroups.flat().forEach((image) => {
+    const clean = getCatalogImage(image);
+    if (!clean || clean === DEFAULT_PRODUCT_IMAGE || seen.has(clean)) return;
+    seen.add(clean);
+    images.push(clean);
+  });
+  return images;
+}
+
+function getStoredProductImages(product) {
+  return normalizeProductImages(product);
+}
+
+function getProductImages(product) {
+  const images = getStoredProductImages(product);
+  return images.length ? images : [DEFAULT_PRODUCT_IMAGE];
+}
+
+function getPrimaryProductImage(product) {
+  return getProductImages(product)[0] || DEFAULT_PRODUCT_IMAGE;
+}
+
+function setProductImages(product, images) {
+  const cleanImages = mergeProductImages(images);
+  product.images = cleanImages;
+  product.image = cleanImages[0] || DEFAULT_PRODUCT_IMAGE;
 }
 
 async function handleProductImagePreview() {
-  const file = els.productImageInput.files?.[0];
+  const files = getFileList(els.productImageInput?.files);
   processedProductImage = "";
-  resetImagePreview("Cargando vista previa...");
-  if (!file) {
-    resetImagePreview();
-    return;
-  }
+  resetImagePreview(files.length ? "Cargando vista previa..." : undefined);
+  if (!files.length) return;
 
   try {
-    processedProductImage = await readFileAsDataUrl(file);
-    els.productImagePreview.src = processedProductImage;
-    els.productImagePreview.hidden = false;
-    els.imagePreviewText.textContent = "Vista previa de la foto original antes de guardar.";
+    const previews = [];
+    for (const file of files) previews.push(await readFileAsDataUrl(file));
+    processedProductImage = previews[0] || "";
+    if (els.productImagePreview && processedProductImage) {
+      els.productImagePreview.src = processedProductImage;
+      els.productImagePreview.hidden = false;
+    }
+    if (els.imagePreviewText) els.imagePreviewText.textContent = `${previews.length} foto(s) seleccionada(s). La primera será la principal.`;
+    renderSelectedProductImageGallery(previews);
   } catch (error) {
     resetImagePreview();
     showToast("No se pudo cargar la imagen");
@@ -3600,13 +3720,129 @@ async function handleProductImagePreview() {
 }
 
 function resetImagePreview(message = "La vista previa de la foto aparecerá antes de guardar.") {
-  if (!message.startsWith("Cargando")) processedProductImage = "";
-  if (!els.productImagePreview || !els.imagePreviewText) return;
-  els.productImagePreview.removeAttribute("src");
-  els.productImagePreview.hidden = true;
-  els.imagePreviewText.textContent = message;
+  if (!message || !message.startsWith("Cargando")) processedProductImage = "";
+  if (els.productImagePreview) {
+    els.productImagePreview.removeAttribute("src");
+    els.productImagePreview.hidden = true;
+  }
+  if (els.imagePreviewText) els.imagePreviewText.textContent = message || "La vista previa de la foto aparecerá antes de guardar.";
+  if (els.productImageGallery) els.productImageGallery.innerHTML = "";
 }
 
+function renderSelectedProductImageGallery(images) {
+  if (!els.productImageGallery) return;
+  els.productImageGallery.innerHTML = images.map((image, index) => `
+    <div class="gallery-thumb ${index === 0 ? "is-primary" : ""}">
+      <img src="${escapeHtml(image)}" alt="Foto seleccionada ${index + 1}">
+      <span>${index === 0 ? "Principal" : `Foto ${index + 1}`}</span>
+    </div>
+  `).join("");
+}
+
+function renderEditProductImageGallery(product) {
+  if (!els.editProductImageGallery) return;
+  const images = getStoredProductImages(product);
+  if (!images.length) {
+    els.editProductImageGallery.innerHTML = `<div class="gallery-empty">Sin fotos cargadas.</div>`;
+    if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
+    return;
+  }
+  if (els.editProductImagePreview) els.editProductImagePreview.src = images[0];
+  els.editProductImageGallery.innerHTML = images.map((image, index) => `
+    <div class="gallery-thumb ${index === 0 ? "is-primary" : ""}">
+      <img src="${escapeHtml(image)}" alt="Foto ${index + 1} del producto">
+      <span>${index === 0 ? "Principal" : `Foto ${index + 1}`}</span>
+      <div class="gallery-thumb-actions">
+        <button type="button" data-gallery-action="primary" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Principal</button>
+        <button type="button" data-gallery-action="up" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Subir</button>
+        <button type="button" data-gallery-action="down" data-gallery-index="${index}" ${index === images.length - 1 ? "disabled" : ""}>Bajar</button>
+        <label class="gallery-replace">Reemplazar<input type="file" accept="image/*" data-gallery-replace="${index}"></label>
+        <button type="button" data-gallery-action="delete" data-gallery-index="${index}">Eliminar</button>
+      </div>
+    </div>
+  `).join("");
+  els.editProductImageGallery.querySelectorAll("[data-gallery-action]").forEach((button) => {
+    button.addEventListener("click", () => handleProductGalleryAction(button.dataset.galleryAction, Number(button.dataset.galleryIndex)));
+  });
+  els.editProductImageGallery.querySelectorAll("[data-gallery-replace]").forEach((input) => {
+    input.addEventListener("change", () => replaceProductGalleryImage(Number(input.dataset.galleryReplace), input.files?.[0]));
+  });
+}
+
+function handleProductGalleryAction(action, index) {
+  const product = products.find((item) => item.id === editingProductId);
+  if (!product || !hasPermission("manageProducts")) return;
+  const images = getStoredProductImages(product);
+  if (index < 0 || index >= images.length) return;
+
+  if (action === "primary") {
+    const [image] = images.splice(index, 1);
+    images.unshift(image);
+  } else if (action === "up" && index > 0) {
+    [images[index - 1], images[index]] = [images[index], images[index - 1]];
+  } else if (action === "down" && index < images.length - 1) {
+    [images[index], images[index + 1]] = [images[index + 1], images[index]];
+  } else if (action === "delete") {
+    images.splice(index, 1);
+  }
+
+  setProductImages(product, images);
+  saveProducts();
+  renderCatalog();
+  renderAdmin();
+  renderEditProductImageGallery(product);
+  showToast("Fotos actualizadas", "success");
+}
+
+async function replaceProductGalleryImage(index, file) {
+  const product = products.find((item) => item.id === editingProductId);
+  if (!product || !hasPermission("manageProducts") || !(file instanceof File) || !file.size) return;
+  const images = getStoredProductImages(product);
+  if (index < 0 || index >= images.length) return;
+  const replacement = await uploadProductImageToSupabase(product.id, file) || await readFileAsDataUrl(file);
+  if (!replacement) return;
+  images[index] = replacement;
+  setProductImages(product, images);
+  saveProducts();
+  renderCatalog();
+  renderAdmin();
+  renderEditProductImageGallery(product);
+  showToast("Foto reemplazada", "success");
+}
+
+function openImageLightbox(images, title = "Producto", startIndex = 0) {
+  lightboxImages = mergeProductImages(images);
+  if (!lightboxImages.length) lightboxImages = [DEFAULT_PRODUCT_IMAGE];
+  lightboxTitle = title;
+  lightboxIndex = Math.max(0, Math.min(Number(startIndex) || 0, lightboxImages.length - 1));
+  showLightboxImage(lightboxIndex);
+  els.imageLightbox?.classList.remove("hidden");
+  els.imageLightbox?.setAttribute("aria-hidden", "false");
+  document.body.classList.add("lightbox-open");
+}
+
+function showLightboxImage(index) {
+  if (!lightboxImages.length) return;
+  lightboxIndex = (index + lightboxImages.length) % lightboxImages.length;
+  if (els.imageLightboxImage) els.imageLightboxImage.src = lightboxImages[lightboxIndex];
+  if (els.imageLightboxCaption) {
+    els.imageLightboxCaption.textContent = lightboxImages.length > 1
+      ? `${lightboxTitle} (${lightboxIndex + 1}/${lightboxImages.length})`
+      : lightboxTitle;
+  }
+  const hasMultiple = lightboxImages.length > 1;
+  els.imageLightboxPrev?.classList.toggle("hidden", !hasMultiple);
+  els.imageLightboxNext?.classList.toggle("hidden", !hasMultiple);
+}
+
+function closeImageLightbox() {
+  els.imageLightbox?.classList.add("hidden");
+  els.imageLightbox?.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("lightbox-open");
+  lightboxImages = [];
+  lightboxIndex = 0;
+  lightboxTitle = "";
+}
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -5348,7 +5584,8 @@ function normalizeProducts(productList) {
       packQuantity: Math.max(1, Number(product.packQuantity) || getPackQuantityFromPresentation(presentation)),
       stock: Math.max(0, Number(product.stock) || 0),
       cost: Number.isFinite(Number(product.cost)) ? Number(product.cost) : 0,
-      image: getCatalogImage(product.image),
+      image: getPrimaryProductImage(product),
+      images: normalizeProductImages(product),
       active: product.active !== false,
       showInCatalog: product.showInCatalog !== false,
       sortOrder: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1

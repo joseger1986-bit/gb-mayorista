@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=catalog-image-contain-1">
+    <link rel="stylesheet" href="/styles.css?v=product-gallery-1">
   </head>
   <body>
     <header class="topbar">
@@ -181,13 +181,14 @@
               </label>
               <label class="full-field">
                 Foto
-                <input id="productImageInput" name="imageFile" type="file" accept="image/*">
-                <small>Seleccionar imagen o cambiar imagen. Si no tiene foto, se muestra GB Mayorista por defecto.</small>
+                <input id="productImageInput" name="imageFile" type="file" accept="image/*" multiple>
+                <small>Podés seleccionar varias fotos. La primera será la principal del catálogo.</small>
               </label>
               <div class="image-preview-box full-field">
                 <img id="productImagePreview" alt="Vista previa de foto" hidden>
                 <span id="imagePreviewText">La vista previa de la foto aparecera antes de guardar.</span>
               </div>
+              <div class="product-image-gallery full-field" id="productImageGallery" aria-label="Fotos seleccionadas"></div>
             </fieldset>
 
             <fieldset class="form-section">
@@ -251,7 +252,7 @@
           <div class="section-head compact">
             <div>
               <h2>Importación Excel</h2>
-              <p>Plantilla preparada para cargar productos con presentaciÃ³n libre.</p>
+              <p>Plantilla preparada para cargar productos con presentación libre.</p>
             </div>
             <button class="secondary-button" id="downloadTemplate" type="button" data-import-export-only>Descargar planilla modelo Excel</button>
           </div>
@@ -474,12 +475,13 @@
           </label>
           <label>
             <span id="editProductImageLabel">Agregar foto</span>
-            <input id="editProductImage" name="imageFile" type="file" accept="image/*">
+            <input id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
           </label>
         </div>
         <div class="edit-image-preview full-field">
           <img id="editProductImagePreview" alt="Foto del producto">
         </div>
+        <div class="product-image-gallery full-field" id="editProductImageGallery" aria-label="Fotos del producto"></div>
         <input id="editProductVariants" name="variants" type="hidden">
         <button class="secondary-button variant-manage-button" id="editProductVariantsButton" type="button">Administrar variantes</button>
         <div class="stock-modal-actions">
@@ -519,6 +521,16 @@
       </section>
     </div>
 
+
+    <div class="image-lightbox hidden" id="imageLightbox" aria-hidden="true">
+      <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="Cerrar imagen">&times;</button>
+      <button class="image-lightbox-arrow image-lightbox-prev" id="imageLightboxPrev" type="button" aria-label="Imagen anterior">&lsaquo;</button>
+      <figure class="image-lightbox-frame">
+        <img id="imageLightboxImage" alt="Imagen ampliada del producto">
+        <figcaption id="imageLightboxCaption"></figcaption>
+      </figure>
+      <button class="image-lightbox-arrow image-lightbox-next" id="imageLightboxNext" type="button" aria-label="Imagen siguiente">&rsaquo;</button>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/supabase_config.js?v=private-gestion-1"></script>
@@ -531,6 +543,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=history-back-guard-1"></script>
+    <script src="/app.js?v=product-gallery-1"></script>
   </body>
 </html>
