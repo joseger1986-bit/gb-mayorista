@@ -4344,3 +4344,79 @@ body.lightbox-open {
     font-size: 0.9rem;
   }
 }
+
+/* Catalog card stability: keep all purchase controls visible on desktop and mobile. */
+.product-card {
+  height: auto;
+  min-height: 0;
+  grid-template-rows: auto 1fr;
+  overflow: visible;
+}
+
+.product-body {
+  min-height: 0;
+  overflow: visible;
+}
+
+.product-title {
+  height: auto;
+  min-height: 82px;
+}
+
+.variant-select-row {
+  height: auto;
+  min-height: 66px;
+}
+
+.pack-price {
+  min-height: 96px;
+  overflow: visible;
+}
+
+.quantity-row {
+  min-height: 100px;
+  overflow: visible;
+}
+
+.quantity-row .primary-button {
+  width: 100%;
+}
+
+@media (min-width: 761px) {
+  .product-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .product-card {
+    min-height: 680px;
+  }
+
+  .product-image-button,
+  .product-image {
+    height: 330px;
+  }
+}
+
+@media (max-width: 760px) {
+  .product-card {
+    height: auto;
+    min-height: 0;
+  }
+
+  .product-title {
+    min-height: 48px;
+  }
+
+  .variant-select-row {
+    min-height: 42px;
+  }
+
+  .pack-price {
+    min-height: 54px;
+  }
+
+  .quantity-row {
+    min-height: 83px;
+    overflow: visible;
+  }
+}

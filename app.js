@@ -540,7 +540,9 @@ els.descriptionModalOverlay?.addEventListener("click", (event) => {
 });
 els.imageLightboxClose?.addEventListener("click", closeImageLightbox);
 els.imageLightbox?.addEventListener("click", (event) => {
-  if (event.target === els.imageLightbox) closeImageLightbox();
+  const target = event.target;
+  if (target.closest?.(".image-lightbox-arrow, .image-lightbox-close, #imageLightboxImage")) return;
+  closeImageLightbox();
 });
 els.imageLightboxPrev?.addEventListener("click", () => showLightboxImage(lightboxIndex - 1));
 els.imageLightboxNext?.addEventListener("click", () => showLightboxImage(lightboxIndex + 1));
