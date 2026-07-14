@@ -232,7 +232,6 @@ var supabaseCatalogRemoteRefreshing = false;
 var supabaseCatalogRealtimeChannel = null;
 var supabaseCatalogRealtimeRefreshTimer = null;
 var supabaseCatalogPendingDeletedProductIds = new Set();
-var supabaseSyncDebugEntries = [];
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
@@ -677,67 +676,8 @@ function updateSupabaseCatalogStatus(status) {
   logSupabaseSyncDebug("status", payload, payload.ok ? "info" : "error");
 }
 
-function logSupabaseSyncDebug(stage, details = {}, level = "info", extra = {}) {
-  const entry = {
-    id: crypto.randomUUID(),
-    stage,
-    level,
-    details,
-    createdAt: new Date().toISOString()
-  };
-  supabaseSyncDebugEntries.unshift(entry);
-  supabaseSyncDebugEntries = supabaseSyncDebugEntries.slice(0, 30);
-
-  const consoleMethod = level === "error" ? "error" : level === "warn" ? "warn" : "log";
-  if (console.groupCollapsed) {
-    console.groupCollapsed(`[GB Sync] ${stage}`);
-    console[consoleMethod](details);
-    if (extra.payload) console.log("Payload enviado/recibido:", extra.payload);
-    if (extra.error) console.error("Error exacto:", extra.error);
-    console.groupEnd();
-  } else {
-    console[consoleMethod](`[GB Sync] ${stage}`, details, extra.payload || "", extra.error || "");
-  }
-
-  renderSupabaseSyncDebugPanel();
-}
-
-function renderSupabaseSyncDebugPanel() {
-  const panel = ensureSupabaseSyncDebugPanel();
-  if (!panel) return;
-  const shouldShow = isPrivateManagementRoute() && internalUnlocked;
-  panel.classList.toggle("hidden", !shouldShow);
-  if (!shouldShow) return;
-
-  const items = supabaseSyncDebugEntries.slice(0, 8).map((entry) => {
-    const time = new Date(entry.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const summary = entry.details?.message || entry.details?.cause || entry.details?.reason || entry.details?.mode || "";
-    return `
-      <li class="${escapeHtml(entry.level)}">
-        <strong>${escapeHtml(time)} - ${escapeHtml(entry.stage)}</strong>
-        <span>${escapeHtml(summary)}</span>
-      </li>
-    `;
-  }).join("");
-
-  panel.innerHTML = `
-    <div class="sync-debug-title">
-      <strong>Diagnostico Supabase</strong>
-      <small>Detalle completo en consola: [GB Sync]</small>
-    </div>
-    <ol>${items || "<li><span>Sin eventos todavia.</span></li>"}</ol>
-  `;
-}
-
-function ensureSupabaseSyncDebugPanel() {
-  let panel = document.querySelector("#supabaseSyncDebugPanel");
-  if (panel) return panel;
-  panel = document.createElement("aside");
-  panel.id = "supabaseSyncDebugPanel";
-  panel.className = "sync-debug-panel hidden";
-  panel.setAttribute("aria-live", "polite");
-  document.body.appendChild(panel);
-  return panel;
+function logSupabaseSyncDebug() {
+  // Diagnostico visual desactivado. La sincronizacion Supabase sigue intacta.
 }
 
 function queueSupabaseCatalogSync(reason = "manual") {
@@ -5592,7 +5532,6 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (isPrivateManagementRoute() && internalUnlocked) {
     setupSupabaseCatalogRealtime();
   }
-  renderSupabaseSyncDebugPanel();
   renderRole();
   renderNav();
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
