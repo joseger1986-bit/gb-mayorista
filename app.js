@@ -9,7 +9,7 @@ const STORAGE_CATEGORIES = "gb_mayorista_categories";
 const STORAGE_ROLE = "gb_mayorista_role";
 const STORAGE_SCHEMA = "gb_mayorista_schema";
 const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
-const APP_DATA_VERSION = "apparel-original-images-v5";
+const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
@@ -230,8 +230,6 @@ var supabaseCatalogBootstrapped = false;
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
-let catalogRemoteLoading = Boolean(window.GB_SUPABASE_CONFIG?.url);
-let catalogRemoteFailed = false;
 let lightboxImages = [];
 let lightboxIndex = 0;
 let lightboxTitle = "";
@@ -675,14 +673,11 @@ async function initializeSupabaseCatalog() {
   document.documentElement.dataset.gbSupabaseCatalog = "starting";
   const client = getSupabaseCatalogClient();
   if (!client) {
-    catalogRemoteLoading = false;
-    catalogRemoteFailed = Boolean(window.GB_SUPABASE_CONFIG?.url);
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
       message: "Supabase no esta configurado. La app sigue usando localStorage."
     });
-    renderAll();
     return;
   }
 
@@ -696,8 +691,6 @@ async function initializeSupabaseCatalog() {
       products = normalizeProducts(remote.products);
       localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      catalogRemoteLoading = false;
-      catalogRemoteFailed = false;
       renderAll();
       updateSupabaseCatalogStatus({
         ok: true,
@@ -715,8 +708,6 @@ async function initializeSupabaseCatalog() {
     document.documentElement.dataset.gbSupabaseCatalog = "syncing-local";
     const syncResult = await syncCatalogToSupabase("initial-local-migration");
     if (!syncResult?.ok) return;
-    catalogRemoteLoading = false;
-    catalogRemoteFailed = false;
     updateSupabaseCatalogStatus({
       ok: true,
       mode: "local-to-supabase",
@@ -727,8 +718,6 @@ async function initializeSupabaseCatalog() {
     });
   } catch (error) {
     supabaseCatalogBootstrapped = true;
-    catalogRemoteLoading = false;
-    catalogRemoteFailed = true;
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
@@ -736,7 +725,6 @@ async function initializeSupabaseCatalog() {
       hint: "Si aparece un error de RLS o JWT, falta iniciar sesion o habilitar policies para esta etapa."
     });
     console.warn("GB Mayorista Supabase catalog init:", error);
-    renderAll();
   }
 }
 
@@ -1141,15 +1129,6 @@ function renderProductFormCategories() {
 }
 
 function renderCatalog() {
-  if (!internalUnlocked && catalogRemoteLoading) {
-    els.productGrid.innerHTML = `<div class="empty-state">Cargando catálogo mayorista...</div>`;
-    return;
-  }
-  if (!internalUnlocked && catalogRemoteFailed) {
-    els.productGrid.innerHTML = `<div class="empty-state">No se pudo cargar el catálogo actualizado. Revisá la conexión y volvé a intentar.</div>`;
-    return;
-  }
-
   const query = normalizeProductSearchText(els.searchInput.value);
   const catalogProducts = getCatalogProducts();
   const filtered = catalogProducts.filter((group) => {
@@ -1292,6 +1271,18 @@ function getCatalogProducts() {
   return [...groups.values()].map((group) => {
     const variants = group.variants
       .map((variant) => ({ ...variant, price: Number(variant.price) || 0 }))
+      .filter((variant, index, list) => {
+        const key = [
+          normalizeProductSearchText(variant.label),
+          Number(variant.price) || 0,
+          normalizeProductSearchText(variant.presentation)
+        ].join("|");
+        return list.findIndex((item) => [
+          normalizeProductSearchText(item.label),
+          Number(item.price) || 0,
+          normalizeProductSearchText(item.presentation)
+        ].join("|") === key) === index;
+      })
       .sort(compareCatalogVariants);
     return {
       ...group,
@@ -2171,8 +2162,9 @@ function getProductIdentityFromName(name, explicitOption = "") {
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
   const cleanOption = String(explicitOption || "").trim().replace(/\s+/g, " ");
   if (cleanOption) {
+    const inferred = inferProductIdentityFromLegacyName(cleanName);
     return {
-      baseName: cleanName,
+      baseName: inferred.optionName ? inferred.baseName : cleanName,
       optionName: normalizeProductOptionLabel(cleanOption)
     };
   }
@@ -5790,7 +5782,7 @@ function normalizeProducts(productList) {
     const explicitOptionName = String(product.optionName || product.option || "").trim();
     const identity = explicitOptionName
       ? getProductIdentityFromName(explicitBaseName || product.name || "", explicitOptionName)
-      : getProductIdentityFromName(explicitBaseName || product.name || "");
+      : getProductIdentityFromName(product.name || explicitBaseName || "");
     const presentation = product.presentation || getProductPresentation(product);
     return {
       ...product,
