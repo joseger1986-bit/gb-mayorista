@@ -546,6 +546,7 @@ els.imageLightbox?.addEventListener("click", (event) => {
 });
 els.imageLightboxPrev?.addEventListener("click", () => showLightboxImage(lightboxIndex - 1));
 els.imageLightboxNext?.addEventListener("click", () => showLightboxImage(lightboxIndex + 1));
+els.imageLightboxImage?.addEventListener("error", showNextLightboxImage);
 els.imageLightbox?.addEventListener("touchstart", (event) => {
   lightboxTouchStartX = event.touches?.[0]?.clientX || 0;
 }, { passive: true });
@@ -955,7 +956,7 @@ function mapSupabaseProductsToLocal(rows) {
     const presentation = row.presentation || "";
     const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "");
     const galleryImages = Array.isArray(row.gallery_images) ? row.gallery_images.map(getCatalogImage).filter(Boolean) : [];
-    const primaryImage = row.image_path || galleryImages[0] || DEFAULT_PRODUCT_IMAGE;
+    const productImages = mergeProductImages(row.image_path, galleryImages);
 
     return {
       id: row.id,
@@ -972,8 +973,8 @@ function mapSupabaseProductsToLocal(rows) {
       cost: Math.max(0, Number(row.cost_price) || 0),
       stock: Math.max(0, Number(row.stock) || 0),
       minimum: 1,
-      image: getCatalogImage(primaryImage),
-      images: galleryImages.length ? mergeProductImages(galleryImages, row.image_path ? [row.image_path] : []) : (row.image_path ? [getCatalogImage(row.image_path)] : []),
+      image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
+      images: productImages,
       variants: variantRows.map((variant) => variant.name).join("\n"),
       variantStock,
       active: row.active !== false,
@@ -1144,7 +1145,7 @@ function renderCatalog() {
   els.productGrid.innerHTML = filtered.map((group) => `
     <article class="product-card ${hasCatalogVariantChoices(group) ? "has-variants" : "no-variants"}">
       <button class="product-image-button" type="button" data-open-gallery="${escapeHtml(group.id)}" aria-label="Ver fotos de ${escapeHtml(group.name)}">
-        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
+        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" data-catalog-image="${escapeHtml(group.id)}" data-image-index="0">
       </button>
       <div class="product-body">
         <div class="product-title-row">
@@ -1166,6 +1167,10 @@ function renderCatalog() {
       const group = catalogProducts.find((item) => item.id === button.dataset.openGallery);
       if (group) openImageLightbox(group.images || [group.image], { title: group.name, description: group.description || "" });
     });
+  });
+
+  els.productGrid.querySelectorAll("[data-catalog-image]").forEach((image) => {
+    image.addEventListener("error", () => showNextCatalogImage(image));
   });
 
   els.productGrid.querySelectorAll("[data-add-catalog]").forEach((button) => {
@@ -1210,6 +1215,7 @@ function getCatalogProducts() {
       const info = getCatalogGroupInfo(product);
       const key = info.key;
       const customVariants = parseVariantDetails(product);
+      const productImages = getProductImages(product);
       if (!groups.has(key)) {
         groups.set(key, {
           id: key,
@@ -1217,8 +1223,8 @@ function getCatalogProducts() {
           brand: product.brand || "GB Mayorista",
           category: product.category,
           description: product.description || "",
-          image: getPrimaryProductImage(product),
-          images: getProductImages(product),
+          image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
+          images: productImages,
           saleType: product.saleType,
           minimum: product.minimum || 1,
           variants: []
@@ -1226,7 +1232,7 @@ function getCatalogProducts() {
       }
       const group = groups.get(key);
       if (!group.description && product.description) group.description = product.description;
-      group.images = mergeProductImages(group.images, getProductImages(product));
+      group.images = mergeProductImages(group.images, productImages);
       group.image = group.images[0] || DEFAULT_PRODUCT_IMAGE;
       const variantsToAdd = customVariants.length
         ? customVariants.map((variant, index) => ({
@@ -1477,11 +1483,47 @@ function hasCatalogPrice(price) {
 }
 
 function getCatalogImage(image) {
-  return isExampleImage(image) ? DEFAULT_PRODUCT_IMAGE : image || DEFAULT_PRODUCT_IMAGE;
+  const normalized = normalizeCatalogImageReference(image);
+  return isExampleImage(normalized) ? DEFAULT_PRODUCT_IMAGE : normalized || DEFAULT_PRODUCT_IMAGE;
+}
+
+function showNextCatalogImage(image) {
+  const group = catalogProducts.find((item) => item.id === image.dataset.catalogImage);
+  const images = mergeProductImages(group?.images || [], group?.image ? [group.image] : []);
+  const currentIndex = Number(image.dataset.imageIndex) || 0;
+  const nextIndex = currentIndex + 1;
+  if (nextIndex < images.length) {
+    image.dataset.imageIndex = String(nextIndex);
+    image.src = images[nextIndex];
+    return;
+  }
+  image.removeAttribute("data-catalog-image");
+  image.src = DEFAULT_PRODUCT_IMAGE;
 }
 
 function isExampleImage(image) {
   return /images\.unsplash\.com/i.test(String(image || ""));
+}
+
+function normalizeCatalogImageReference(image) {
+  const value = String(image || "").trim();
+  if (!value || value === DEFAULT_PRODUCT_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) return value;
+  if (/^https?:\/\//i.test(value)) {
+    return value.replace("/storage/v1/object/product-images/", "/storage/v1/object/public/product-images/");
+  }
+  const supabaseUrl = String(window.GB_SUPABASE_CONFIG?.url || "").replace(/\/$/, "");
+  if (!supabaseUrl) return value;
+  const cleanPath = value.replace(/^\/+/, "");
+  const storagePublicPrefix = "storage/v1/object/public/product-images/";
+  if (cleanPath.startsWith(storagePublicPrefix)) return `${supabaseUrl}/${cleanPath}`;
+  const storagePrivatePrefix = "storage/v1/object/product-images/";
+  if (cleanPath.startsWith(storagePrivatePrefix)) return `${supabaseUrl}/${storagePublicPrefix}${cleanPath.slice(storagePrivatePrefix.length)}`;
+  const bucketPrefix = "product-images/";
+  const objectPath = cleanPath.startsWith(bucketPrefix) ? cleanPath.slice(bucketPrefix.length) : cleanPath;
+  if (objectPath.startsWith("products/")) {
+    return `${supabaseUrl}/${storagePublicPrefix}${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+  }
+  return value;
 }
 
 function toggleCatalogDetails(groupId, button) {
@@ -3975,6 +4017,17 @@ function showLightboxImage(index) {
   const hasMultiple = lightboxImages.length > 1;
   els.imageLightboxPrev?.classList.toggle("hidden", !hasMultiple);
   els.imageLightboxNext?.classList.toggle("hidden", !hasMultiple);
+}
+
+function showNextLightboxImage() {
+  if (lightboxImages.length > 1) {
+    lightboxImages.splice(lightboxIndex, 1);
+    showLightboxImage(Math.min(lightboxIndex, lightboxImages.length - 1));
+    return;
+  }
+  if (els.imageLightboxImage?.src !== DEFAULT_PRODUCT_IMAGE) {
+    els.imageLightboxImage.src = DEFAULT_PRODUCT_IMAGE;
+  }
 }
 
 function closeImageLightbox() {
