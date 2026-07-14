@@ -232,6 +232,7 @@ var supabaseCatalogRemoteRefreshing = false;
 var supabaseCatalogRealtimeChannel = null;
 var supabaseCatalogRealtimeRefreshTimer = null;
 var supabaseCatalogPendingDeletedProductIds = new Set();
+var supabaseSyncDebugEntries = [];
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
@@ -627,6 +628,11 @@ function loadCategories() {
 
 function saveProducts() {
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  logSupabaseSyncDebug("saveProducts", {
+    message: "Cambio local de productos guardado como respaldo. Se encola escritura a Supabase.",
+    products: products.length,
+    activeProducts: products.filter((product) => product.active !== false).length
+  });
   queueSupabaseCatalogSync("products");
 }
 
@@ -648,6 +654,10 @@ function saveClients() {
 
 function saveCategories() {
   localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
+  logSupabaseSyncDebug("saveCategories", {
+    message: "Cambio local de categorias guardado como respaldo. Se encola escritura a Supabase.",
+    categories: categories.length
+  });
   queueSupabaseCatalogSync("categories");
 }
 
@@ -664,13 +674,87 @@ function updateSupabaseCatalogStatus(status) {
   window.gbSupabaseCatalogStatus = payload;
   document.documentElement.dataset.gbSupabaseCatalog = payload.ok ? payload.mode || "ok" : "localStorage";
   document.documentElement.dataset.gbSupabaseCatalogError = payload.ok ? "" : payload.message || "error";
+  logSupabaseSyncDebug("status", payload, payload.ok ? "info" : "error");
+}
+
+function logSupabaseSyncDebug(stage, details = {}, level = "info", extra = {}) {
+  const entry = {
+    id: crypto.randomUUID(),
+    stage,
+    level,
+    details,
+    createdAt: new Date().toISOString()
+  };
+  supabaseSyncDebugEntries.unshift(entry);
+  supabaseSyncDebugEntries = supabaseSyncDebugEntries.slice(0, 30);
+
+  const consoleMethod = level === "error" ? "error" : level === "warn" ? "warn" : "log";
+  if (console.groupCollapsed) {
+    console.groupCollapsed(`[GB Sync] ${stage}`);
+    console[consoleMethod](details);
+    if (extra.payload) console.log("Payload enviado/recibido:", extra.payload);
+    if (extra.error) console.error("Error exacto:", extra.error);
+    console.groupEnd();
+  } else {
+    console[consoleMethod](`[GB Sync] ${stage}`, details, extra.payload || "", extra.error || "");
+  }
+
+  renderSupabaseSyncDebugPanel();
+}
+
+function renderSupabaseSyncDebugPanel() {
+  const panel = ensureSupabaseSyncDebugPanel();
+  if (!panel) return;
+  const shouldShow = isPrivateManagementRoute() && internalUnlocked;
+  panel.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) return;
+
+  const items = supabaseSyncDebugEntries.slice(0, 8).map((entry) => {
+    const time = new Date(entry.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const summary = entry.details?.message || entry.details?.cause || entry.details?.reason || entry.details?.mode || "";
+    return `
+      <li class="${escapeHtml(entry.level)}">
+        <strong>${escapeHtml(time)} - ${escapeHtml(entry.stage)}</strong>
+        <span>${escapeHtml(summary)}</span>
+      </li>
+    `;
+  }).join("");
+
+  panel.innerHTML = `
+    <div class="sync-debug-title">
+      <strong>Diagnostico Supabase</strong>
+      <small>Detalle completo en consola: [GB Sync]</small>
+    </div>
+    <ol>${items || "<li><span>Sin eventos todavia.</span></li>"}</ol>
+  `;
+}
+
+function ensureSupabaseSyncDebugPanel() {
+  let panel = document.querySelector("#supabaseSyncDebugPanel");
+  if (panel) return panel;
+  panel = document.createElement("aside");
+  panel.id = "supabaseSyncDebugPanel";
+  panel.className = "sync-debug-panel hidden";
+  panel.setAttribute("aria-live", "polite");
+  document.body.appendChild(panel);
+  return panel;
 }
 
 function queueSupabaseCatalogSync(reason = "manual") {
-  if (!supabaseCatalogBootstrapped) return;
-  if (!supabaseCatalogReadyForWrites) return;
-  if (!getSupabaseCatalogClient()) return;
+  if (!supabaseCatalogBootstrapped) {
+    logSupabaseSyncDebug("sync-skipped", { reason, cause: "Supabase todavia no termino el arranque." }, "warn");
+    return;
+  }
+  if (!supabaseCatalogReadyForWrites) {
+    logSupabaseSyncDebug("sync-skipped", { reason, cause: "Supabase no esta listo para escritura. Se evita subir una copia local vieja." }, "warn");
+    return;
+  }
+  if (!getSupabaseCatalogClient()) {
+    logSupabaseSyncDebug("sync-skipped", { reason, cause: "No hay cliente Supabase configurado." }, "warn");
+    return;
+  }
   window.clearTimeout(supabaseCatalogSyncTimer);
+  logSupabaseSyncDebug("sync-queued", { reason, delayMs: 200 });
   supabaseCatalogSyncTimer = window.setTimeout(() => {
     syncCatalogToSupabase(reason);
   }, 200);
@@ -771,9 +855,19 @@ function applyRemoteCatalog(remote, reason = "supabase-read") {
 
 async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
   const client = getSupabaseCatalogClient();
-  if (!client || supabaseCatalogRemoteRefreshing) return { ok: false, message: "Sin cliente o lectura en curso." };
+  if (!client || supabaseCatalogRemoteRefreshing) {
+    const result = { ok: false, message: "Sin cliente o lectura en curso.", reason };
+    logSupabaseSyncDebug("read-skipped", result, "warn");
+    return result;
+  }
   supabaseCatalogRemoteRefreshing = true;
   document.documentElement.dataset.gbSupabaseCatalog = reason === "realtime" ? "realtime-refresh" : "reading";
+  logSupabaseSyncDebug("read-start", {
+    reason,
+    message: "Empieza relectura de Supabase.",
+    currentProducts: products.length,
+    currentCategories: categories.length
+  });
 
   try {
     const remote = await withSupabaseTimeout(loadCatalogFromSupabase(), "No se pudo actualizar Gestion desde Supabase a tiempo.");
@@ -785,6 +879,12 @@ async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
     applyRemoteCatalog(remote, reason === "realtime" ? "supabase-realtime" : "supabase-read");
     supabaseCatalogReadyForWrites = true;
     setupSupabaseCatalogRealtime();
+    logSupabaseSyncDebug("read-ok", {
+      reason,
+      message: "Supabase respondio OK y Gestion se actualizo con datos remotos.",
+      products: products.length,
+      categories: categories.length
+    }, "info", { payload: remote });
     return { ok: true, products: products.length, categories: categories.length };
   } catch (error) {
     supabaseCatalogReadyForWrites = false;
@@ -797,6 +897,12 @@ async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
       hint: error.hint || error.details || "Revisar conexion, RLS o Realtime."
     });
     console.warn("GB Mayorista Supabase catalog refresh:", error);
+    logSupabaseSyncDebug("read-error", {
+      reason,
+      message: error.message || "No se pudo actualizar desde Supabase.",
+      code: error.code || null,
+      hint: error.hint || error.details || null
+    }, "error", { error });
     if (!options.silent) showToast("No se pudo actualizar Gestion desde Supabase");
     return { ok: false, message: error.message || "No se pudo actualizar desde Supabase." };
   } finally {
@@ -809,11 +915,19 @@ function setupSupabaseCatalogRealtime() {
   if (!client || typeof client.channel !== "function") return false;
   if (supabaseCatalogRealtimeChannel) return true;
 
-  const refreshFromEvent = () => {
+  const refreshFromEvent = (payload) => {
+    logSupabaseSyncDebug("realtime-event", {
+      message: "Supabase Realtime aviso un cambio remoto.",
+      table: payload?.table || "",
+      eventType: payload?.eventType || "",
+      id: payload?.new?.id || payload?.old?.id || payload?.new?.product_id || payload?.old?.product_id || ""
+    }, "info", { payload });
     window.clearTimeout(supabaseCatalogRealtimeRefreshTimer);
     supabaseCatalogRealtimeRefreshTimer = window.setTimeout(() => {
       if (supabaseCatalogSyncRunning) {
-        refreshFromEvent();
+        supabaseCatalogRealtimeRefreshTimer = window.setTimeout(() => {
+          refreshCatalogFromSupabase("realtime", { silent: true });
+        }, 500);
         return;
       }
       refreshCatalogFromSupabase("realtime", { silent: true });
@@ -827,6 +941,10 @@ function setupSupabaseCatalogRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "product_variants" }, refreshFromEvent)
     .subscribe((status) => {
       document.documentElement.dataset.gbSupabaseRealtime = String(status || "").toLowerCase();
+      logSupabaseSyncDebug(status === "SUBSCRIBED" ? "realtime-ok" : "realtime-status", {
+        message: `Estado del canal Realtime: ${status}`,
+        status
+      }, status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED" ? "error" : "info");
     });
 
   return true;
@@ -890,8 +1008,19 @@ async function detectSupabaseProductGallerySupport(client) {
 
 async function syncCatalogToSupabase(reason = "manual") {
   const client = getSupabaseCatalogClient();
-  if (!client || supabaseCatalogSyncRunning) return { ok: false, message: "Sin cliente Supabase o sincronizacion en curso." };
+  if (!client || supabaseCatalogSyncRunning) {
+    const result = { ok: false, message: "Sin cliente Supabase o sincronizacion en curso.", reason };
+    logSupabaseSyncDebug("save-skipped", result, "warn");
+    return result;
+  }
   supabaseCatalogSyncRunning = true;
+  logSupabaseSyncDebug("save-start", {
+    reason,
+    message: "Empieza guardado en Supabase.",
+    products: products.length,
+    categories: categories.length,
+    pendingDeletedProducts: supabaseCatalogPendingDeletedProductIds.size
+  });
 
   try {
     const categoryRows = categories.map((category, index) => ({
@@ -945,6 +1074,14 @@ async function syncCatalogToSupabase(reason = "manual") {
       return row;
     }).filter((product) => product.name);
 
+    logSupabaseSyncDebug("save-payload", {
+      reason,
+      message: "Datos preparados para enviar a Supabase.",
+      categoryRows: categoryRows.length,
+      productRows: productRows.length,
+      pendingDeletedProductIds: [...supabaseCatalogPendingDeletedProductIds]
+    }, "info", { payload: { categoryRows, productRows, pendingDeletedProductIds: [...supabaseCatalogPendingDeletedProductIds] } });
+
     if (productRows.length) {
       const { data: savedProducts, error: productError } = await client
         .from("products")
@@ -970,11 +1107,25 @@ async function syncCatalogToSupabase(reason = "manual") {
         categories: categories.length
       });
       setupSupabaseCatalogRealtime();
+      logSupabaseSyncDebug("save-ok", {
+        reason,
+        message: "Supabase respondio OK al guardar productos/categorias/variantes.",
+        savedProducts: savedProducts.length,
+        deletedProducts,
+        variantsSynced
+      }, "info", { payload: { savedProducts, deletedProducts, variantsSynced } });
+      const rereadResult = await refreshCatalogFromSupabase("after-save", { silent: true });
+      logSupabaseSyncDebug(rereadResult.ok ? "after-save-read-ok" : "after-save-read-error", {
+        reason,
+        message: rereadResult.ok ? "Despues de guardar se releyo Supabase correctamente." : "Despues de guardar fallo la relectura de Supabase.",
+        result: rereadResult
+      }, rereadResult.ok ? "info" : "error");
       return {
         ok: true,
         products: savedProducts.length,
         deletedProducts,
-        variants: variantsSynced
+        variants: variantsSynced,
+        reread: rereadResult
       };
     }
 
@@ -988,6 +1139,17 @@ async function syncCatalogToSupabase(reason = "manual") {
     });
     supabaseCatalogReadyForWrites = true;
     setupSupabaseCatalogRealtime();
+    logSupabaseSyncDebug("save-ok", {
+      reason,
+      message: "Supabase respondio OK. No habia productos para enviar.",
+      products: 0
+    });
+    const rereadResult = await refreshCatalogFromSupabase("after-save-empty", { silent: true });
+    logSupabaseSyncDebug(rereadResult.ok ? "after-save-read-ok" : "after-save-read-error", {
+      reason,
+      message: rereadResult.ok ? "Despues de guardar se releyo Supabase correctamente." : "Despues de guardar fallo la relectura de Supabase.",
+      result: rereadResult
+    }, rereadResult.ok ? "info" : "error");
     return { ok: true, products: 0, variants: 0 };
   } catch (error) {
     updateSupabaseCatalogStatus({
@@ -999,6 +1161,12 @@ async function syncCatalogToSupabase(reason = "manual") {
       hint: error.hint || error.details || "Revisar RLS/policies si la tabla remota queda vacia."
     });
     console.warn("GB Mayorista Supabase catalog sync:", error);
+    logSupabaseSyncDebug("save-error", {
+      reason,
+      message: error.message || "No se pudo sincronizar con Supabase.",
+      code: error.code || null,
+      hint: error.hint || error.details || null
+    }, "error", { error });
     return {
       ok: false,
       message: error.message || "No se pudo sincronizar con Supabase.",
@@ -5424,6 +5592,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (isPrivateManagementRoute() && internalUnlocked) {
     setupSupabaseCatalogRealtime();
   }
+  renderSupabaseSyncDebugPanel();
   renderRole();
   renderNav();
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
