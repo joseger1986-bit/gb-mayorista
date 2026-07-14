@@ -227,6 +227,11 @@ let lastExitBackPress = 0;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
+var supabaseCatalogReadyForWrites = false;
+var supabaseCatalogRemoteRefreshing = false;
+var supabaseCatalogRealtimeChannel = null;
+var supabaseCatalogRealtimeRefreshTimer = null;
+var supabaseCatalogPendingDeletedProductIds = new Set();
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
@@ -574,6 +579,7 @@ setView(getInitialView(), false, { skipHistory: true });
 initializeAppHistory();
 document.documentElement.dataset.gbApp = "loaded";
 initializeSupabaseCatalog();
+window.addEventListener("pagehide", teardownSupabaseCatalogRealtime);
 
 function loadProducts() {
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
@@ -662,17 +668,19 @@ function updateSupabaseCatalogStatus(status) {
 
 function queueSupabaseCatalogSync(reason = "manual") {
   if (!supabaseCatalogBootstrapped) return;
+  if (!supabaseCatalogReadyForWrites) return;
   if (!getSupabaseCatalogClient()) return;
   window.clearTimeout(supabaseCatalogSyncTimer);
   supabaseCatalogSyncTimer = window.setTimeout(() => {
     syncCatalogToSupabase(reason);
-  }, 700);
+  }, 200);
 }
 
 async function initializeSupabaseCatalog() {
   document.documentElement.dataset.gbSupabaseCatalog = "starting";
   const client = getSupabaseCatalogClient();
   if (!client) {
+    supabaseCatalogReadyForWrites = false;
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
@@ -683,31 +691,21 @@ async function initializeSupabaseCatalog() {
 
   try {
     document.documentElement.dataset.gbSupabaseCatalog = "reading";
-    const remote = await loadCatalogFromSupabase();
+    const remote = await withSupabaseTimeout(loadCatalogFromSupabase(), "No se pudo leer Supabase a tiempo.");
     supabaseCatalogBootstrapped = true;
 
     if (remote.products.length) {
-      categories = normalizeCategories(remote.categories);
-      products = normalizeProducts(remote.products);
-      localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
-      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      renderAll();
-      updateSupabaseCatalogStatus({
-        ok: true,
-        mode: "supabase-read",
-        message: "Catalogo cargado desde Supabase.",
-        products: products.length,
-        categories: categories.length
-      });
-      if (supabaseProductOptionSupported) {
-        window.setTimeout(() => syncCatalogToSupabase("product-option-field-migration"), 300);
-      }
+      applyRemoteCatalog(remote, "supabase-read");
+      supabaseCatalogReadyForWrites = true;
+      setupSupabaseCatalogRealtime();
       return;
     }
 
     document.documentElement.dataset.gbSupabaseCatalog = "syncing-local";
+    supabaseCatalogReadyForWrites = true;
     const syncResult = await syncCatalogToSupabase("initial-local-migration");
     if (!syncResult?.ok) return;
+    setupSupabaseCatalogRealtime();
     updateSupabaseCatalogStatus({
       ok: true,
       mode: "local-to-supabase",
@@ -718,6 +716,7 @@ async function initializeSupabaseCatalog() {
     });
   } catch (error) {
     supabaseCatalogBootstrapped = true;
+    supabaseCatalogReadyForWrites = false;
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
@@ -753,6 +752,104 @@ async function loadCatalogFromSupabase() {
     categories: mapSupabaseCategoriesToLocal(categoryRows || []),
     products: mapSupabaseProductsToLocal(productRows || []).filter((product) => product.active !== false)
   };
+}
+
+function applyRemoteCatalog(remote, reason = "supabase-read") {
+  categories = normalizeCategories(remote.categories);
+  products = normalizeProducts(remote.products);
+  localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  renderAll();
+  updateSupabaseCatalogStatus({
+    ok: true,
+    mode: reason,
+    message: "Catalogo cargado desde Supabase.",
+    products: products.length,
+    categories: categories.length
+  });
+}
+
+async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
+  const client = getSupabaseCatalogClient();
+  if (!client || supabaseCatalogRemoteRefreshing) return { ok: false, message: "Sin cliente o lectura en curso." };
+  supabaseCatalogRemoteRefreshing = true;
+  document.documentElement.dataset.gbSupabaseCatalog = reason === "realtime" ? "realtime-refresh" : "reading";
+
+  try {
+    const remote = await withSupabaseTimeout(loadCatalogFromSupabase(), "No se pudo actualizar Gestion desde Supabase a tiempo.");
+    supabaseCatalogBootstrapped = true;
+    if (!remote.products.length) {
+      supabaseCatalogReadyForWrites = false;
+      throw new Error("Supabase no devolvio productos para Gestion.");
+    }
+    applyRemoteCatalog(remote, reason === "realtime" ? "supabase-realtime" : "supabase-read");
+    supabaseCatalogReadyForWrites = true;
+    setupSupabaseCatalogRealtime();
+    return { ok: true, products: products.length, categories: categories.length };
+  } catch (error) {
+    supabaseCatalogReadyForWrites = false;
+    updateSupabaseCatalogStatus({
+      ok: false,
+      mode: "supabase-error",
+      message: error.message || "No se pudo actualizar Gestion desde Supabase.",
+      reason,
+      code: error.code || null,
+      hint: error.hint || error.details || "Revisar conexion, RLS o Realtime."
+    });
+    console.warn("GB Mayorista Supabase catalog refresh:", error);
+    if (!options.silent) showToast("No se pudo actualizar Gestion desde Supabase");
+    return { ok: false, message: error.message || "No se pudo actualizar desde Supabase." };
+  } finally {
+    supabaseCatalogRemoteRefreshing = false;
+  }
+}
+
+function setupSupabaseCatalogRealtime() {
+  const client = getSupabaseCatalogClient();
+  if (!client || typeof client.channel !== "function") return false;
+  if (supabaseCatalogRealtimeChannel) return true;
+
+  const refreshFromEvent = () => {
+    window.clearTimeout(supabaseCatalogRealtimeRefreshTimer);
+    supabaseCatalogRealtimeRefreshTimer = window.setTimeout(() => {
+      if (supabaseCatalogSyncRunning) {
+        refreshFromEvent();
+        return;
+      }
+      refreshCatalogFromSupabase("realtime", { silent: true });
+    }, 250);
+  };
+
+  supabaseCatalogRealtimeChannel = client
+    .channel("gb-mayorista-gestion-catalogo")
+    .on("postgres_changes", { event: "*", schema: "public", table: "products" }, refreshFromEvent)
+    .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, refreshFromEvent)
+    .on("postgres_changes", { event: "*", schema: "public", table: "product_variants" }, refreshFromEvent)
+    .subscribe((status) => {
+      document.documentElement.dataset.gbSupabaseRealtime = String(status || "").toLowerCase();
+    });
+
+  return true;
+}
+
+function teardownSupabaseCatalogRealtime() {
+  window.clearTimeout(supabaseCatalogRealtimeRefreshTimer);
+  supabaseCatalogRealtimeRefreshTimer = null;
+  const client = getSupabaseCatalogClient();
+  const channel = supabaseCatalogRealtimeChannel;
+  supabaseCatalogRealtimeChannel = null;
+  if (client && channel && typeof client.removeChannel === "function") {
+    client.removeChannel(channel);
+  }
+}
+
+function withSupabaseTimeout(promise, message, timeoutMs = 10000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]);
 }
 
 async function detectSupabaseProductDescriptionSupport(client) {
@@ -859,19 +956,24 @@ async function syncCatalogToSupabase(reason = "manual") {
         throw new Error("Supabase no confirmo la escritura de productos. Revisar permisos RLS para products.");
       }
 
+      const deletedProducts = await deleteExplicitlyRemovedProductsFromSupabase(client);
       const variantsSynced = await syncProductVariantsToSupabase(client);
+      supabaseCatalogReadyForWrites = true;
       updateSupabaseCatalogStatus({
         ok: true,
         mode: "supabase-sync",
         message: "Productos, categorias y variantes sincronizados con Supabase.",
         reason,
         products: savedProducts.length,
+        deletedProducts,
         variants: variantsSynced,
         categories: categories.length
       });
+      setupSupabaseCatalogRealtime();
       return {
         ok: true,
         products: savedProducts.length,
+        deletedProducts,
         variants: variantsSynced
       };
     }
@@ -884,6 +986,8 @@ async function syncCatalogToSupabase(reason = "manual") {
       products: products.length,
       categories: categories.length
     });
+    supabaseCatalogReadyForWrites = true;
+    setupSupabaseCatalogRealtime();
     return { ok: true, products: 0, variants: 0 };
   } catch (error) {
     updateSupabaseCatalogStatus({
@@ -903,6 +1007,26 @@ async function syncCatalogToSupabase(reason = "manual") {
   } finally {
     supabaseCatalogSyncRunning = false;
   }
+}
+
+async function deleteExplicitlyRemovedProductsFromSupabase(client) {
+  const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
+  if (!deletedIds.length) return 0;
+
+  const { error: deleteVariantsError } = await client
+    .from("product_variants")
+    .delete()
+    .in("product_id", deletedIds);
+  if (deleteVariantsError) throw deleteVariantsError;
+
+  const { error: deleteProductsError } = await client
+    .from("products")
+    .delete()
+    .in("id", deletedIds);
+  if (deleteProductsError) throw deleteProductsError;
+
+  deletedIds.forEach((id) => supabaseCatalogPendingDeletedProductIds.delete(id));
+  return deletedIds.length;
 }
 
 async function syncProductVariantsToSupabase(client) {
@@ -1047,8 +1171,12 @@ function getImageFileExtension(file) {
 
 window.gbSyncCatalogToSupabase = syncCatalogToSupabase;
 window.gbLoadCatalogFromSupabase = loadCatalogFromSupabase;
+window.gbRefreshCatalogFromSupabase = refreshCatalogFromSupabase;
+window.gbSetupCatalogRealtime = setupSupabaseCatalogRealtime;
+window.gbTeardownCatalogRealtime = teardownSupabaseCatalogRealtime;
 window.gbForceSyncProductsToSupabase = function () {
   supabaseCatalogBootstrapped = true;
+  supabaseCatalogReadyForWrites = true;
   return syncCatalogToSupabase("manual-force-products");
 };
 
@@ -1892,6 +2020,7 @@ function deleteEditingProduct() {
   const confirmed = window.confirm(`¿Eliminar "${product.name}"? Esta acción no borra pedidos históricos.`);
   if (!confirmed) return;
   const scrollTop = getAdminTableScrollTop();
+  supabaseCatalogPendingDeletedProductIds.add(editingProductId);
   products = products.filter((item) => item.id !== editingProductId);
   cart = cart.filter((item) => item.id !== editingProductId && item.internalProductId !== editingProductId);
   stockHistory = stockHistory.filter((entry) => entry.productId !== editingProductId);
@@ -5292,6 +5421,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.topbar?.classList.toggle("hidden", isPrivateManagementRoute());
   els.siteFooter?.classList.toggle("hidden", isPrivateManagementRoute());
   applyRoleVisibility();
+  if (isPrivateManagementRoute() && internalUnlocked) {
+    setupSupabaseCatalogRealtime();
+  }
   renderRole();
   renderNav();
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
@@ -5410,7 +5542,7 @@ function showInternalLogin(showError = false) {
   window.setTimeout(() => els.internalPassword?.focus(), 0);
 }
 
-function handleInternalLogin(event) {
+async function handleInternalLogin(event) {
   event.preventDefault();
   const selectedRole = String(els.internalUserRole?.value || "admin");
   const password = String(els.internalPassword?.value || "");
@@ -5429,6 +5561,7 @@ function handleInternalLogin(event) {
   if (els.internalPassword) els.internalPassword.value = "";
   renderAll();
   setView("admin");
+  await refreshCatalogFromSupabase("gestion-login", { silent: true });
 }
 
 function getManagementViews() {
