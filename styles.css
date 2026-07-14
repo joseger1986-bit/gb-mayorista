@@ -4753,3 +4753,12 @@ body.lightbox-open {
     max-height: 52dvh;
   }
 }
+
+/* Mobile must keep the same catalog wording as desktop. */
+.button-label-full {
+  display: inline;
+}
+
+.button-label-short {
+  display: none;
+}
