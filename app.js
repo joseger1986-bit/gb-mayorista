@@ -230,6 +230,8 @@ var supabaseCatalogBootstrapped = false;
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
+let catalogRemoteLoading = Boolean(window.GB_SUPABASE_CONFIG?.url);
+let catalogRemoteFailed = false;
 let lightboxImages = [];
 let lightboxIndex = 0;
 let lightboxTitle = "";
@@ -673,11 +675,14 @@ async function initializeSupabaseCatalog() {
   document.documentElement.dataset.gbSupabaseCatalog = "starting";
   const client = getSupabaseCatalogClient();
   if (!client) {
+    catalogRemoteLoading = false;
+    catalogRemoteFailed = Boolean(window.GB_SUPABASE_CONFIG?.url);
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
       message: "Supabase no esta configurado. La app sigue usando localStorage."
     });
+    renderAll();
     return;
   }
 
@@ -691,6 +696,8 @@ async function initializeSupabaseCatalog() {
       products = normalizeProducts(remote.products);
       localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+      catalogRemoteLoading = false;
+      catalogRemoteFailed = false;
       renderAll();
       updateSupabaseCatalogStatus({
         ok: true,
@@ -708,6 +715,8 @@ async function initializeSupabaseCatalog() {
     document.documentElement.dataset.gbSupabaseCatalog = "syncing-local";
     const syncResult = await syncCatalogToSupabase("initial-local-migration");
     if (!syncResult?.ok) return;
+    catalogRemoteLoading = false;
+    catalogRemoteFailed = false;
     updateSupabaseCatalogStatus({
       ok: true,
       mode: "local-to-supabase",
@@ -718,6 +727,8 @@ async function initializeSupabaseCatalog() {
     });
   } catch (error) {
     supabaseCatalogBootstrapped = true;
+    catalogRemoteLoading = false;
+    catalogRemoteFailed = true;
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "localStorage",
@@ -725,6 +736,7 @@ async function initializeSupabaseCatalog() {
       hint: "Si aparece un error de RLS o JWT, falta iniciar sesion o habilitar policies para esta etapa."
     });
     console.warn("GB Mayorista Supabase catalog init:", error);
+    renderAll();
   }
 }
 
@@ -1129,6 +1141,15 @@ function renderProductFormCategories() {
 }
 
 function renderCatalog() {
+  if (!internalUnlocked && catalogRemoteLoading) {
+    els.productGrid.innerHTML = `<div class="empty-state">Cargando catálogo mayorista...</div>`;
+    return;
+  }
+  if (!internalUnlocked && catalogRemoteFailed) {
+    els.productGrid.innerHTML = `<div class="empty-state">No se pudo cargar el catálogo actualizado. Revisá la conexión y volvé a intentar.</div>`;
+    return;
+  }
+
   const query = normalizeProductSearchText(els.searchInput.value);
   const catalogProducts = getCatalogProducts();
   const filtered = catalogProducts.filter((group) => {
