@@ -235,6 +235,7 @@ let lightboxIndex = 0;
 let lightboxTitle = "";
 let lightboxDescription = "";
 let lightboxTouchStartX = 0;
+let catalogImageFallbacks = new Map();
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -1142,10 +1143,15 @@ function renderCatalog() {
     return;
   }
 
+  catalogImageFallbacks = new Map(filtered.map((group) => [
+    group.id,
+    mergeProductImages(group.images || [], group.image ? [group.image] : [])
+  ]));
+
   els.productGrid.innerHTML = filtered.map((group) => `
     <article class="product-card ${hasCatalogVariantChoices(group) ? "has-variants" : "no-variants"}">
       <button class="product-image-button" type="button" data-open-gallery="${escapeHtml(group.id)}" aria-label="Ver fotos de ${escapeHtml(group.name)}">
-        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" data-catalog-image="${escapeHtml(group.id)}" data-image-index="0">
+        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" data-catalog-image="${escapeHtml(group.id)}" data-image-index="0" onerror="showNextCatalogImage(this)">
       </button>
       <div class="product-body">
         <div class="product-title-row">
@@ -1170,7 +1176,7 @@ function renderCatalog() {
   });
 
   els.productGrid.querySelectorAll("[data-catalog-image]").forEach((image) => {
-    image.addEventListener("error", () => showNextCatalogImage(image));
+    if (image.complete && image.naturalWidth === 0) showNextCatalogImage(image);
   });
 
   els.productGrid.querySelectorAll("[data-add-catalog]").forEach((button) => {
@@ -1488,8 +1494,7 @@ function getCatalogImage(image) {
 }
 
 function showNextCatalogImage(image) {
-  const group = catalogProducts.find((item) => item.id === image.dataset.catalogImage);
-  const images = mergeProductImages(group?.images || [], group?.image ? [group.image] : []);
+  const images = catalogImageFallbacks.get(image.dataset.catalogImage) || [];
   const currentIndex = Number(image.dataset.imageIndex) || 0;
   const nextIndex = currentIndex + 1;
   if (nextIndex < images.length) {
@@ -1498,6 +1503,7 @@ function showNextCatalogImage(image) {
     return;
   }
   image.removeAttribute("data-catalog-image");
+  image.onerror = null;
   image.src = DEFAULT_PRODUCT_IMAGE;
 }
 
