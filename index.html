@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=cards-calibradas-1">
+    <link rel="stylesheet" href="/styles.css?v=categorias-header-cards-1">
   </head>
   <body>
     <header class="topbar">
@@ -16,21 +16,12 @@
         </div>
       </div>
       <nav class="top-actions" aria-label="Navegación principal">
-        <details class="site-menu">
-          <summary aria-label="Abrir menú">☰</summary>
-          <div class="site-menu-panel">
-            <button type="button" data-view="catalogo">Inicio</button>
-            <a href="#categoryFilters">Categorías</a>
-            <button type="button" id="menuOpenCart" onclick="document.getElementById('openCart')?.click()">Carrito</button>
-            <a href="#contacto">Contacto</a>
-            <a href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp</a>
-            <button class="admin-menu-only hidden" type="button" id="menuManagement" onclick="document.getElementById('adminNavManagement')?.click()">Gestión</button>
-            <button class="admin-menu-only hidden" type="button" id="menuBackToManagement" onclick="document.getElementById('backToManagement')?.click(); document.getElementById('adminNavManagement')?.click()">Volver a Gestión</button>
-          </div>
-        </details>
-        <a class="direct-whatsapp whatsapp-only" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer" aria-label="WhatsApp"><span class="whatsapp-icon" aria-hidden="true"></span></a>
-        <button class="cart-button" id="openCart" type="button" data-catalog-only>
-          Carrito <span id="cartCount">0</span>
+        <a class="direct-whatsapp whatsapp-header-button" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer" aria-label="WhatsApp">
+          <span class="whatsapp-icon" aria-hidden="true"></span>
+          <span class="whatsapp-label">WhatsApp</span>
+        </a>
+        <button class="cart-button header-cart-button" id="openCart" type="button" data-catalog-only aria-label="Abrir carrito">
+          <span class="cart-button-label">Carrito</span> <span id="cartCount">0</span>
         </button>
       </nav>
     </header>
@@ -569,6 +560,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=cards-calibradas-1"></script>
+    <script src="/app.js?v=categorias-header-cards-1"></script>
   </body>
 </html>
