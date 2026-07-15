@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=gestion-sync-clean-1">
+    <link rel="stylesheet" href="/styles.css?v=visual-catalogo-compacto-1">
   </head>
   <body>
     <header class="topbar">
@@ -24,8 +24,13 @@
       </nav>
     </header>
 
-    <div class="minimum-banner" role="note" data-catalog-only>
-      Compra mínima mayorista: <strong>$100.000</strong>
+    <div class="minimum-banner" role="note" data-catalog-only aria-label="Compra minima mayorista: $100.000">
+      <div class="minimum-marquee">
+        <span>COMPRA MINIMA MAYORISTA: $100.000</span>
+        <span>COMPRA MINIMA MAYORISTA: $100.000</span>
+        <span>COMPRA MINIMA MAYORISTA: $100.000</span>
+        <span>COMPRA MINIMA MAYORISTA: $100.000</span>
+      </div>
     </div>
 
     <main>
@@ -46,7 +51,7 @@
           <h2>Armá tu pedido rápido y envialo por WhatsApp.</h2>
           <p>Catálogo listo para cargar productos reales de indumentaria mayorista.</p>
         </div>
-        <div class="hero-panel" aria-label="Resumen del negocio">
+        <div class="hero-panel" aria-label="Resumen del negocio" aria-hidden="true">
           <div>
             <strong id="heroProducts">0</strong>
             <span>productos activos</span>
@@ -562,6 +567,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=gestion-sync-clean-1"></script>
+    <script src="/app.js?v=visual-catalogo-compacto-1"></script>
   </body>
 </html>
