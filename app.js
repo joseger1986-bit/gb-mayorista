@@ -1,4 +1,4 @@
-const STORAGE_PRODUCTS = "gb_mayorista_products";
+﻿const STORAGE_PRODUCTS = "gb_mayorista_products";
 document.documentElement.dataset.gbApp = "loading";
 
 const STORAGE_CART = "gb_mayorista_cart";
@@ -1395,9 +1395,13 @@ function renderCatalog() {
         </div>
         ${renderCatalogVariantControl(group)}
         ${renderCatalogGroupPrice(group)}
-        <div class="quantity-row">
+        <div class="quantity-row quantity-stepper-row">
           <label for="qty-${group.id}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
-          <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="Cantidad para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
+          <div class="quantity-stepper" data-stepper="${group.id}">
+            <button class="quantity-stepper-button" type="button" data-qty-decrease="${group.id}" aria-label="Restar cantidad">−</button>
+            <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="Cantidad para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
+            <button class="quantity-stepper-button" type="button" data-qty-increase="${group.id}" aria-label="Sumar cantidad">+</button>
+          </div>
           <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}><span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span></button>
         </div>
       </div>
@@ -1431,8 +1435,7 @@ function renderCatalog() {
         return;
       }
       const internalProduct = products.find((item) => item.id === variant.productId);
-      const input = document.querySelector(`#qty-${CSS.escape(group.id)}`);
-      addCatalogGroupToCart(group, variant, Number(input.value), internalProduct);
+      addCatalogGroupToCart(group, variant, getCatalogQuantityValue(group.id, group.minimum), internalProduct);
     });
   });
 
@@ -1441,7 +1444,21 @@ function renderCatalog() {
   });
 
   els.productGrid.querySelectorAll("[data-catalog-qty]").forEach((input) => {
-    input.addEventListener("input", () => updateCatalogCardSelection(input.dataset.catalogQty, catalogProducts));
+    input.addEventListener("input", () => {
+      normalizeCatalogQuantityInput(input);
+      updateCatalogCardSelection(input.dataset.catalogQty, catalogProducts);
+    });
+    input.addEventListener("blur", () => normalizeCatalogQuantityInput(input, true));
+  });
+
+  els.productGrid.querySelectorAll("[data-qty-decrease], [data-qty-increase]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const groupId = button.dataset.qtyDecrease || button.dataset.qtyIncrease;
+      const group = catalogProducts.find((item) => item.id === groupId);
+      const direction = button.dataset.qtyIncrease ? 1 : -1;
+      changeCatalogQuantity(groupId, direction, group?.minimum || 1);
+      updateCatalogCardSelection(groupId, catalogProducts);
+    });
   });
 
 }
@@ -1673,15 +1690,17 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   const select = document.querySelector(`#variant-${CSS.escape(groupId)}`);
   const quantityInput = document.querySelector(`#qty-${CSS.escape(groupId)}`);
   const needsVariant = hasCatalogVariantChoices(group);
-  const variant = group.variants.find((item) => item.id === select?.value) || (!needsVariant ? group.variants[0] : null);
-  const quantity = Math.max(group.minimum || 1, Math.round(Number(quantityInput?.value) || group.minimum || 1));
-  const price = Number(variant?.price) || 0;
+  const selectedVariant = group.variants.find((item) => item.id === select?.value) || null;
+  const displayVariant = selectedVariant || group.variants[0] || null;
+  const variant = selectedVariant || (!needsVariant ? displayVariant : null);
+  const quantity = getCatalogQuantityValue(groupId, group.minimum || 1);
+  const price = Number(displayVariant?.price) || 0;
   const priceEl = document.querySelector(`[data-catalog-price="${CSS.escape(groupId)}"]`);
   const saleDetailEl = document.querySelector(`[data-catalog-sale-detail="${CSS.escape(groupId)}"]`);
   const addButton = document.querySelector(`[data-add-catalog="${CSS.escape(groupId)}"]`);
-  if (priceEl) priceEl.textContent = variant ? formatCatalogPrice(price) : "";
-  if (saleDetailEl) saleDetailEl.innerHTML = variant ? getCatalogSaleDetailHtml(variant) : "";
-  if (addButton) addButton.disabled = !variant || !hasCatalogPrice(price);
+  if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price) : "";
+  if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant) : "";
+  if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
 }
 
 function formatCatalogPrice(price) {
@@ -1692,6 +1711,29 @@ function formatCatalogPrice(price) {
 function formatCatalogSubtotal(price, quantity) {
   const amount = Number(price) || 0;
   return amount > 0 ? formatMoney(amount * Math.max(1, Number(quantity) || 1)) : "";
+}
+
+function getCatalogQuantityValue(groupId, minimum = 1) {
+  const input = document.querySelector(`#qty-${CSS.escape(groupId)}`);
+  const min = Math.max(1, Math.round(Number(minimum) || 1));
+  return Math.max(min, Math.round(Number(input?.value) || min));
+}
+
+function normalizeCatalogQuantityInput(input, force = false) {
+  if (!input) return;
+  const min = Math.max(1, Math.round(Number(input.min) || 1));
+  const raw = Math.round(Number(input.value) || min);
+  const next = Math.max(min, raw);
+  if (force || String(input.value) !== String(next)) input.value = String(next);
+}
+
+function changeCatalogQuantity(groupId, delta, minimum = 1) {
+  const input = document.querySelector(`#qty-${CSS.escape(groupId)}`);
+  if (!input) return;
+  const min = Math.max(1, Math.round(Number(minimum) || 1));
+  const current = Math.max(min, Math.round(Number(input.value) || min));
+  input.value = String(Math.max(min, current + delta));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function renderCatalogSaleDetail(group, variant) {
@@ -3610,8 +3652,8 @@ function renderCart() {
     return product ? { ...product, quantity: item.quantity, cartId: item.id } : null;
   }).filter(Boolean);
 
-  const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+  const totalUnits = getCartTotalQuantity(items);
+  const totalPrice = getCartTotalPrice(items);
   const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
   els.cartCount.textContent = totalUnits;
   if (els.openCart) {
@@ -3622,7 +3664,7 @@ function renderCart() {
   els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   els.cartTotal.textContent = formatMoney(totalPrice);
-  els.cartSubtitle.textContent = items.length ? `${items.length} producto${items.length === 1 ? "" : "s"}` : "Sin productos";
+  els.cartSubtitle.textContent = totalUnits ? `${totalUnits} producto${totalUnits === 1 ? "" : "s"}` : "Sin productos";
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
   els.minimumStatus.textContent = minimumReached
     ? "✓ Compra mínima alcanzada"
@@ -3630,18 +3672,18 @@ function renderCart() {
   clearCartError();
 
   if (!items.length) {
-    els.cartItems.innerHTML = `<div class="empty-state">Agregá productos para preparar el carrito.</div>`;
+    els.cartItems.innerHTML = `<div class="empty-state compact">Agregá productos para preparar el carrito.</div>`;
     els.whatsappLink.classList.add("disabled");
     els.whatsappLink.href = "#";
     els.whatsappLink.onclick = null;
     return;
   }
 
-  els.cartItems.innerHTML = items.map((item) => `
-    <article class="cart-item">
-      <img class="cart-item-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
+  els.cartItems.innerHTML = items.map((item, index) => `
+    <article class="cart-item compact-cart-item">
+      <img class="cart-item-image" src="${escapeHtml(item.image || DEFAULT_PRODUCT_IMAGE)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
       <div class="cart-item-main">
-        <strong>${escapeHtml(item.name.toUpperCase())}</strong>
+        <strong>${index + 1}. ${escapeHtml(item.name.toUpperCase())}</strong>
         <div class="cart-item-meta">
           ${renderCartVariantLine(item)}
           <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
@@ -3649,7 +3691,6 @@ function renderCart() {
         </div>
       </div>
       <div class="cart-item-side">
-        <span>Subtotal</span>
         <strong>${escapeHtml(formatCartSubtotal(item))}</strong>
         <button class="cart-remove-button" type="button" data-remove="${item.cartId || item.id}" aria-label="Quitar ${escapeHtml(item.name)}">Quitar</button>
       </div>
@@ -3692,6 +3733,13 @@ function renderCart() {
   };
 }
 
+function getCartTotalQuantity(items = cart) {
+  return items.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
+}
+
+function getCartTotalPrice(items = cart) {
+  return items.reduce((sum, item) => sum + (Math.max(1, Number(item.quantity) || 1) * (Number(item.price) || 0)), 0);
+}
 function showCartError(message) {
   if (!els.cartError) return;
   els.cartError.textContent = message;
@@ -5225,35 +5273,32 @@ function applyPendingPaidStockDiscounts() {
 }
 
 function buildWhatsappUrl(items, totalPrice, customer) {
+  const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
   const lines = [
-    "--------------------------------",
-    "CARRITO GB MAYORISTA",
-    "--------------------------------",
+    "*PEDIDO GB MAYORISTA*",
     "",
-    `Cliente: ${customer.name}`,
-    `Teléfono: ${customer.phone}`,
-    `Localidad: ${customer.location}`,
+    `*Cliente:* ${customer.name}`,
+    `*Teléfono:* ${customer.phone}`,
+    `*Localidad:* ${customer.location}`,
     "",
-    "Productos:",
+    "*PRODUCTOS*",
     "",
-    ...items.flatMap((item) => [
-      `- ${item.name}`,
-      ...(shouldShowCartOptionLine(item) ? [`  Opción: ${item.variantLabel}`] : []),
-      `  Presentación: ${formatCartPresentation(item)}`,
-      `  Cantidad: ${formatWhatsappQuantity(item)}`,
-      `  Subtotal: ${formatCustomerLineSubtotal(item)}`,
+    ...items.flatMap((item, index) => [
+      `${index + 1}. ${item.name}`,
+      ...(shouldShowCartOptionLine(item) ? [`   Opción: ${item.variantLabel}`] : []),
+      `   Presentación: ${formatCartPresentation(item)}`,
+      `   Cantidad: ${formatWhatsappQuantity(item)}`,
+      `   Subtotal: ${formatCustomerLineSubtotal(item)}`,
       ""
     ]),
-    "--------------------------------",
-    `Total estimado: ${formatMoney(totalPrice)}`,
-    `Compra mínima alcanzada: ${totalPrice >= WHOLESALE_MINIMUM ? "SI" : "NO"}`,
-    "--------------------------------",
+    `*TOTAL DEL PEDIDO: ${formatMoney(totalPrice)}*`,
     "",
-    "Aguardamos confirmacion."
+    `Compra mínima alcanzada: ${minimumReached ? "SÍ" : "NO"}`,
+    "",
+    "Aguardamos confirmación."
   ];
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
-
 function buildCustomerWhatsappUrl(order) {
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
   if (!phone || phone === "549") return "#";
