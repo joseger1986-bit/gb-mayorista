@@ -6811,3 +6811,205 @@ main {
     padding: 0;
   }
 }
+
+/* Cabecera compacta */
+.topbar {
+  min-height: 54px !important;
+  padding: 4px clamp(10px, 3vw, 28px) !important;
+  gap: 10px !important;
+  align-items: center !important;
+  border-bottom-width: 3px !important;
+}
+
+.brand {
+  gap: 8px !important;
+}
+
+.brand-mark {
+  width: 42px !important;
+  height: 42px !important;
+  border-width: 2px !important;
+  border-radius: 7px !important;
+  box-shadow: 3px 3px 0 var(--gb-black, #111) !important;
+  font-size: 0.92rem !important;
+}
+
+.brand h1 {
+  font-size: clamp(1.35rem, 3vw, 2.05rem) !important;
+  line-height: 0.9 !important;
+}
+
+.brand p {
+  margin-top: 1px !important;
+  font-size: clamp(0.58rem, 1vw, 0.74rem) !important;
+  line-height: 1 !important;
+}
+
+.top-actions {
+  gap: 7px !important;
+  flex-wrap: nowrap !important;
+}
+
+.whatsapp-header-button {
+  width: 36px !important;
+  min-width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  box-shadow: 2px 2px 0 var(--gb-black, #111) !important;
+}
+
+.whatsapp-header-button .whatsapp-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+}
+
+.whatsapp-header-button .whatsapp-icon {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.header-cart-button,
+.cart-button.header-cart-button {
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+  box-shadow: 2px 2px 0 var(--gb-red, #d71920) !important;
+}
+
+.header-cart-button .cart-button-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+}
+
+.header-cart-button::before {
+  content: "🛒" !important;
+  font-size: 1rem !important;
+}
+
+.header-cart-button #cartCount {
+  position: absolute !important;
+  top: -7px !important;
+  right: -7px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  border-width: 2px !important;
+  font-size: 0.66rem !important;
+  padding: 0 3px !important;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    min-height: 50px !important;
+    padding: 4px 8px !important;
+    gap: 6px !important;
+  }
+
+  .brand {
+    gap: 7px !important;
+    min-width: 0 !important;
+  }
+
+  .brand-mark {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 0.82rem !important;
+  }
+
+  .brand h1 {
+    font-size: clamp(1.18rem, 6vw, 1.62rem) !important;
+  }
+
+  .brand p {
+    font-size: 0.56rem !important;
+  }
+
+  .top-actions {
+    width: auto !important;
+    gap: 6px !important;
+  }
+
+  .whatsapp-header-button {
+    width: 34px !important;
+    min-width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+  }
+
+  .header-cart-button,
+  .cart-button.header-cart-button {
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+  }
+}
+
+/* Correccion cabecera una sola linea mobile */
+.topbar {
+  flex-wrap: nowrap !important;
+}
+
+.brand {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.brand > div:not(.brand-mark) {
+  min-width: 0 !important;
+}
+
+.brand h1,
+.brand p {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.top-actions {
+  flex: 0 0 auto !important;
+  width: auto !important;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    flex-wrap: nowrap !important;
+  }
+
+  .brand h1 {
+    font-size: clamp(1.02rem, 5.2vw, 1.38rem) !important;
+  }
+
+  .brand p {
+    font-size: 0.5rem !important;
+  }
+}
+
+/* Forzar cabecera compacta horizontal */
+.topbar {
+  flex-direction: row !important;
+  justify-content: space-between !important;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    flex-direction: row !important;
+    justify-content: space-between !important;
+  }
+
+  .brand {
+    width: auto !important;
+    max-width: calc(100% - 88px) !important;
+  }
+}
