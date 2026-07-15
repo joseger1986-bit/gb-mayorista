@@ -6280,3 +6280,188 @@ main {
     min-height: 42px;
   }
 }
+
+/* Calibracion final tarjetas catalogo */
+.product-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.product-image-button,
+.product-image {
+  height: 196px;
+}
+
+.product-image {
+  padding: 7px;
+}
+
+.product-body {
+  gap: 6px;
+  padding: 10px;
+}
+
+.product-title {
+  height: 52px;
+  min-height: 52px;
+  font-size: 0.94rem;
+  line-height: 1.14;
+}
+
+.variant-select-row {
+  height: 34px;
+  min-height: 34px;
+  gap: 0;
+  font-size: 0;
+}
+
+.variant-select-row select {
+  height: 34px;
+  min-height: 34px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pack-price {
+  min-height: 50px;
+  gap: 2px;
+}
+
+.pack-main-price {
+  font-size: 1.08rem;
+  line-height: 1.05;
+}
+
+.pack-sale-detail {
+  display: grid;
+  gap: 1px;
+  min-height: 28px;
+}
+
+.pack-sale-detail span {
+  font-size: 0.72rem;
+  line-height: 1.12;
+}
+
+.quantity-stepper-row {
+  grid-template-rows: 14px 30px 36px;
+  gap: 4px;
+  min-height: 84px;
+}
+
+.quantity-stepper-row label {
+  min-height: 14px;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.quantity-stepper {
+  grid-template-columns: 28px 46px 28px;
+  justify-content: start;
+  gap: 4px;
+  min-height: 30px;
+}
+
+.quantity-stepper-button,
+.quantity-stepper input,
+.quantity-row .quantity-stepper input {
+  height: 30px;
+  min-height: 30px;
+}
+
+.quantity-stepper-button {
+  width: 28px;
+}
+
+.quantity-stepper input,
+.quantity-row .quantity-stepper input {
+  width: 46px;
+  max-width: 46px;
+}
+
+.quantity-stepper-row .primary-button {
+  height: 36px;
+  min-height: 36px;
+}
+
+@media (max-width: 900px) {
+  .product-image-button,
+  .product-image {
+    height: 132px;
+  }
+
+  .product-body {
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .product-title {
+    height: 44px;
+    min-height: 44px;
+    font-size: 0.74rem;
+    line-height: 1.12;
+  }
+
+  .variant-select-row {
+    height: 30px;
+    min-height: 30px;
+  }
+
+  .variant-select-row select {
+    height: 30px;
+    min-height: 30px;
+    font-size: 0.7rem;
+  }
+
+  .pack-price {
+    min-height: 43px;
+  }
+
+  .pack-main-price {
+    font-size: 0.9rem;
+  }
+
+  .pack-sale-detail {
+    min-height: 25px;
+  }
+
+  .pack-sale-detail span {
+    font-size: 0.62rem;
+  }
+
+  .quantity-stepper-row {
+    grid-template-rows: 12px 28px 34px;
+    min-height: 76px;
+  }
+
+  .quantity-stepper-row label {
+    font-size: 0.64rem;
+  }
+
+  .quantity-stepper {
+    grid-template-columns: 26px 40px 26px;
+    min-height: 28px;
+  }
+
+  .quantity-stepper-button,
+  .quantity-stepper input,
+  .quantity-row .quantity-stepper input {
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .quantity-stepper-button {
+    width: 26px;
+  }
+
+  .quantity-stepper input,
+  .quantity-row .quantity-stepper input {
+    width: 40px;
+    max-width: 40px;
+  }
+
+  .quantity-stepper-row .primary-button {
+    height: 34px;
+    min-height: 34px;
+  }
+}

@@ -1670,8 +1670,7 @@ function renderCatalogVariantControl(group) {
   if (!hasCatalogVariantChoices(group)) return "";
   return `
     <label class="variant-select-row" for="variant-${group.id}">
-      Elegir opción
-      <select id="variant-${group.id}" data-catalog-variant="${group.id}">
+      <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="Elegir opción">
         <option value="">Elegir opción</option>
         ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(variant.label)}</option>`).join("")}
       </select>
@@ -1767,10 +1766,6 @@ function getCatalogUnitPriceLabel(variant) {
 }
 
 function getCatalogQuantityLabel(group) {
-  const presentation = String(group?.variants?.[0]?.presentation || "").trim();
-  if (/docena/i.test(presentation)) return "Docenas";
-  if (/pack/i.test(presentation)) return "Packs";
-  if (/unidad/i.test(presentation)) return "Unidades";
   return "Cantidad";
 }
 
