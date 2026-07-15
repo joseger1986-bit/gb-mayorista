@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=visual-catalogo-compacto-1">
+    <link rel="stylesheet" href="/styles.css?v=visual-final-identidad-1">
   </head>
   <body>
     <header class="topbar">
@@ -12,12 +12,23 @@
         <div class="brand-mark">GB</div>
         <div>
           <h1>GB Mayorista</h1>
-          <p>Catálogo mayorista simple</p>
+          <p>Mayorista para revendedores</p>
         </div>
       </div>
       <nav class="top-actions" aria-label="Navegación principal">
+        <details class="site-menu">
+          <summary aria-label="Abrir menú">☰</summary>
+          <div class="site-menu-panel">
+            <button type="button" data-view="catalogo">Inicio</button>
+            <a href="#categoryFilters">Categorías</a>
+            <button type="button" id="menuOpenCart" onclick="document.getElementById('openCart')?.click()">Carrito</button>
+            <a href="#contacto">Contacto</a>
+            <a href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp</a>
+            <button class="admin-menu-only hidden" type="button" id="menuManagement" onclick="document.getElementById('adminNavManagement')?.click()">Gestión</button>
+            <button class="admin-menu-only hidden" type="button" id="menuBackToManagement" onclick="document.getElementById('backToManagement')?.click(); document.getElementById('adminNavManagement')?.click()">Volver a Gestión</button>
+          </div>
+        </details>
         <a class="direct-whatsapp whatsapp-only" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer" aria-label="WhatsApp"><span class="whatsapp-icon" aria-hidden="true"></span></a>
-        <button class="ghost-button" data-view="catalogo">Catálogo</button>
         <button class="cart-button" id="openCart" type="button" data-catalog-only>
           Carrito <span id="cartCount">0</span>
         </button>
@@ -34,6 +45,10 @@
     </div>
 
     <main>
+      <div class="runtime-stats-hidden" aria-hidden="true">
+        <strong id="heroProducts">0</strong>
+        <strong id="heroCategories">0</strong>
+      </div>
       <section id="adminNav" class="admin-private-nav hidden" aria-label="Navegación de administrador">
         <div>
           <strong>GB Mayorista</strong>
@@ -45,39 +60,26 @@
         </nav>
       </section>
 
-      <section class="hero" data-catalog-only>
-        <div class="hero-copy">
-          <span class="eyebrow">Carrito mayorista</span>
-          <h2>Armá tu pedido rápido y envialo por WhatsApp.</h2>
-          <p>Catálogo listo para cargar productos reales de indumentaria mayorista.</p>
-        </div>
-        <div class="hero-panel" aria-label="Resumen del negocio" aria-hidden="true">
-          <div>
-            <strong id="heroProducts">0</strong>
-            <span>productos activos</span>
-          </div>
-          <div>
-            <strong id="heroCategories">0</strong>
-            <span>categorías</span>
-          </div>
-        </div>
-      </section>
-
       <section id="catalogView" class="content-view">
         <div class="section-head">
           <div>
-            <h2>Catálogo</h2>
-            <p>Filtrá por categoría y agregá productos respetando la compra mínima.</p>
+            <h2 class="visually-hidden">Catálogo</h2>
           </div>
           <label class="search-box">
             <span>Buscar</span>
-            <input id="searchInput" type="search" placeholder="Nombre del producto">
+            <input id="searchInput" type="search" placeholder="Buscar producto...">
           </label>
           <button class="primary-button admin-return-button hidden" id="backToManagement" type="button">Volver a Gestión</button>
         </div>
 
         <div class="category-row" id="categoryFilters" aria-label="Categorías"></div>
         <div class="product-grid" id="productGrid"></div>
+      </section>
+
+      <section id="contacto" class="contact-section" data-catalog-only>
+        <h2>Contacto</h2>
+        <p>Comunicate por WhatsApp para consultas y pedidos mayoristas.</p>
+        <a class="contact-whatsapp" href="https://wa.me/5492477520456" target="_blank" rel="noreferrer">WhatsApp</a>
       </section>
 
       <section id="internalLoginView" class="internal-login-view hidden" aria-labelledby="internalLoginTitle">
@@ -567,6 +569,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=visual-catalogo-compacto-1"></script>
+    <script src="/app.js?v=visual-final-identidad-1"></script>
   </body>
 </html>
