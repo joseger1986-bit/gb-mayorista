@@ -270,6 +270,7 @@ const els = {
   openCart: document.querySelector("#openCart"),
   closeCart: document.querySelector("#closeCart"),
   clearCart: document.querySelector("#clearCart"),
+  continueShopping: document.querySelector("#continueShopping"),
   addProductToggle: document.querySelector("#addProductToggle"),
   addProductOverlay: document.querySelector("#addProductOverlay"),
   importProductsButton: document.querySelector("#importProductsButton"),
@@ -433,6 +434,7 @@ els.newCategoryName?.addEventListener("keydown", (event) => {
 els.openCart.addEventListener("click", openCart);
 els.floatingCartButton?.addEventListener("click", openCart);
 els.closeCart.addEventListener("click", closeCart);
+els.continueShopping?.addEventListener("click", closeCart);
 els.cartDrawer.addEventListener("click", (event) => {
   if (event.target === els.cartDrawer) closeCart();
 });
@@ -3659,11 +3661,11 @@ function renderCart() {
   els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   els.cartTotal.textContent = formatMoney(totalPrice);
-  els.cartSubtitle.textContent = totalUnits ? `${totalUnits} producto${totalUnits === 1 ? "" : "s"}` : "Sin productos";
+  els.cartSubtitle.textContent = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} unidad${totalUnits === 1 ? "" : "es"} totales` : "Sin productos";
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
   els.minimumStatus.textContent = minimumReached
     ? "✓ Compra mínima alcanzada"
-    : `Faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima de ${formatMoney(WHOLESALE_MINIMUM)}`;
+    : `Te faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima`;
   clearCartError();
 
   if (!items.length) {
@@ -3683,6 +3685,7 @@ function renderCart() {
           ${renderCartVariantLine(item)}
           <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
           <span>Cantidad: ${escapeHtml(formatCartQuantity(item))}</span>
+                  <span>Precio: ${escapeHtml(formatMoney(Number(item.price) || 0))}</span>
         </div>
       </div>
       <div class="cart-item-side">
@@ -5750,11 +5753,13 @@ function hasPermission(permission) {
 
 function openCart() {
   els.cartDrawer.classList.add("open");
+  document.body.classList.add("cart-is-open");
   els.cartDrawer.setAttribute("aria-hidden", "false");
 }
 
 function closeCart() {
   els.cartDrawer.classList.remove("open");
+  document.body.classList.remove("cart-is-open");
   els.cartDrawer.setAttribute("aria-hidden", "true");
 }
 
