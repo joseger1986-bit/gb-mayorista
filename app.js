@@ -261,6 +261,7 @@ const els = {
   floatingCartCount: document.querySelector("#floatingCartCount"),
   cartTotal: document.querySelector("#cartTotal"),
   cartSubtitle: document.querySelector("#cartSubtitle"),
+  cartSummaryCounts: document.querySelector("#cartSummaryCounts"),
   customerName: document.querySelector("#customerName"),
   customerPhone: document.querySelector("#customerPhone"),
   customerLocation: document.querySelector("#customerLocation"),
@@ -3661,7 +3662,9 @@ function renderCart() {
   els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   els.cartTotal.textContent = formatMoney(totalPrice);
-  els.cartSubtitle.textContent = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} unidad${totalUnits === 1 ? "" : "es"} totales` : "Sin productos";
+  const cartCountSummary = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} unidad${totalUnits === 1 ? "" : "es"} totales` : "Sin productos";
+  els.cartSubtitle.textContent = cartCountSummary;
+  if (els.cartSummaryCounts) els.cartSummaryCounts.textContent = cartCountSummary;
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
   els.minimumStatus.textContent = minimumReached
     ? "✓ Compra mínima alcanzada"
