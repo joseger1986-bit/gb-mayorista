@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=carrito-orden-1">
+    <link rel="stylesheet" href="/styles.css?v=carrito-layout-fijo-1">
   </head>
   <body>
     <header class="topbar">
@@ -365,11 +365,10 @@
       <span class="floating-cart-label">Carrito</span>
       <span class="floating-cart-count" id="floatingCartCount">0</span>
     </button>
-                <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
+                    <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
       <div class="cart-panel">
         <div class="cart-head">
           <div>
-            <p class="cart-kicker">RESUMEN DEL PEDIDO</p>
             <h2>Carrito</h2>
             <p id="cartSubtitle">Sin productos</p>
           </div>
@@ -384,7 +383,7 @@
                 <input id="customerName" type="text" placeholder="Nombre del cliente">
               </label>
               <label>
-                Teléfono (con característica)
+                Teléfono
                 <input id="customerPhone" type="tel" autocomplete="off" placeholder="Ej: 2477123456">
               </label>
               <label>
@@ -397,36 +396,26 @@
             <h3>Productos del carrito</h3>
             <div class="cart-items" id="cartItems"></div>
           </section>
-          <section class="cart-section cart-summary-section">
-            <h3>Resumen final</h3>
-            <p class="cart-summary-counts" id="cartSummaryCounts">Sin productos</p>
-            <div class="cart-total">
-              <span>Total del pedido</span>
-              <strong id="cartTotal">$0</strong>
-            </div>
-            <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
-          </section>
-          <section class="cart-section cart-action-section">
-            <div class="cart-error hidden" id="cartError" role="alert"></div>
-            <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar pedido por WhatsApp</a>
-            <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
-            <button class="secondary-button full" id="continueShopping" type="button">Seguir comprando</button>
-          </section>
+          <footer class="cart-footer">
+            <section class="cart-section cart-summary-section">
+              <p class="cart-summary-counts" id="cartSummaryCounts">Sin productos</p>
+              <div class="cart-total">
+                <span>Total del pedido</span>
+                <strong id="cartTotal">$0</strong>
+              </div>
+              <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
+            </section>
+            <section class="cart-section cart-action-section">
+              <div class="cart-error hidden" id="cartError" role="alert"></div>
+              <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar pedido por WhatsApp</a>
+              <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
+              <button class="secondary-button full" id="continueShopping" type="button">Seguir comprando</button>
+            </section>
+          </footer>
         </div>
       </div>
-    </aside><div class="print-preview-overlay</strong>
-            </div>
-            <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
-          </section>
-          <section class="cart-section cart-action-section">
-            <div class="cart-error hidden" id="cartError" role="alert"></div>
-            <a class="whatsapp-button disabled" id="whatsappLink" href="#" target="_blank" rel="noreferrer">Enviar pedido por WhatsApp</a>
-            <button class="secondary-button full" id="clearCart" type="button">Vaciar carrito</button>
-            <button class="secondary-button full" id="continueShopping" type="button">Seguir comprando</button>
-          </section>
-        </div>
-      </div>
-    </aside><div class="print-preview-overlay hidden" id="printPreviewOverlay" aria-hidden="true">
+    </aside>
+<div class="print-preview-overlay hidden" id="printPreviewOverlay" aria-hidden="true">
       <div class="print-preview-panel">
         <div class="print-preview-actions">
           <strong id="printPreviewTitle">Vista imprimible</strong>
@@ -573,6 +562,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=carrito-orden-1"></script>
+    <script src="/app.js?v=carrito-layout-fijo-1"></script>
   </body>
 </html>
