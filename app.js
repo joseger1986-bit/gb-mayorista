@@ -5272,20 +5272,11 @@ function applyPendingPaidStockDiscounts() {
 
 function buildWhatsappUrl(items, totalPrice, customer) {
   const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
-  const orderDate = new Date().toLocaleString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).replace(",", "");
   const productLines = items.flatMap((item) => {
     const option = shouldShowCartOptionLine(item) ? ` - ${item.variantLabel}` : "";
     const name = `${item.name}${option}`;
     return [
       `• ${formatWhatsappQuantity(item)} - ${name}`,
-      `  Precio: ${formatMoney(Number(item.price) || 0)}`,
       `  Subtotal: ${formatCustomerLineSubtotal(item)}`,
       ""
     ];
@@ -5293,23 +5284,22 @@ function buildWhatsappUrl(items, totalPrice, customer) {
   const lines = [
     "🛒 PEDIDO GB MAYORISTA",
     "",
-    `Fecha: ${orderDate}`,
-    "",
-    "CLIENTE",
-    `Nombre: ${customer.name}`,
+    `Cliente: ${customer.name}`,
     `Teléfono: ${customer.phone}`,
     `Localidad: ${customer.location}`,
     "",
     "PRODUCTOS",
     "",
     ...productLines,
+    "────────────────",
+    "",
     "TOTAL DEL PEDIDO",
     formatMoney(totalPrice),
     "",
     minimumReached ? "✅ Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
     "",
-    "Gracias por su pedido.",
-    "GB Mayorista"
+    "Gracias por elegir GB Mayorista.",
+    "Nos comunicaremos a la brevedad."
   ];
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
