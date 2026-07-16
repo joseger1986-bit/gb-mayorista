@@ -5272,28 +5272,44 @@ function applyPendingPaidStockDiscounts() {
 
 function buildWhatsappUrl(items, totalPrice, customer) {
   const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
-  const lines = [
-    "*PEDIDO GB MAYORISTA*",
-    "",
-    `*Cliente:* ${customer.name}`,
-    `*Teléfono:* ${customer.phone}`,
-    `*Localidad:* ${customer.location}`,
-    "",
-    "*PRODUCTOS*",
-    "",
-    ...items.flatMap((item, index) => [
-      `${index + 1}. ${item.name}`,
-      ...(shouldShowCartOptionLine(item) ? [`   Opción: ${item.variantLabel}`] : []),
-      `   Presentación: ${formatCartPresentation(item)}`,
-      `   Cantidad: ${formatWhatsappQuantity(item)}`,
-      `   Subtotal: ${formatCustomerLineSubtotal(item)}`,
+  const orderDate = new Date().toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).replace(",", "");
+  const productLines = items.flatMap((item) => {
+    const option = shouldShowCartOptionLine(item) ? ` - ${item.variantLabel}` : "";
+    const name = `${item.name}${option}`;
+    return [
+      `• ${formatWhatsappQuantity(item)} - ${name}`,
+      `  Precio: ${formatMoney(Number(item.price) || 0)}`,
+      `  Subtotal: ${formatCustomerLineSubtotal(item)}`,
       ""
-    ]),
-    `*TOTAL DEL PEDIDO: ${formatMoney(totalPrice)}*`,
+    ];
+  });
+  const lines = [
+    "🛒 PEDIDO GB MAYORISTA",
     "",
-    `Compra mínima alcanzada: ${minimumReached ? "SÍ" : "NO"}`,
+    `Fecha: ${orderDate}`,
     "",
-    "Aguardamos confirmación."
+    "CLIENTE",
+    `Nombre: ${customer.name}`,
+    `Teléfono: ${customer.phone}`,
+    `Localidad: ${customer.location}`,
+    "",
+    "PRODUCTOS",
+    "",
+    ...productLines,
+    "TOTAL DEL PEDIDO",
+    formatMoney(totalPrice),
+    "",
+    minimumReached ? "✅ Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
+    "",
+    "Gracias por su pedido.",
+    "GB Mayorista"
   ];
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
@@ -5491,7 +5507,12 @@ function isPresentationOnlyLabel(value) {
 }
 
 function formatWhatsappQuantity(item) {
-  return formatCartQuantity(item);
+  const quantity = Math.max(1, Number(item?.quantity) || 1);
+  const presentation = String(item?.presentation || "").trim().toLowerCase();
+  if (presentation.includes("docena")) return `${quantity} ${quantity === 1 ? "docena" : "docenas"}`;
+  if (presentation.includes("unidad")) return `${quantity} ${quantity === 1 ? "unidad" : "unidades"}`;
+  if (presentation.includes("pack")) return `${quantity} ${quantity === 1 ? presentation : presentation.endsWith("s") ? presentation : `${presentation}s`}`;
+  return `${quantity} ${quantity === 1 ? "unidad" : "unidades"}`;
 }
 
 function formatCartSubtotal(item) {
