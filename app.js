@@ -32,15 +32,11 @@ const defaultProductCategories = [
 ];
 
 const statuses = [
-  "En revisiÃ³n",
-  "Presupuesto enviado",
-  "Pendiente de pago",
-  "Pagado",
-  "Entregado",
-  "Cancelado"
+  "En revisión",
+  "Pagado"
 ];
 
-const confirmedStatuses = ["Pagado", "Entregado"];
+const confirmedStatuses = ["Pagado"];
 
 const roles = {
   client: {
@@ -3015,7 +3011,7 @@ function renderOrders() {
 }
 
 function renderOrdersToolbar() {
-  const filters = ["Todas", "Consultas", "Pedidos confirmados", "En revisión", "Preparados", "Entregados", "Cancelados"];
+  const filters = ["Todas", "En revisión", "Pagadas"];
   return `
     <div class="orders-workbar">
       <label class="search-box orders-search-box">
@@ -3049,13 +3045,12 @@ function getOrderSearchText(order) {
   ].join(" "));
 }
 
+function normalizeConsultationStatus(status) {
+  return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisión";
+}
 function matchesOrderListFilter(order, filter) {
-  if (filter === "Consultas") return !isInternalOrder(order);
-  if (filter === "Pedidos confirmados") return isInternalOrder(order);
-  if (filter === "En revisión") return order.status === "En revisión";
-  if (filter === "Preparados") return ["Preparado", "Preparados", "Pagado"].includes(order.status);
-  if (filter === "Entregados") return order.status === "Entregado";
-  if (filter === "Cancelados") return order.status === "Cancelado";
+  if (filter === "En revisión") return normalizeConsultationStatus(order.status) === "En revisión";
+  if (filter === "Pagadas") return normalizeConsultationStatus(order.status) === "Pagado";
   return true;
 }
 
@@ -3080,7 +3075,7 @@ function renderOrderListRow(order) {
   const total = Number(order.total || order.catalogTotal) || 0;
   const openButton = `<button class="primary-button small-button" type="button" data-open-order="${order.id}">Abrir</button>`;
   return `
-    <article class="orders-compact-row order-status-${getStatusKey(order.status)} ${isInternalOrder(order) ? "order-row-internal" : "order-row-consultation"}" role="row">
+    <article class="orders-compact-row order-status-${getStatusKey(normalizeConsultationStatus(order.status))} order-row-consultation" role="row">
       <strong class="orders-row-number" role="cell">${escapeHtml(formatRecordNumber(order))}</strong>
       <span class="orders-row-date" role="cell">${escapeHtml(formatCompactDateTime(order.createdAt || order.updatedAt))}</span>
       <span class="orders-row-client" role="cell" data-location="${escapeHtml(order.customerLocation || "Sin localidad")}">${escapeHtml(getOrderCustomerName(order))}</span>
@@ -3119,18 +3114,8 @@ function renderOrderCustomerBlock(order) {
 }
 
 function renderOrderActionButtons(order) {
-  if (!isInternalOrder(order)) {
-    return `
-      <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
-      <button class="primary-button small-button order-confirm-action" type="button" data-confirm-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Confirmar pedido</button>
-      <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
-      <button class="danger-button small-button order-secondary-action" type="button" data-cancel-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Cancelar consulta</button>
-      <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>
-    `;
-  }
   return `
     <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
-    <button class="secondary-button small-button order-secondary-action" type="button" data-save-order="${order.id}" ${canChangeOrderStatus(order) ? "" : "disabled"}>Cambiar estado</button>
     <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
     <button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>
     <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>
@@ -3144,13 +3129,13 @@ function renderInternalOrderCard(order, options = {}) {
   const totals = calculateBudgetTotals(order);
   const isOpen = options.standalone || previewOrderId === order.id || openOrderId === order.id;
   return `
-    <article class="order-card order-workspace order-kind-${isInternalOrder(order) ? "order" : "consultation"} order-status-${getStatusKey(order.status)} ${isConfirmed(order.status) ? "confirmed" : ""}">
+    <article class="order-card order-workspace order-kind-consultation order-status-${getStatusKey(normalizeConsultationStatus(order.status))} ${isConfirmed(normalizeConsultationStatus(order.status)) ? "confirmed" : ""}">
       <div class="order-workspace-top compact-order-top">
         <div>
           <h3>${escapeHtml(formatRecordNumber(order))}</h3>
           <span>Fecha: ${escapeHtml(formatDateTime(order.createdAt))}</span>
         </div>
-        <span class="status-pill status-${getStatusKey(order.status)}">${escapeHtml(order.status)}</span>
+        <span class="status-pill status-${getStatusKey(normalizeConsultationStatus(order.status))}">${escapeHtml(normalizeConsultationStatus(order.status))}</span>
         <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Volver</button>
       </div>
 
@@ -3178,11 +3163,9 @@ function renderInternalOrderCard(order, options = {}) {
               <span>${order.items.length} producto${order.items.length === 1 ? "" : "s"}</span>
             </div>
             <div class="budget-item budget-item-head">
+              <span>Cantidad</span>
               <span>Producto</span>
               <span>Opción</span>
-              <span>Presentación</span>
-              <span>Cantidad</span>
-              <span>Precio</span>
               <span>Subtotal</span>
               <span>Editar</span>
               <span>Eliminar</span>
@@ -3211,7 +3194,7 @@ function renderInternalOrderCard(order, options = {}) {
             <label class="checkout-main-field">
               Estado
               <select data-record-status="${order.id}" ${canChangeOrderStatus(order) ? "" : "disabled"}>
-                ${statuses.map((status) => `<option value="${status}" ${order.status === status ? "selected" : ""}>${status}</option>`).join("")}
+                ${statuses.map((status) => `<option value="${status}" ${normalizeConsultationStatus(order.status) === status ? "selected" : ""}>${status}</option>`).join("")}
               </select>
             </label>
             <label class="discount-control">
@@ -3259,14 +3242,13 @@ function renderCompactBudgetItem(order, item) {
   const presentation = getBudgetItemPresentation(item);
   const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
   const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
-  const optionText = option ? ` · ${escapeHtml(option)}` : "";
+  const fullLine = `${quantityLine} · ${item.name}${option ? ` · ${option}` : ""}`;
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
-      <span class="budget-product-name order-product-line">${escapeHtml(quantityLine)} · ${escapeHtml(item.name)}${optionText}</span>
-      <span class="budget-option-cell order-product-option">${escapeHtml(option || "")}</span>
-      <span class="order-product-presentation">${escapeHtml(presentation)}</span>
+      <span class="order-product-mobile-line">${escapeHtml(fullLine)}</span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
-      <span class="order-product-price">${formatMoney(item.price)}</span>
+      <span class="budget-product-name order-product-line">${escapeHtml(item.name)}</span>
+      <span class="budget-option-cell order-product-option">${escapeHtml(option || "")}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(item.quantity * item.price)}</strong>
       <span class="order-product-edit-action"><button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button></span>
       <span class="order-product-delete-action"><button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button></span>
@@ -3436,7 +3418,7 @@ function sendBudgetPreviewByWhatsapp(orderId) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  order.status = "Presupuesto enviado";
+  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisión";
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   previewOrderId = "";
@@ -3490,9 +3472,6 @@ function bindBudgetEditor() {
     });
   });
 
-  els.ordersList.querySelectorAll("[data-confirm-order]").forEach((button) => {
-    button.addEventListener("click", () => confirmConsultationOrder(button.dataset.confirmOrder));
-  });
 
   els.ordersList.querySelectorAll("[data-budget-customer-name]").forEach((input) => {
     input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerName, {
@@ -4714,89 +4693,29 @@ function updateBudget(id, changes) {
 function updateRecordStatus(id, status) {
   const order = orders.find((item) => item.id === id);
   if (!order || !statuses.includes(status)) return;
-  if (["Pagado", "Entregado"].includes(status) && isInternalOrder(order) && !order.stockApplied) {
-    markOrderPaidAndDiscountStock(id, status);
+  const currentStatus = normalizeConsultationStatus(order.status);
+  if (status === "Pagado" && !order.stockApplied) {
+    markOrderPaidAndDiscountStock(id, "Pagado");
     return;
   }
-  if (["Pagado", "Entregado"].includes(status) && !isInternalOrder(order)) {
-    showToast("Primero armÃ¡ el pedido interno para marcar pago");
-    renderOrders();
-    return;
-  }
-  if (order.stockApplied && ["Pagado", "Entregado"].includes(order.status) && !["Pagado", "Entregado"].includes(status)) {
-    showToast("El pedido ya fue pagado y el stock descontado");
+  if (status === "En revisión" && order.stockApplied) {
+    showToast("La consulta ya está pagada y el stock descontado");
     renderOrders();
     return;
   }
   order.status = status;
-  order.updatedAt = new Date().toISOString();
+  if (currentStatus !== status) order.updatedAt = new Date().toISOString();
   syncClientsFromOrders();
   saveOrders();
   saveClients();
   renderAll();
   showToast("Estado actualizado");
 }
-
-function confirmConsultationOrder(id) {
-  if (!hasPermission("orders")) return;
-  const order = orders.find((item) => item.id === id);
-  if (!order || isInternalOrder(order)) return;
-  if (!canEditOrder(order)) return;
-  order.type = "order";
-  if (!["Pagado", "Entregado", "Cancelado"].includes(order.status)) {
-    order.status = "Pendiente de pago";
-  }
-  order.updatedAt = new Date().toISOString();
-  recalculateBudget(order);
-  syncClientsFromOrders();
-  saveOrders();
-  saveClients();
-  openOrderId = order.id;
-  editingOrderCustomerId = "";
-  renderAll();
-  showToast("Pedido confirmado");
-}
 function buildInternalOrderFromConsultation(id) {
   if (!hasPermission("orders")) return;
   const consultation = orders.find((item) => item.id === id);
-  if (!consultation || isInternalOrder(consultation)) return;
-  if (consultation.linkedOrderId) {
-    openOrderDetail(consultation.linkedOrderId);
-    return;
-  }
-
-  const sourceItems = Array.isArray(consultation.items)
-    ? consultation.items.map((item) => ({
-      product: {
-        id: item.id,
-        name: item.name,
-        brand: item.brand || "GB Mayorista",
-        price: Number(item.price) || 0,
-        saleType: item.saleType || "pack",
-        packQuantity: item.packQuantity || 12,
-        cost: Number(item.cost) || 0
-      },
-      quantity: Math.max(1, Number(item.quantity) || 1)
-    }))
-    : [];
-  const order = makeBudgetFromItems(sourceItems, {
-    name: getOrderCustomerName(consultation),
-    phone: consultation.customerPhone || "",
-    location: consultation.customerLocation || ""
-  }, "En revisiÃ³n", "Pedido interno armado desde una consulta.");
-  order.type = "order";
-  order.items = Array.isArray(consultation.items) ? consultation.items.map((item) => ({ ...item })) : order.items;
-  recalculateBudget(order);
-  order.sourceConsultationId = consultation.id;
-  order.createdAt = new Date().toISOString();
-  order.updatedAt = order.createdAt;
-  consultation.linkedOrderId = order.id;
-  consultation.status = "En revisiÃ³n";
-  consultation.updatedAt = order.createdAt;
-  orders.unshift(order);
-  saveOrders();
-  openOrderDetail(order.id);
-  showToast("Pedido creado vacÃ­o para cargar productos reales");
+  if (!consultation) return;
+  openOrderDetail(consultation.id);
 }
 
 function getBudgetTransportValue(orderId) {
@@ -4989,24 +4908,15 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
-  if (!isInternalOrder(order)) {
-    showToast("Primero armÃ¡ el pedido interno para marcar pago");
-    return;
-  }
-  if (order.status === "Cancelado") {
-    showToast("No se puede marcar pagado un pedido cancelado");
-    return;
-  }
   if (order.stockApplied) {
-    showToast("El stock de este pedido ya fue descontado");
+    order.status = "Pagado";
+    saveOrders();
+    showToast("El stock de esta consulta ya fue descontado");
+    renderAll();
     return;
   }
-  if (order.status === "Pagado") {
-    showToast("El pedido ya estÃ¡ marcado como pagado");
-    return;
-  }
-  order.status = nextStatus === "Entregado" ? "Entregado" : "Pagado";
-  order.paidAt = new Date().toISOString();
+  order.status = "Pagado";
+  order.paidAt = order.paidAt || new Date().toISOString();
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   applyBudgetStock(order, -1);
@@ -5017,7 +4927,7 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   saveClients();
   saveStockHistory();
   renderAll();
-  showToast("Pedido pagado, stock descontado y venta registrada");
+  showToast("Consulta pagada, stock descontado y venta registrada");
 }
 
 function sendBudgetByWhatsapp(id) {
@@ -5033,13 +4943,13 @@ function sendBudgetByWhatsapp(id) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  order.status = "Presupuesto enviado";
+  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisión";
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   previewOrderId = "";
   saveOrders();
   renderAll();
-  showToast("Presupuesto enviado por WhatsApp");
+  showToast("Mensaje enviado por WhatsApp");
 }
 
 function viewOrderDocument(id) {
@@ -5142,7 +5052,7 @@ function buildOrderDocumentHtml(order) {
 }
 
 function getOrderDocumentTitle(order) {
-  return ["Pendiente de pago", "Pagado", "Entregado", "Confirmado"].includes(order.status) ? "Pedido" : "Presupuesto";
+  return normalizeConsultationStatus(order.status) === "Pagado" ? "Consulta pagada" : "Consulta";
 }
 
 function printOrder(id) {
@@ -5631,7 +5541,7 @@ function applyBudgetStock(order, direction) {
 function applyPendingPaidStockDiscounts() {
   let changed = false;
   orders.forEach((order) => {
-    if (!isInternalOrder(order) || order.status !== "Pagado" || order.stockApplied) return;
+    if (normalizeConsultationStatus(order.status) !== "Pagado" || order.stockApplied) return;
     applyBudgetStock(order, -1);
     order.stockApplied = true;
     order.updatedAt = order.updatedAt || new Date().toISOString();
@@ -6378,8 +6288,7 @@ function formatConsultationNumber(order) {
 
 function formatRecordNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
-  const label = isInternalOrder(order) ? "Pedido" : "Consulta";
-  return `${label} #${String(number).padStart(4, "0")}`;
+  return `Consulta #${String(number).padStart(4, "0")}`;
 }
 
 function recalculateBudget(order) {
@@ -6536,7 +6445,7 @@ function normalizeBudgets(budgetList) {
       notes: order.notes || "",
       consultedItems: Array.isArray(order.consultedItems) ? order.consultedItems : [],
       catalogTotal: Math.max(0, Number(order.catalogTotal) || 0),
-      stockApplied: recordType === "order" ? Boolean(order.stockApplied) : false,
+      stockApplied: Boolean(order.stockApplied),
       updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
       items: (order.items || []).map((item) => ({
         ...item,
