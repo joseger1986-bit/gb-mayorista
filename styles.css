@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #f4f6f3;
   --surface: #ffffff;
   --surface-2: #eef4ec;
@@ -8560,5 +8560,131 @@ body.cart-is-open {
     padding: 0.44rem 0.58rem;
     border-radius: 9px;
     font-size: 0.72rem;
+  }
+}
+
+/* Edicion de producto compacta */
+.edit-product-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.edit-product-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.edit-product-close {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-radius: 999px;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.product-edit-modal {
+  gap: 10px;
+  width: min(680px, 100%);
+  padding: 14px;
+}
+
+.product-edit-modal > .product-edit-grid {
+  gap: 8px;
+  padding: 10px;
+}
+
+.product-edit-grid label {
+  gap: 4px;
+  font-size: 0.82rem;
+}
+
+.product-edit-grid input,
+.product-edit-grid select,
+.product-edit-grid textarea {
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.product-edit-grid textarea {
+  min-height: 68px;
+}
+
+.product-edit-modal .edit-image-preview {
+  grid-template-columns: 68px 1fr;
+  gap: 8px;
+  padding: 8px;
+}
+
+.product-edit-modal .edit-image-preview img {
+  width: 68px;
+  height: 54px;
+}
+
+.product-edit-modal .product-image-gallery {
+  gap: 6px;
+  max-height: 110px;
+  overflow: auto;
+}
+
+.edit-product-more-options {
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.edit-product-more-options summary {
+  cursor: pointer;
+  padding: 9px 11px;
+  font-weight: 900;
+  color: #374151;
+}
+
+.edit-product-more-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.edit-product-more-actions .small-button,
+.edit-product-primary-actions .small-button {
+  min-height: 36px;
+  padding: 0.48rem 0.75rem;
+  border-radius: 9px;
+}
+
+.edit-product-primary-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.edit-product-primary-actions .primary-button {
+  min-width: 150px;
+}
+
+@media (max-width: 720px) {
+  .product-edit-modal {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .product-edit-modal > .product-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .edit-product-more-actions,
+  .edit-product-primary-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .edit-product-primary-actions .primary-button {
+    min-width: 0;
   }
 }

@@ -224,6 +224,8 @@ let appHistoryReady = false;
 let suppressHistoryUpdate = false;
 let allowExternalBack = false;
 let lastExitBackPress = 0;
+let editProductModalHistoryActive = false;
+let editProductModalClosingByCode = false;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
@@ -327,6 +329,7 @@ const els = {
   stockModalCancel: document.querySelector("#stockModalCancel"),
   editProductOverlay: document.querySelector("#editProductOverlay"),
   editProductForm: document.querySelector("#editProductForm"),
+  editProductClose: document.querySelector("#editProductClose"),
   editProductTitle: document.querySelector("#editProductTitle"),
   editProductName: document.querySelector("#editProductName"),
   editProductOption: document.querySelector("#editProductOption"),
@@ -535,6 +538,7 @@ els.stockModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.stockModalOverlay) closeStockModal();
 });
 els.editProductCancel?.addEventListener("click", closeEditProductModal);
+els.editProductClose?.addEventListener("click", closeEditProductModal);
 els.editProductOverlay?.addEventListener("click", (event) => {
   if (event.target === els.editProductOverlay) closeEditProductModal();
 });
@@ -566,6 +570,10 @@ els.imageLightbox?.addEventListener("touchend", (event) => {
   showLightboxImage(lightboxIndex + (delta < 0 ? 1 : -1));
 }, { passive: true });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
+    closeEditProductModal();
+    return;
+  }
   if (els.imageLightbox?.classList.contains("hidden")) return;
   if (event.key === "Escape") closeImageLightbox();
   if (event.key === "ArrowLeft") showLightboxImage(lightboxIndex - 1);
@@ -1848,15 +1856,18 @@ function renderAdmin() {
       button.addEventListener("click", () => updateAdminProductSort(button.dataset.sortProducts));
     });
   }
-  const query = (els.adminSearchInput?.value || "").trim().toLowerCase();
+  const query = normalizeProductSearchText(els.adminSearchInput?.value || "");
+  const queryWords = query ? query.split(" ").filter(Boolean) : [];
   const orderedProducts = sortAdminProducts(getOrderedProducts().filter((product) => {
     const matchesCategory = product.category === currentAdminCategory;
-    const matchesSearch = !query
-      || product.name.toLowerCase().includes(query)
-      || getProductBaseName(product).toLowerCase().includes(query)
-      || getProductOptionName(product).toLowerCase().includes(query)
-      || product.category.toLowerCase().includes(query)
-      || String(product.brand || "").toLowerCase().includes(query);
+    const searchableText = normalizeProductSearchText([
+      product.name,
+      getProductBaseName(product),
+      getProductOptionName(product),
+      product.category,
+      getProductPresentation(product)
+    ].join(" "));
+    const matchesSearch = !queryWords.length || queryWords.every((word) => searchableText.includes(word));
     return matchesCategory && matchesSearch;
   }));
   if (els.adminCategoryTitle) els.adminCategoryTitle.textContent = currentAdminCategory;
@@ -2108,6 +2119,7 @@ function openEditProductModal(productId) {
   els.editProductCostWrap?.classList.toggle("hidden", !canAccess("admin"));
   els.editProductOverlay.classList.remove("hidden");
   els.editProductOverlay.setAttribute("aria-hidden", "false");
+  pushEditProductHistoryState();
   window.setTimeout(() => els.editProductName?.focus(), 0);
 }
 
@@ -2119,13 +2131,28 @@ function fillEditCategoryOptions(selectedCategory) {
   )).join("");
 }
 
-function closeEditProductModal() {
+function closeEditProductModal(options = {}) {
+  const wasOpen = els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden");
   editingProductId = "";
   els.editProductOverlay?.classList.add("hidden");
   els.editProductOverlay?.setAttribute("aria-hidden", "true");
   clearProductValidation(els.editProductForm);
   els.editProductForm?.reset();
   if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = "";
+  if (wasOpen && editProductModalHistoryActive) {
+    editProductModalHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "editProduct") {
+      editProductModalClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushEditProductHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (editProductModalHistoryActive || window.history.state?.modal === "editProduct") return;
+  editProductModalHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "editProduct" }, "", getCurrentHistoryUrl());
 }
 
 function duplicateEditingProduct() {
@@ -4569,6 +4596,7 @@ function normalizeProductSearchText(value) {
   return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/g, "n")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
@@ -5616,6 +5644,14 @@ function updateAppHistory(view, options = {}) {
 }
 
 function handleAppPopState(event) {
+  if (editProductModalClosingByCode) {
+    editProductModalClosingByCode = false;
+    return;
+  }
+  if (editProductModalHistoryActive && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
+    closeEditProductModal({ fromHistory: true });
+    return;
+  }
   if (allowExternalBack) {
     allowExternalBack = false;
     return;
