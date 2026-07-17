@@ -32,7 +32,7 @@ const defaultProductCategories = [
 ];
 
 const statuses = [
-  "En revisión",
+  "En revisiÃ³n",
   "Pagado"
 ];
 
@@ -217,6 +217,9 @@ let currentPrintHtml = "";
 let currentPrintType = "";
 let currentPrintFilename = "";
 let currentPdfUrl = "";
+let currentPdfBlob = null;
+let currentPdfFilename = "";
+let currentPrintDocument = null;
 let stockModalProductId = "";
 let editingProductId = "";
 let variantManagerTarget = "";
@@ -322,6 +325,7 @@ const els = {
   printPreviewClose: document.querySelector("#printPreviewClose"),
   printPreviewPrint: document.querySelector("#printPreviewPrint"),
   printPreviewPdf: document.querySelector("#printPreviewPdf"),
+  printPreviewShare: document.querySelector("#printPreviewShare"),
   pdfDownloadSlot: document.querySelector("#pdfDownloadSlot"),
   stockModalOverlay: document.querySelector("#stockModalOverlay"),
   stockModalForm: document.querySelector("#stockModalForm"),
@@ -534,6 +538,7 @@ els.printPreviewPrint?.addEventListener("click", () => printModalContent(current
 els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
 });
+els.printPreviewShare?.addEventListener("click", shareCurrentPdf);
 els.stockModalForm?.addEventListener("submit", confirmStockModal);
 els.stockModalCancel?.addEventListener("click", closeStockModal);
 els.stockModalOverlay?.addEventListener("click", (event) => {
@@ -3015,7 +3020,7 @@ function renderOrders() {
 }
 
 function renderOrdersToolbar() {
-  const filters = ["Todas", "En revisión", "Pagadas"];
+  const filters = ["Todas", "En revisiÃ³n", "Pagadas"];
   return `
     <div class="orders-workbar">
       <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva consulta</button>
@@ -3051,10 +3056,10 @@ function getOrderSearchText(order) {
 }
 
 function normalizeConsultationStatus(status) {
-  return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisión";
+  return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisiÃ³n";
 }
 function matchesOrderListFilter(order, filter) {
-  if (filter === "En revisión") return normalizeConsultationStatus(order.status) === "En revisión";
+  if (filter === "En revisiÃ³n") return normalizeConsultationStatus(order.status) === "En revisiÃ³n";
   if (filter === "Pagadas") return normalizeConsultationStatus(order.status) === "Pagado";
   return true;
 }
@@ -3102,7 +3107,7 @@ function renderOrderCustomerBlock(order) {
     return `
       <div class="compact-customer-readonly">
         <span><b>Nombre</b>${escapeHtml(getOrderCustomerName(order))}</span>
-        <span><b>Teléfono</b>${escapeHtml(order.customerPhone || "Sin teléfono")}</span>
+        <span><b>TelÃ©fono</b>${escapeHtml(order.customerPhone || "Sin telÃ©fono")}</span>
         <span><b>Localidad</b>${escapeHtml(order.customerLocation || "Sin localidad")}</span>
       </div>
       <button class="secondary-button small-button customer-edit-toggle" type="button" data-edit-order-customer="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar datos</button>
@@ -3111,7 +3116,7 @@ function renderOrderCustomerBlock(order) {
   return `
     <div class="customer-edit-grid compact-customer-grid">
       <label>Nombre<input type="text" value="${escapeHtml(order.customerName ?? order.customer ?? "")}" data-budget-customer-name="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
-      <label>Teléfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+      <label>TelÃ©fono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
       <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
     </div>
     <button class="secondary-button small-button customer-edit-toggle" type="button" data-close-order-customer="${order.id}">Listo</button>
@@ -3170,7 +3175,7 @@ function renderInternalOrderCard(order, options = {}) {
             <div class="budget-item budget-item-head">
               <span>Cantidad</span>
               <span>Producto</span>
-              <span>Opción</span>
+              <span>OpciÃ³n</span>
               <span>Subtotal</span>
               <span>Editar</span>
               <span>Eliminar</span>
@@ -3215,7 +3220,7 @@ function renderInternalOrderCard(order, options = {}) {
             ${getNormalizedDeliveryType(order.deliveryType) === "Transporte" ? `
               <label class="conditional-delivery-field">
                 Transporte
-                <input type="text" value="${escapeHtml(order.transport || "")}" placeholder="Kelly, Vía Cargo, Expreso..." data-budget-transport="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
+                <input type="text" value="${escapeHtml(order.transport || "")}" placeholder="Kelly, VÃ­a Cargo, Expreso..." data-budget-transport="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
               </label>
             ` : ""}
             ${getNormalizedDeliveryType(order.deliveryType) === "A coordinar" ? `
@@ -3255,7 +3260,7 @@ function renderCompactBudgetItem(order, item) {
   const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
-      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(displayName)}</span>
+      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} Â· ${escapeHtml(displayName)}</span>
       <span class="order-product-mobile-option">${escapeHtml(option || "")}</span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(displayName)}</span>
@@ -3277,7 +3282,7 @@ function getOrderItemDisplayName(name, option) {
   const lowerName = cleanName.toLocaleLowerCase("es-AR");
   const lowerOption = cleanOption.toLocaleLowerCase("es-AR");
   if (!lowerName.endsWith(lowerOption)) return cleanName;
-  const stripped = cleanName.slice(0, cleanName.length - cleanOption.length).replace(/[\s·-]+$/g, "").trim();
+  const stripped = cleanName.slice(0, cleanName.length - cleanOption.length).replace(/[\sÂ·-]+$/g, "").trim();
   return stripped || cleanName;
 }
 function renderBudgetItemEditModal() {
@@ -3297,10 +3302,10 @@ function renderBudgetItemEditModal() {
             <span>${escapeHtml(item.name)}</span>
             ${option ? `<span>${escapeHtml(option)}</span>` : ""}
           </div>
-          <button class="icon-button" type="button" data-close-budget-item-edit aria-label="Cerrar edición">×</button>
+          <button class="icon-button" type="button" data-close-budget-item-edit aria-label="Cerrar ediciÃ³n">Ã—</button>
         </div>
         <div class="budget-item-edit-grid">
-          <label>Presentación<input type="text" value="${escapeHtml(presentation)}" data-edit-item-presentation></label>
+          <label>PresentaciÃ³n<input type="text" value="${escapeHtml(presentation)}" data-edit-item-presentation></label>
           <label>Cantidad<input type="number" min="1" step="1" value="${Math.max(1, Number(item.quantity) || 1)}" data-edit-item-quantity></label>
           <label>Precio unitario<input type="number" min="1" step="1" value="${Number(item.price) || 1}" data-edit-item-price></label>
         </div>
@@ -3344,7 +3349,7 @@ function saveBudgetItemEdit(orderId, productId) {
   if (!order || !item || !canEditOrder(order)) return;
   const presentation = String(els.ordersList.querySelector('[data-edit-item-presentation]')?.value || '').trim();
   if (!presentation) {
-    showToast('La presentación no puede quedar vacía');
+    showToast('La presentaciÃ³n no puede quedar vacÃ­a');
     return;
   }
   restoreConfirmedStock(order);
@@ -3397,12 +3402,12 @@ function saveManualConsultation(order) {
     editingOrderCustomerId = order.id;
     openOrderId = order.id;
     renderOrders();
-    showToast("Completá el nombre del cliente");
+    showToast("CompletÃ¡ el nombre del cliente");
     return false;
   }
   order.customerName = customerName;
   order.customer = customerName;
-  order.status = "En revisión";
+  order.status = "En revisiÃ³n";
   order.manualDraft = false;
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
@@ -3489,7 +3494,7 @@ function sendBudgetPreviewByWhatsapp(orderId) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisión";
+  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisiÃ³n";
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   previewOrderId = "";
@@ -4777,8 +4782,8 @@ function updateRecordStatus(id, status) {
     markOrderPaidAndDiscountStock(id, "Pagado");
     return;
   }
-  if (status === "En revisión" && order.stockApplied) {
-    showToast("La consulta ya está pagada y el stock descontado");
+  if (status === "En revisiÃ³n" && order.stockApplied) {
+    showToast("La consulta ya estÃ¡ pagada y el stock descontado");
     renderOrders();
     return;
   }
@@ -5022,7 +5027,7 @@ function sendBudgetByWhatsapp(id) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisión";
+  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisiÃ³n";
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   previewOrderId = "";
@@ -5035,94 +5040,73 @@ function viewOrderDocument(id) {
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   recalculateBudget(order);
+  currentPrintDocument = buildOrderPrintDocument(order);
   const documentTitle = getOrderDocumentTitle(order);
   openPrintWindow(buildOrderDocumentHtml(order), "pedido", buildPdfFilename(documentTitle, order));
 }
 
+function buildOrderPrintDocument(order) {
+  const items = order.items.map((item) => ({
+    quantity: Math.max(1, Number(item.quantity) || 1),
+    quantityLabel: formatDocumentQuantity(item),
+    product: getDocumentItemName(item),
+    price: Math.max(0, Number(item.price) || 0),
+    subtotal: Math.max(0, Number(item.quantity) || 0) * Math.max(0, Number(item.price) || 0)
+  }));
+  return {
+    title: getOrderDocumentTitle(order),
+    record: formatRecordNumber(order),
+    date: formatDocumentDateTime(order.createdAt),
+    customer: getOrderCustomerName(order),
+    phone: order.customerPhone || "Sin telÃ©fono",
+    location: order.customerLocation || "Sin localidad",
+    subtotal: order.subtotal || 0,
+    discount: formatDiscountSummary(order),
+    total: order.total || 0,
+    items
+  };
+}
+
 function buildOrderDocumentHtml(order) {
-  const documentTitle = getOrderDocumentTitle(order);
-  const rows = order.items.map((item) => `
+  const document = buildOrderPrintDocument(order);
+  const rows = document.items.map((item) => `
     <tr>
-      <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(getBudgetItemPresentation(item))}</td>
-      <td>${item.quantity}</td>
-      <td>${formatMoney(item.price)}</td>
-      <td>${formatMoney(item.quantity * item.price)}</td>
+      <td class="doc-qty">${escapeHtml(item.quantityLabel)}</td>
+      <td class="doc-product">${escapeHtml(item.product)}</td>
+      <td class="doc-money">${formatMoney(item.price)}</td>
+      <td class="doc-money">${formatMoney(item.subtotal)}</td>
     </tr>
   `).join("");
   return `
     <html>
       <head>
-        <title>${escapeHtml(documentTitle)} ${escapeHtml(formatRecordNumber(order))}</title>
+        <title>${escapeHtml(document.title)} ${escapeHtml(document.record)}</title>
         ${getPrintStyles()}
       </head>
       <body>
-        <div class="document-shell">
-          <header class="document-header">
-            <div class="document-logo">GB<br><span>Mayorista</span></div>
-            <div>
-              <h1>${escapeHtml(documentTitle)}</h1>
-              <p>${escapeHtml(formatRecordNumber(order))}</p>
+        <div class="document-shell compact-document-shell">
+          <header class="compact-document-header">
+            <div class="document-logo compact-document-logo">GB<br><span>Mayorista</span></div>
+            <div class="compact-document-title">
+              <h1>${escapeHtml(document.title)}</h1>
+              <p>${escapeHtml(document.record)} | ${escapeHtml(document.date)} | ${escapeHtml(document.customer)} | ${escapeHtml(document.phone)} | ${escapeHtml(document.location)}</p>
             </div>
           </header>
-          <section class="document-grid">
-            <div>
-              <strong>Fecha y hora</strong>
-              <span>${escapeHtml(formatDateTime(order.createdAt))}</span>
-            </div>
-            <div>
-              <strong>Estado</strong>
-              <span>${escapeHtml(order.status || "En revisiÃ³n")}</span>
-            </div>
-            <div>
-              <strong>Cliente</strong>
-              <span>${escapeHtml(getOrderCustomerName(order))}</span>
-            </div>
-            <div>
-              <strong>TelÃ©fono</strong>
-              <span>${escapeHtml(order.customerPhone || "Sin telÃ©fono")}</span>
-            </div>
-            <div>
-              <strong>Localidad</strong>
-              <span>${escapeHtml(order.customerLocation || "Sin localidad")}</span>
-            </div>
-            <div>
-              <strong>Forma de pago</strong>
-              <span>${escapeHtml(order.paymentMethod || "Transferencia")}</span>
-            </div>
-            <div>
-              <strong>Forma de entrega</strong>
-              <span>${escapeHtml(getDeliveryLabel(order))}</span>
-            </div>
-            ${getNormalizedDeliveryType(order.deliveryType) === "Transporte" ? `
-              <div>
-                <strong>Transporte</strong>
-                <span>${escapeHtml(order.transport || "Sin definir")}</span>
-              </div>
-            ` : ""}
-            ${getNormalizedDeliveryType(order.deliveryType) === "A coordinar" && order.deliveryNotes ? `
-              <div class="document-wide">
-                <strong>Observaciones</strong>
-                <span>${escapeHtml(order.deliveryNotes)}</span>
-              </div>
-            ` : ""}
-          </section>
-          <table>
+          <table class="compact-document-table">
             <thead>
               <tr>
-                <th>Producto</th>
-                <th>PresentaciÃ³n</th>
                 <th>Cantidad</th>
+                <th>Producto</th>
                 <th>Precio unitario</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
-          <section class="document-totals">
-            <div><span>Subtotal general</span><strong>${formatMoney(order.subtotal || 0)}</strong></div>
-            <div><span>Descuento</span><strong>${escapeHtml(formatDiscountSummary(order))}</strong></div>
-            <div class="document-final"><span>Total final</span><strong>${formatMoney(order.total || 0)}</strong></div>
+          <section class="compact-document-totals">
+            <div><span>Subtotal</span><strong>${formatMoney(document.subtotal)}</strong></div>
+            <div><span>Descuento</span><strong>${escapeHtml(document.discount)}</strong></div>
+            <div class="compact-document-final"><span>Total final</span><strong>${formatMoney(document.total)}</strong></div>
           </section>
         </div>
       </body>
@@ -5130,8 +5114,42 @@ function buildOrderDocumentHtml(order) {
   `;
 }
 
+function getDocumentItemName(item) {
+  const base = String(item.baseName || item.productName || item.name || "Producto").trim().replace(/\s+/g, " ");
+  const option = String(item.optionName || item.variant || item.option || "").trim().replace(/\s+/g, " ");
+  if (!option) return base;
+  const normalizedBase = normalizeProductSearchText(base);
+  const normalizedOption = normalizeProductSearchText(option);
+  return normalizedBase.includes(normalizedOption) ? base : `${base} ${option}`;
+}
+
+function formatDocumentQuantity(item) {
+  const quantity = Math.max(1, Number(item.quantity) || 1);
+  const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
+  const unit = getDocumentPresentationAbbreviation(presentation);
+  return `${quantity} ${unit}`.trim();
+}
+
+function getDocumentPresentationAbbreviation(presentation) {
+  const value = String(presentation || "").trim();
+  if (/docenas?/i.test(value)) return "doc.";
+  if (/unidad(es)?/i.test(value)) return "un.";
+  return value || "un.";
+}
+
+function formatDocumentDateTime(value) {
+  const date = value ? new Date(value) : new Date();
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function getOrderDocumentTitle(order) {
-  return normalizeConsultationStatus(order.status) === "Pagado" ? "Consulta pagada" : "Consulta";
+  return "Consulta";
 }
 
 function printOrder(id) {
@@ -5171,6 +5189,7 @@ function closeInlinePrintPreview() {
   currentPrintHtml = "";
   currentPrintType = "";
   currentPrintFilename = "";
+  currentPrintDocument = null;
 }
 
 function printModalContent(type) {
@@ -5196,20 +5215,40 @@ function preparePdfDownload(type) {
   }
 
   try {
-    const title = els.printPreviewTitle?.textContent.trim() || (type === "pedido" ? "Pedido" : "Recibo");
-    const lines = getPrintablePdfLines(els.printPreviewBody);
-    const pdf = createSimplePdf(lines, title);
-    const blob = new Blob([pdf], { type: "application/pdf" });
-    clearPdfDownloadLink();
-    currentPdfUrl = URL.createObjectURL(blob);
-    const filename = currentPrintFilename || `${slugifyFilename(title)}.pdf`;
-    updateTopPdfLink(currentPdfUrl, filename);
-    showPdfDownloadLink(currentPdfUrl, filename);
+    const title = els.printPreviewTitle?.textContent.trim() || (type === "pedido" ? "Consulta" : "Documento");
+    const pdf = currentPrintDocument
+      ? createOrderDocumentPdf(currentPrintDocument)
+      : createSimplePdf(getPrintablePdfLines(els.printPreviewBody), title);
+    currentPdfBlob = new Blob([pdf], { type: "application/pdf" });
+    clearPdfDownloadLink({ keepBlob: true });
+    currentPdfUrl = URL.createObjectURL(currentPdfBlob);
+    currentPdfFilename = currentPrintFilename || `${slugifyFilename(title)}.pdf`;
+    updateTopPdfLink(currentPdfUrl, currentPdfFilename);
+    showPdfDownloadLink(currentPdfUrl, currentPdfFilename);
+    updatePdfShareButton();
     return true;
   } catch (error) {
     clearPdfDownloadLink();
     return false;
   }
+}
+
+async function shareCurrentPdf() {
+  if (!currentPdfBlob || !currentPdfFilename) {
+    showToast("No se pudo preparar el PDF");
+    return;
+  }
+  const file = new File([currentPdfBlob], currentPdfFilename, { type: "application/pdf" });
+  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+    try {
+      await navigator.share({ files: [file], title: "Consulta GB Mayorista", text: "Consulta GB Mayorista" });
+      showToast("PDF listo para compartir");
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+  showToast("Tu navegador no permite compartir archivos. DescargÃ¡ el PDF y adjuntalo por WhatsApp.");
 }
 
 function showPdfDownloadLink(url, filename) {
@@ -5228,14 +5267,25 @@ function updateTopPdfLink(url, filename) {
   els.printPreviewPdf.classList.remove("disabled");
 }
 
-function clearPdfDownloadLink() {
+function updatePdfShareButton() {
+  if (!els.printPreviewShare) return;
+  els.printPreviewShare.disabled = !currentPdfBlob;
+  els.printPreviewShare.classList.toggle("disabled", !currentPdfBlob);
+}
+
+function clearPdfDownloadLink(options = {}) {
   if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
   currentPdfUrl = "";
+  if (!options.keepBlob) {
+    currentPdfBlob = null;
+    currentPdfFilename = "";
+  }
   if (els.printPreviewPdf) {
     els.printPreviewPdf.setAttribute("href", "#");
     els.printPreviewPdf.removeAttribute("download");
     els.printPreviewPdf.classList.add("disabled");
   }
+  updatePdfShareButton();
   if (!els.pdfDownloadSlot) return;
   els.pdfDownloadSlot.innerHTML = "";
   els.pdfDownloadSlot.classList.add("hidden");
@@ -5258,6 +5308,120 @@ function getPrintablePdfLines(container) {
   });
 
   return lines.length ? lines : container.innerText.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+function createOrderDocumentPdf(document) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 30;
+  const bottom = 34;
+  const fontId = 1;
+  const boldFontId = 2;
+  const pages = [];
+  let commands = [];
+  let y = pageHeight - margin;
+
+  const addText = (text, x, textY, size = 9, bold = false) => {
+    commands.push(`BT /F${bold ? boldFontId : fontId} ${size} Tf ${x} ${textY} Td ${pdfHexString(text)} Tj ET`);
+  };
+  const addLine = (x1, y1, x2, y2, width = 0.7) => {
+    commands.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+  const renderPdfTableHeader = () => {
+    addText("Cantidad", margin, y, 8, true);
+    addText("Producto", margin + 72, y, 8, true);
+    addText("Precio unit.", pageWidth - 190, y, 8, true);
+    addText("Subtotal", pageWidth - 98, y, 8, true);
+    y -= 8;
+    addLine(margin, y, pageWidth - margin, y, 0.5);
+    y -= 13;
+  };
+  const renderPdfHeader = (firstPage = true) => {
+    addText("GB MAYORISTA", margin, y, 13, true);
+    addText(firstPage ? document.title : `${document.title} - continuaciÃ³n`, pageWidth - 150, y, 12, true);
+    y -= 16;
+    addText(truncatePdfText(`${document.record} | ${document.date} | ${document.customer} | ${document.phone} | ${document.location}`, 105), margin, y, 9, false);
+    y -= 10;
+    addLine(margin, y, pageWidth - margin, y, 1);
+    y -= 16;
+    renderPdfTableHeader();
+  };
+  const newPage = () => {
+    pages.push(commands);
+    commands = [];
+    y = pageHeight - margin;
+    renderPdfHeader(false);
+  };
+
+  renderPdfHeader(true);
+  document.items.forEach((item) => {
+    if (y < bottom + 92) newPage();
+    addText(truncatePdfText(item.quantityLabel, 13), margin, y, 8.4, false);
+    addText(truncatePdfText(item.product, 55), margin + 72, y, 8.4, false);
+    addText(formatMoney(item.price), pageWidth - 190, y, 8.4, false);
+    addText(formatMoney(item.subtotal), pageWidth - 98, y, 8.4, true);
+    y -= 15;
+  });
+
+  if (y < bottom + 72) newPage();
+  y -= 4;
+  addLine(pageWidth - 230, y, pageWidth - margin, y, 0.8);
+  y -= 16;
+  addText("Subtotal", pageWidth - 230, y, 9, false);
+  addText(formatMoney(document.subtotal), pageWidth - 100, y, 9, true);
+  y -= 15;
+  addText("Descuento", pageWidth - 230, y, 9, false);
+  addText(document.discount, pageWidth - 100, y, 9, true);
+  y -= 19;
+  addText("TOTAL FINAL", pageWidth - 230, y, 11, true);
+  addText(formatMoney(document.total), pageWidth - 100, y, 12, true);
+  pages.push(commands);
+
+  return buildPdfFromPages(pages, pageWidth, pageHeight);
+}
+
+function truncatePdfText(value, maxChars) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 1)).trim()}...`;
+}
+
+function buildPdfFromPages(pageCommands, pageWidth, pageHeight) {
+  const objects = [];
+  const addObject = (body) => {
+    objects.push(body);
+    return objects.length;
+  };
+  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const boldFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  const pageObjectIds = [];
+
+  pageCommands.forEach((commands) => {
+    const stream = commands.join("\n");
+    const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    const pageId = addObject(`<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pageObjectIds.push(pageId);
+  });
+
+  const pagesId = addObject(`<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`);
+  const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  pageObjectIds.forEach((id) => {
+    objects[id - 1] = objects[id - 1].replace("/Parent 0 0 R", `/Parent ${pagesId} 0 R`);
+  });
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return pdf;
 }
 
 function createSimplePdf(lines, title) {
@@ -5284,47 +5448,11 @@ function createSimplePdf(lines, title) {
   if (currentPage.length) pages.push(currentPage);
   if (!pages.length) pages.push([{ text: title, y: pageHeight - margin }]);
 
-  const objects = [];
-  const addObject = (body) => {
-    objects.push(body);
-    return objects.length;
-  };
-
-  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const pageObjectIds = [];
-  const contentObjectIds = [];
-
-  pages.forEach((pageLines) => {
-    const stream = pageLines.map(({ text, y: lineY }, index) => {
-      const size = index === 0 && pageLines[0].text === lines[0] ? 16 : 11;
-      return `BT /F1 ${size} Tf ${margin} ${lineY} Td ${pdfHexString(text)} Tj ET`;
-    }).join("\n");
-    const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-    contentObjectIds.push(contentId);
-    const pageId = addObject(`<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
-    pageObjectIds.push(pageId);
-  });
-
-  const pagesId = addObject(`<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`);
-  const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
-  pageObjectIds.forEach((id) => {
-    objects[id - 1] = objects[id - 1].replace("/Parent 0 0 R", `/Parent ${pagesId} 0 R`);
-  });
-
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((body, index) => {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
-  });
-
-  const xrefStart = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return pdf;
+  const pageCommands = pages.map((pageLines) => pageLines.map(({ text, y: lineY }, index) => {
+    const size = index === 0 && pageLines[0].text === lines[0] ? 16 : 11;
+    return `BT /F1 ${size} Tf ${margin} ${lineY} Td ${pdfHexString(text)} Tj ET`;
+  }));
+  return buildPdfFromPages(pageCommands, pageWidth, pageHeight);
 }
 
 function wrapPdfLine(line, maxChars) {
@@ -5385,36 +5513,31 @@ function decodeHtml(value) {
 function getPrintStyles() {
   return `
     <style>
-      body { font-family: Arial, sans-serif; padding: 28px; color: #111; background: #f7f8f6; }
-      .document-shell { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #dde3da; border-radius: 10px; padding: 26px; }
-      .document-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 2px solid #122018; }
-      .document-logo { width: 74px; height: 74px; border-radius: 10px; background: #122018; color: #fff; display: grid; place-items: center; text-align: center; font-size: 24px; font-weight: 900; line-height: 1; }
-      .document-logo span { font-size: 11px; font-weight: 800; }
-      h1 { margin: 0 0 6px; font-size: 30px; text-transform: uppercase; text-align: right; }
-      h2 { margin: 0 0 16px; font-size: 18px; color: #444; }
-      p { margin: 5px 0; }
-      .document-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
-      .document-grid div { border: 1px solid #e0e5dc; border-radius: 8px; padding: 10px; background: #fbfcfa; }
-      .document-grid strong, .document-grid span { display: block; }
-      .document-grid strong { color: #58645a; font-size: 12px; text-transform: uppercase; margin-bottom: 4px; }
-      .document-wide { grid-column: 1 / -1; }
-      table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-      th, td { border-bottom: 1px solid #ddd; padding: 9px; text-align: left; }
-      th { background: #eef3eb; color: #3d493f; font-size: 12px; text-transform: uppercase; }
-      .summary { margin-top: 18px; border-top: 2px solid #111; padding-top: 12px; }
-      .total { margin-top: 14px; font-size: 20px; font-weight: 800; }
-      .document-totals { width: min(360px, 100%); margin: 22px 0 0 auto; display: grid; gap: 8px; }
-      .document-totals div { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e1e6de; padding: 8px 0; }
-      .document-totals span { color: #58645a; font-weight: 800; }
-      .document-totals strong { font-size: 17px; }
-      .document-final { margin-top: 4px; padding: 12px !important; border: 0 !important; border-radius: 8px; background: #eaf4e7; }
-      .document-final span { color: #1f4f2b; text-transform: uppercase; }
-      .document-final strong { color: #173c22; font-size: 24px; }
-      @media print { body { background: #fff; padding: 0; } .document-shell { border: 0; padding: 0; } }
+      body { font-family: Arial, sans-serif; padding: 18px; color: #111; background: #f6f6f2; }
+      .document-shell { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #d8d8d0; border-radius: 8px; padding: 18px; }
+      .compact-document-header { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 2px solid #111; }
+      .compact-document-logo { width: 48px; height: 48px; border-radius: 7px; background: #111; color: #ffd21f; display: grid; place-items: center; text-align: center; font-size: 19px; font-weight: 900; line-height: 1; flex: 0 0 auto; }
+      .compact-document-logo span { font-size: 9px; color: #fff; }
+      .compact-document-title { min-width: 0; }
+      h1 { margin: 0 0 4px; font-size: 20px; text-transform: uppercase; }
+      p { margin: 0; font-size: 12px; color: #333; font-weight: 700; line-height: 1.35; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
+      th, td { border-bottom: 1px solid #deded8; padding: 5px 6px; text-align: left; font-size: 11.5px; vertical-align: top; }
+      th { background: #fff1a6; color: #111; font-size: 10px; text-transform: uppercase; }
+      .doc-qty { width: 70px; white-space: nowrap; }
+      .doc-product { width: auto; line-height: 1.25; word-break: normal; overflow-wrap: anywhere; }
+      .doc-money { width: 92px; text-align: right; white-space: nowrap; }
+      .compact-document-totals { width: min(300px, 100%); margin: 14px 0 0 auto; display: grid; gap: 3px; }
+      .compact-document-totals div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-bottom: 1px solid #e4e4dc; font-size: 12px; }
+      .compact-document-totals span { color: #333; font-weight: 800; }
+      .compact-document-final { border: 2px solid #111 !important; border-radius: 6px; padding: 7px 9px !important; background: #ffd21f; align-items: center; }
+      .compact-document-final span { color: #111; text-transform: uppercase; }
+      .compact-document-final strong { color: #b00000; font-size: 18px; }
+      @media (max-width: 640px) { body { padding: 8px; } .document-shell { padding: 10px; } .compact-document-header { align-items: flex-start; } h1 { font-size: 17px; } p { font-size: 10.5px; } th, td { padding: 4px; font-size: 10px; } .doc-qty { width: 48px; } .doc-money { width: 70px; } }
+      @media print { body { background: #fff; padding: 0; } .document-shell { border: 0; padding: 0; max-width: none; } th { background: #f2f2f2 !important; } .compact-document-final { background: #f3f3f3 !important; } }
     </style>
   `;
 }
-
 function cancelOrder(id) {
   if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);

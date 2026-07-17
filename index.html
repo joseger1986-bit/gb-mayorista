@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=consulta-manual-resumen-6">
+    <link rel="stylesheet" href="/styles.css?v=pdf-compacto-whatsapp-7">
   </head>
   <body>
     <header class="topbar">
@@ -426,6 +426,7 @@
           <div>
             <button class="secondary-button small-button" id="printPreviewClose" type="button">Cerrar</button>
             <a class="secondary-button small-button disabled" id="printPreviewPdf" href="#">Descargar PDF</a>
+            <button class="secondary-button small-button disabled" id="printPreviewShare" type="button" disabled>Enviar PDF por WhatsApp</button>
             <button class="primary-button small-button" id="printPreviewPrint" type="button">Imprimir</button>
           </div>
         </div>
@@ -571,6 +572,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=consulta-manual-resumen-6"></script>
+    <script src="/app.js?v=pdf-compacto-whatsapp-7"></script>
   </body>
 </html>
