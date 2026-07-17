@@ -211,6 +211,8 @@ let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let editingOrderCustomerId = "";
 let editingBudgetItem = null;
+let budgetItemEditHistoryActive = false;
+let budgetItemEditClosingByCode = false;
 let selectedClientPhone = "";
 let editingClientPhone = "";
 let currentPrintHtml = "";
@@ -3330,11 +3332,27 @@ function openBudgetItemEditor(orderId, productId) {
   if (!order || !item || !canEditOrder(order)) return;
   editingBudgetItem = { orderId, productId };
   openOrderId = orderId;
+  pushBudgetItemEditHistoryState();
   renderOrders();
 }
 
-function closeBudgetItemEditor() {
+function pushBudgetItemEditHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (budgetItemEditHistoryActive || window.history.state?.modal === "budgetItemEdit") return;
+  budgetItemEditHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "budgetItemEdit" }, "", getCurrentHistoryUrl());
+}
+
+function closeBudgetItemEditor(options = {}) {
   editingBudgetItem = null;
+  if (budgetItemEditHistoryActive) {
+    budgetItemEditHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "budgetItemEdit") {
+      budgetItemEditClosingByCode = true;
+      window.history.back();
+      return;
+    }
+  }
   renderOrders();
 }
 
@@ -3364,7 +3382,7 @@ function saveBudgetItemEdit(orderId, productId) {
   reapplyConfirmedStock(order);
   saveProducts();
   saveOrders();
-  editingBudgetItem = null;
+  closeBudgetItemEditor();
   openOrderId = orderId;
   renderAll();
   showToast('Producto actualizado');
@@ -3416,7 +3434,7 @@ function saveManualConsultation(order) {
   syncClientsFromOrders();
   saveOrders();
   saveClients();
-  renderAll();
+  closeOrderDetail(order.id);
   showToast("Consulta guardada");
   return true;
 }
@@ -3664,6 +3682,7 @@ function bindBudgetEditor() {
         return;
       }
       saveOrders();
+      closeOrderDetail(order.id);
       showToast("Consulta guardada");
     });
   });
@@ -6156,6 +6175,15 @@ function updateAppHistory(view, options = {}) {
 }
 
 function handleAppPopState(event) {
+  if (budgetItemEditClosingByCode) {
+    budgetItemEditClosingByCode = false;
+    renderOrders();
+    return;
+  }
+  if (budgetItemEditHistoryActive && editingBudgetItem) {
+    closeBudgetItemEditor({ fromHistory: true });
+    return;
+  }
   if (orderDetailClosingByCode) {
     orderDetailClosingByCode = false;
     renderOrders();

@@ -10365,7 +10365,7 @@ body.cart-is-open {
 @media (max-width: 920px) {
   .compact-budget-items .order-product-read-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 76px;
+    grid-template-columns: minmax(0, 1fr) 110px;
     grid-template-areas:
       "main actions"
       "subtotal actions";
@@ -10394,8 +10394,8 @@ body.cart-is-open {
 
   .order-product-actions {
     grid-area: actions;
-    width: 76px;
-    min-width: 76px;
+    width: 110px;
+    min-width: 110px;
     display: grid;
     grid-template-columns: 1fr;
     gap: 5px;
@@ -10404,9 +10404,9 @@ body.cart-is-open {
   }
 
   .order-product-actions .small-button {
-    width: 76px;
-    min-width: 76px;
-    max-width: 76px;
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
     min-height: 28px;
     padding: 0.22rem 0.2rem;
     text-align: center;
@@ -10416,14 +10416,14 @@ body.cart-is-open {
 
 @media (max-width: 420px) {
   .compact-budget-items .order-product-read-row {
-    grid-template-columns: minmax(0, 1fr) 70px;
+    grid-template-columns: minmax(0, 1fr) 92px;
     column-gap: 8px;
   }
 
   .order-product-actions,
   .order-product-actions .small-button {
-    width: 70px;
-    min-width: 70px;
-    max-width: 70px;
+    width: 92px;
+    min-width: 92px;
+    max-width: 92px;
   }
 }
