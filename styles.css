@@ -9446,3 +9446,241 @@ body.cart-is-open {
     gap: 7px;
   }
 }
+
+/* Productos compactos dentro de Consulta/Pedido */
+.compact-budget-items .budget-item-head,
+.order-product-read-row {
+  grid-template-columns: minmax(210px, 1.9fr) minmax(90px, 0.75fr) minmax(105px, 0.8fr) minmax(82px, 0.7fr) minmax(106px, 0.85fr) 136px;
+}
+
+.order-product-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-product-presentation,
+.order-product-quantity,
+.order-product-price,
+.order-product-option {
+  min-width: 0;
+  overflow: hidden;
+  color: #4b5563;
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-product-price,
+.order-product-subtotal {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.order-product-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.order-product-actions .small-button {
+  min-height: 30px;
+  padding: 0.34rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.budget-item-edit-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(17, 24, 39, 0.56);
+}
+
+.budget-item-edit-dialog {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 12px;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+}
+
+.budget-item-edit-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.budget-item-edit-grid label {
+  display: grid;
+  gap: 5px;
+  color: #374151;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.budget-item-edit-grid input {
+  min-height: 36px;
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  border-radius: 10px;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.budget-item-edit-subtotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fffbea;
+  color: #92400e;
+  font-weight: 900;
+}
+
+.budget-item-edit-subtotal strong {
+  color: #111827;
+  font-size: 1.05rem;
+}
+
+.budget-item-edit-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 920px) {
+  .compact-budget-items .budget-item-head {
+    display: none;
+  }
+
+  .order-product-read-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "line actions"
+      "subtotal actions";
+    align-items: center;
+    gap: 4px 8px;
+    padding: 8px 9px;
+  }
+
+  .order-product-line {
+    grid-area: line;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.22;
+    font-size: 0.86rem;
+  }
+
+  .order-product-option,
+  .order-product-presentation,
+  .order-product-quantity,
+  .order-product-price {
+    display: none;
+  }
+
+  .order-product-subtotal {
+    grid-area: subtotal;
+    justify-self: start;
+    color: #111827;
+    font-size: 0.88rem;
+    text-align: left;
+  }
+
+  .order-product-subtotal::before {
+    content: "Subtotal: ";
+    color: #6b7280;
+    font-weight: 850;
+  }
+
+  .order-product-actions {
+    grid-area: actions;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 5px;
+  }
+
+  .order-product-actions .small-button {
+    min-height: 28px;
+    min-width: 68px;
+    padding: 0.25rem 0.45rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .order-product-read-row {
+    border-radius: 10px;
+    gap: 3px 7px;
+  }
+
+  .order-product-line {
+    font-size: 0.82rem;
+  }
+
+  .order-product-actions .small-button {
+    min-width: 62px;
+    font-size: 0.68rem;
+  }
+
+  .budget-item-edit-modal {
+    padding: 10px;
+  }
+
+  .budget-item-edit-dialog {
+    border-radius: 14px;
+    padding: 12px;
+  }
+}
+
+/* Columnas finales: Producto, Opcion, Presentacion, Cantidad, Precio, Subtotal, Editar, Eliminar */
+.compact-budget-items .budget-item-head,
+.order-product-read-row {
+  grid-template-columns: minmax(180px, 1.8fr) minmax(80px, 0.7fr) minmax(92px, 0.75fr) minmax(82px, 0.65fr) minmax(82px, 0.7fr) minmax(98px, 0.8fr) 68px 74px;
+}
+
+.order-product-edit-action,
+.order-product-delete-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.order-product-edit-action .small-button,
+.order-product-delete-action .small-button {
+  min-height: 30px;
+  padding: 0.34rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 920px) {
+  .order-product-read-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "line edit delete"
+      "subtotal edit delete";
+  }
+
+  .order-product-edit-action {
+    grid-area: edit;
+    align-self: center;
+  }
+
+  .order-product-delete-action {
+    grid-area: delete;
+    align-self: center;
+  }
+
+  .order-product-edit-action .small-button,
+  .order-product-delete-action .small-button {
+    min-width: 58px;
+    min-height: 28px;
+    padding: 0.25rem 0.38rem;
+    font-size: 0.66rem;
+  }
+}

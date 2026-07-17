@@ -214,6 +214,7 @@ let orderListFilter = "Todas";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let editingOrderCustomerId = "";
+let editingBudgetItem = null;
 let selectedClientPhone = "";
 let editingClientPhone = "";
 let currentPrintHtml = "";
@@ -577,6 +578,10 @@ els.imageLightbox?.addEventListener("touchend", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
     closeEditProductModal();
+    return;
+  }
+  if (event.key === "Escape" && editingBudgetItem) {
+    closeBudgetItemEditor();
     return;
   }
   if (els.imageLightbox?.classList.contains("hidden")) return;
@@ -2991,6 +2996,7 @@ function renderOrders() {
       els.ordersList.innerHTML = `
         ${renderInternalOrderCard(order, { standalone: true })}
         ${previewOrderId === order.id ? renderBudgetPreview(order) : ""}
+        ${editingBudgetItem?.orderId === order.id ? renderBudgetItemEditModal() : ""}
       `;
       bindBudgetEditor();
       return;
@@ -3174,9 +3180,11 @@ function renderInternalOrderCard(order, options = {}) {
             <div class="budget-item budget-item-head">
               <span>Producto</span>
               <span>Opción</span>
+              <span>Presentación</span>
               <span>Cantidad</span>
               <span>Precio</span>
               <span>Subtotal</span>
+              <span>Editar</span>
               <span>Eliminar</span>
             </div>
             ${order.items.length ? order.items.map((item) => renderCompactBudgetItem(order, item)).join("") : `<div class="empty-state compact">Este pedido no tiene productos cargados.</div>`}
@@ -3250,24 +3258,104 @@ function renderCompactBudgetItem(order, item) {
   const option = getBudgetItemOptionLabel(item, product);
   const presentation = getBudgetItemPresentation(item);
   const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
+  const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
+  const optionText = option ? ` · ${escapeHtml(option)}` : "";
   return `
-    <div class="budget-item compact-budget-item-row">
-      <span class="budget-product-name" data-label="Producto">${escapeHtml(item.name)}</span>
-      <span class="budget-option-cell" data-label="Opción">${escapeHtml(option || "-")}</span>
-      <label class="budget-field compact-quantity-field" data-label="Cantidad">
-        <span>Cantidad</span>
-        <span class="quantity-with-unit"><input class="inline-input" type="number" min="1" step="1" value="${item.quantity}" data-budget-qty="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}><em>${escapeHtml(unitLabel)}</em></span>
-      </label>
-      <label class="budget-field compact-price-field" data-label="Precio">
-        <span>Precio</span>
-        <input class="inline-input" type="number" min="1" step="1" value="${item.price}" data-budget-price="${order.id}" data-product="${item.id}" aria-label="Precio de ${escapeHtml(item.name)}" ${canEditOrder(order) ? "" : "disabled"}>
-      </label>
-      <strong class="budget-subtotal-cell" data-label="Subtotal">${formatMoney(item.quantity * item.price)}</strong>
-      <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button>
+    <div class="budget-item compact-budget-item-row order-product-read-row">
+      <span class="budget-product-name order-product-line">${escapeHtml(quantityLine)} · ${escapeHtml(item.name)}${optionText}</span>
+      <span class="budget-option-cell order-product-option">${escapeHtml(option || "")}</span>
+      <span class="order-product-presentation">${escapeHtml(presentation)}</span>
+      <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
+      <span class="order-product-price">${formatMoney(item.price)}</span>
+      <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(item.quantity * item.price)}</strong>
+      <span class="order-product-edit-action"><button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button></span>
+      <span class="order-product-delete-action"><button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button></span>
     </div>
   `;
 }
 
+function renderBudgetItemEditModal() {
+  if (!editingBudgetItem) return "";
+  const order = orders.find((item) => item.id === editingBudgetItem.orderId);
+  const item = order?.items.find((entry) => entry.id === editingBudgetItem.productId);
+  if (!order || !item) return "";
+  const product = products.find((entry) => entry.id === item.id);
+  const option = getBudgetItemOptionLabel(item, product);
+  const presentation = getBudgetItemPresentation(item);
+  return `
+    <div class="budget-item-edit-modal" role="dialog" aria-modal="true" aria-label="Editar producto del pedido" data-budget-item-edit-overlay>
+      <section class="budget-item-edit-dialog">
+        <div class="budget-preview-head">
+          <div>
+            <strong>Editar producto</strong>
+            <span>${escapeHtml(item.name)}</span>
+            ${option ? `<span>${escapeHtml(option)}</span>` : ""}
+          </div>
+          <button class="icon-button" type="button" data-close-budget-item-edit aria-label="Cerrar edición">×</button>
+        </div>
+        <div class="budget-item-edit-grid">
+          <label>Presentación<input type="text" value="${escapeHtml(presentation)}" data-edit-item-presentation></label>
+          <label>Cantidad<input type="number" min="1" step="1" value="${Math.max(1, Number(item.quantity) || 1)}" data-edit-item-quantity></label>
+          <label>Precio unitario<input type="number" min="1" step="1" value="${Number(item.price) || 1}" data-edit-item-price></label>
+        </div>
+        <div class="budget-item-edit-subtotal">
+          <span>Subtotal actualizado</span>
+          <strong data-edit-item-subtotal>${formatMoney(item.quantity * item.price)}</strong>
+        </div>
+        <div class="order-actions budget-item-edit-actions">
+          <button class="primary-button small-button" type="button" data-save-budget-item-edit="${order.id}" data-product="${item.id}">Guardar</button>
+          <button class="secondary-button small-button" type="button" data-close-budget-item-edit>Cancelar</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function openBudgetItemEditor(orderId, productId) {
+  const order = orders.find((item) => item.id === orderId);
+  const item = order?.items.find((entry) => entry.id === productId);
+  if (!order || !item || !canEditOrder(order)) return;
+  editingBudgetItem = { orderId, productId };
+  openOrderId = orderId;
+  renderOrders();
+}
+
+function closeBudgetItemEditor() {
+  editingBudgetItem = null;
+  renderOrders();
+}
+
+function updateBudgetItemEditSubtotal() {
+  const quantity = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-quantity]')?.value) || 1));
+  const price = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-price]')?.value) || 1));
+  const subtotal = els.ordersList.querySelector('[data-edit-item-subtotal]');
+  if (subtotal) subtotal.textContent = formatMoney(quantity * price);
+}
+
+function saveBudgetItemEdit(orderId, productId) {
+  const order = orders.find((item) => item.id === orderId);
+  const item = order?.items.find((entry) => entry.id === productId);
+  if (!order || !item || !canEditOrder(order)) return;
+  const presentation = String(els.ordersList.querySelector('[data-edit-item-presentation]')?.value || '').trim();
+  if (!presentation) {
+    showToast('La presentación no puede quedar vacía');
+    return;
+  }
+  restoreConfirmedStock(order);
+  item.presentation = presentation;
+  item.saleType = getSaleTypeFromPresentation(presentation);
+  item.packQuantity = getPackQuantityFromPresentation(presentation);
+  item.quantity = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-quantity]')?.value) || 1));
+  item.price = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-price]')?.value) || item.price || 1));
+  recalculateBudget(order);
+  reapplyConfirmedStock(order);
+  saveProducts();
+  saveOrders();
+  editingBudgetItem = null;
+  openOrderId = orderId;
+  renderAll();
+  showToast('Producto actualizado');
+}
 function getBudgetItemOptionLabel(item, product) {
   return String(item.variant || item.variantLabel || product?.optionName || getProductOptionName(product) || "").trim();
 }
@@ -3486,6 +3574,25 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-budget-remove]").forEach((button) => {
     button.addEventListener("click", () => removeBudgetItem(button.dataset.budgetRemove, button.dataset.product));
+  });
+  els.ordersList.querySelectorAll("[data-edit-budget-item]").forEach((button) => {
+    button.addEventListener("click", () => openBudgetItemEditor(button.dataset.editBudgetItem, button.dataset.product));
+  });
+
+  els.ordersList.querySelectorAll("[data-close-budget-item-edit]").forEach((button) => {
+    button.addEventListener("click", closeBudgetItemEditor);
+  });
+
+  els.ordersList.querySelector("[data-budget-item-edit-overlay]")?.addEventListener("click", (event) => {
+    if (event.target.matches("[data-budget-item-edit-overlay]")) closeBudgetItemEditor();
+  });
+
+  els.ordersList.querySelectorAll("[data-edit-item-quantity], [data-edit-item-price]").forEach((input) => {
+    input.addEventListener("input", updateBudgetItemEditSubtotal);
+  });
+
+  els.ordersList.querySelectorAll("[data-save-budget-item-edit]").forEach((button) => {
+    button.addEventListener("click", () => saveBudgetItemEdit(button.dataset.saveBudgetItemEdit, button.dataset.product));
   });
 
   els.ordersList.querySelectorAll("[data-save-order]").forEach((button) => {
