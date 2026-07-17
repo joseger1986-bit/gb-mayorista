@@ -580,6 +580,10 @@ document.addEventListener("keydown", (event) => {
     closeBudgetItemEditor();
     return;
   }
+  if (event.key === "Escape" && openOrderId) {
+    closeOrderDetail(openOrderId);
+    return;
+  }
   if (els.imageLightbox?.classList.contains("hidden")) return;
   if (event.key === "Escape") closeImageLightbox();
   if (event.key === "ArrowLeft") showLightboxImage(lightboxIndex - 1);
@@ -657,7 +661,7 @@ function saveCart() {
 }
 
 function saveOrders() {
-  localStorage.setItem(STORAGE_ORDERS, JSON.stringify(orders));
+  localStorage.setItem(STORAGE_ORDERS, JSON.stringify(orders.filter((order) => !order.manualDraft)));
 }
 
 function saveStockHistory() {
@@ -3014,8 +3018,9 @@ function renderOrdersToolbar() {
   const filters = ["Todas", "En revisión", "Pagadas"];
   return `
     <div class="orders-workbar">
+      <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva consulta</button>
       <label class="search-box orders-search-box">
-        Buscar pedido
+        Buscar consulta
         <input type="search" value="${escapeHtml(orderListSearch)}" placeholder="NÃºmero, cliente, telÃ©fono o localidad" data-orders-search>
       </label>
       <div class="orders-filter-row" aria-label="Filtros de pedidos">
@@ -3105,7 +3110,7 @@ function renderOrderCustomerBlock(order) {
   }
   return `
     <div class="customer-edit-grid compact-customer-grid">
-      <label>Nombre<input type="text" value="${escapeHtml(getOrderCustomerName(order))}" data-budget-customer-name="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+      <label>Nombre<input type="text" value="${escapeHtml(order.customerName ?? order.customer ?? "")}" data-budget-customer-name="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
       <label>Teléfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
       <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
     </div>
@@ -3222,10 +3227,15 @@ function renderInternalOrderCard(order, options = {}) {
           </div>
         </section>
 
-        <aside class="order-total-box economic-summary order-summary-box compact-order-summary" aria-label="Resumen del pedido">
-          <span><em>Subtotal</em><strong data-budget-subtotal="${order.id}">${formatMoney(totals.subtotal || 0)}</strong></span>
-          <span><em>Descuento</em><strong data-budget-discount="${order.id}">${escapeHtml(formatDiscountSummary(order))}</strong></span>
-          <span class="final-total-line"><em>Total final</em><strong data-budget-total="${order.id}">${formatMoney(totals.total)}</strong></span>
+        <aside class="order-total-box economic-summary order-summary-box compact-order-summary consultation-summary-box" aria-label="Resumen del pedido">
+          <strong class="consultation-total-line">TOTAL DEL PEDIDO: <span data-budget-total="${order.id}">${formatMoney(totals.total)}</span></strong>
+          <div class="consultation-summary-meta">
+            <span>Forma de pago: <b>${escapeHtml(order.paymentMethod || "Transferencia")}</b></span>
+            <span>Forma de entrega: <b>${escapeHtml(getNormalizedDeliveryType(order.deliveryType))}</b></span>
+            <span>Descuento: <b data-budget-discount="${order.id}">${escapeHtml(formatDiscountSummary(order))}</b></span>
+            <span>Estado: <b>${escapeHtml(normalizeConsultationStatus(order.status))}</b></span>
+          </div>
+          <span class="sr-only" data-budget-subtotal="${order.id}">${formatMoney(totals.subtotal || 0)}</span>
         </aside>
 
         <div class="order-actions compact-order-actions">
@@ -3362,6 +3372,52 @@ function getOrderFocusClass(order) {
   if (order.id === focusedId || order.linkedOrderId === focusedId) return "";
   return "order-dimmed";
 }
+function createManualConsultation() {
+  if (!hasPermission("orders")) return;
+  const draft = makeConsultation({ name: "", phone: "", location: "" }, "Consulta cargada manualmente.");
+  draft.manualDraft = true;
+  draft.customer = "";
+  draft.customerName = "";
+  draft.customerPhone = "";
+  draft.customerLocation = "";
+  draft.paymentMethod = "Transferencia";
+  draft.deliveryType = "Retira en local";
+  draft.discountType = "fixed";
+  draft.discountValue = 0;
+  draft.items = [];
+  recalculateBudget(draft);
+  orders.unshift(draft);
+  editingOrderCustomerId = draft.id;
+  openOrderDetail(draft.id);
+}
+
+function saveManualConsultation(order) {
+  const customerName = String(order.customerName || order.customer || "").trim();
+  if (!customerName) {
+    editingOrderCustomerId = order.id;
+    openOrderId = order.id;
+    renderOrders();
+    showToast("Completá el nombre del cliente");
+    return false;
+  }
+  order.customerName = customerName;
+  order.customer = customerName;
+  order.status = "En revisión";
+  order.manualDraft = false;
+  order.updatedAt = new Date().toISOString();
+  recalculateBudget(order);
+  syncClientsFromOrders();
+  saveOrders();
+  saveClients();
+  renderAll();
+  showToast("Consulta guardada");
+  return true;
+}
+
+function removeManualDraft(orderId) {
+  const index = orders.findIndex((order) => order.id === orderId && order.manualDraft);
+  if (index >= 0) orders.splice(index, 1);
+}
 function formatCompactDateTime(value) {
   if (!value) return "Sin fecha";
   const date = new Date(value);
@@ -3382,6 +3438,7 @@ function openOrderDetail(orderId) {
 }
 
 function closeOrderDetail(orderId = openOrderId, options = {}) {
+  removeManualDraft(orderId);
   if (editingOrderCustomerId === orderId) editingOrderCustomerId = "";
   if (openOrderId === orderId) openOrderId = "";
   if (previewOrderId === orderId) previewOrderId = "";
@@ -3451,6 +3508,8 @@ function bindBudgetEditor() {
       renderOrders();
     });
   });
+
+  els.ordersList.querySelector("[data-new-consultation]")?.addEventListener("click", createManualConsultation);
   els.ordersList.querySelectorAll("[data-record-status]").forEach((select) => {
     select.addEventListener("change", () => updateRecordStatus(select.dataset.recordStatus, select.value));
   });
@@ -3590,9 +3649,15 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-save-order]").forEach((button) => {
     button.addEventListener("click", () => {
+      const order = orders.find((item) => item.id === button.dataset.saveOrder);
+      if (!order) return;
       openOrderId = button.dataset.saveOrder;
+      if (order.manualDraft) {
+        saveManualConsultation(order);
+        return;
+      }
       saveOrders();
-      showToast("Pedido guardado");
+      showToast("Consulta guardada");
     });
   });
 

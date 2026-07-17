@@ -9929,3 +9929,101 @@ body.cart-is-open {
     min-width: 58px;
   }
 }
+
+/* Consulta manual y resumen compacto */
+.new-consultation-button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0.48rem 0.9rem;
+  border-radius: 10px;
+  font-weight: 950;
+}
+
+.consultation-summary-box {
+  background: #fffbea;
+  border: 1px solid rgba(146, 64, 14, 0.18);
+  color: #111827;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.consultation-total-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.consultation-total-line span {
+  color: #111827;
+  font-size: 1.35rem;
+}
+
+.consultation-summary-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 10px;
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.consultation-summary-meta span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consultation-summary-meta b {
+  color: #111827;
+  font-weight: 950;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (max-width: 920px) {
+  .consultation-summary-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .new-consultation-button {
+    width: 100%;
+  }
+
+  .consultation-summary-box {
+    padding: 10px;
+  }
+
+  .consultation-total-line {
+    display: grid;
+    gap: 2px;
+    font-size: 0.78rem;
+  }
+
+  .consultation-total-line span {
+    font-size: 1.22rem;
+  }
+
+  .consultation-summary-meta {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    font-size: 0.74rem;
+  }
+}
