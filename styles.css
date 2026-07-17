@@ -10427,3 +10427,76 @@ body.cart-is-open {
     max-width: 92px;
   }
 }
+
+
+/* Correccion estricta boton editar consulta mobile */
+@media (max-width: 920px) {
+  .compact-budget-items .order-product-read-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 120px !important;
+    grid-template-areas:
+      "main actions"
+      "subtotal actions" !important;
+    gap: 8px 12px !important;
+    align-items: stretch !important;
+  }
+
+  .order-product-mobile-main {
+    grid-area: main !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    line-clamp: 2 !important;
+    overflow: hidden !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .order-product-subtotal {
+    grid-area: subtotal !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    align-self: end !important;
+  }
+
+  .order-product-actions {
+    grid-area: actions !important;
+    width: 120px !important;
+    min-width: 120px !important;
+    max-width: 120px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    justify-content: center !important;
+    align-items: stretch !important;
+    align-self: stretch !important;
+    justify-self: end !important;
+    position: static !important;
+    transform: none !important;
+    margin: 0 !important;
+  }
+
+  .order-product-actions .small-button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    position: static !important;
+    transform: none !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .compact-budget-items .order-product-read-row {
+    grid-template-columns: minmax(0, 1fr) 104px !important;
+    gap: 8px 10px !important;
+  }
+
+  .order-product-actions {
+    width: 104px !important;
+    min-width: 104px !important;
+    max-width: 104px !important;
+  }
+}
