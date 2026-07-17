@@ -1868,7 +1868,7 @@ function renderAdmin() {
       getProductPresentation(product)
     ].join(" "));
     const matchesSearch = !queryWords.length || queryWords.every((word) => searchableText.includes(word));
-    return matchesCategory && matchesSearch;
+    return (queryWords.length ? true : matchesCategory) && matchesSearch;
   }));
   if (els.adminCategoryTitle) els.adminCategoryTitle.textContent = currentAdminCategory;
   if (els.adminCategorySummary) {
