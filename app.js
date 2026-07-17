@@ -210,9 +210,10 @@ let previewOrderId = "";
 let previewMode = "budget";
 let openOrderId = "";
 let orderListSearch = "";
-let orderListFilter = "Todos";
+let orderListFilter = "Todas";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
+let editingOrderCustomerId = "";
 let selectedClientPhone = "";
 let editingClientPhone = "";
 let currentPrintHtml = "";
@@ -2986,7 +2987,7 @@ function renderOrders() {
   if (openOrderId || previewOrderId) {
     const focusedId = openOrderId || previewOrderId;
     const order = orders.find((item) => item.id === focusedId);
-    if (order && isInternalOrder(order)) {
+    if (order) {
       els.ordersList.innerHTML = `
         ${renderInternalOrderCard(order, { standalone: true })}
         ${previewOrderId === order.id ? renderBudgetPreview(order) : ""}
@@ -3008,7 +3009,7 @@ function renderOrders() {
 }
 
 function renderOrdersToolbar() {
-  const filters = ["Todos", "Consultas", "Pedidos", "En revisi√≥n", "Confirmados", "Preparados", "Entregados", "Cancelados"];
+  const filters = ["Todas", "Consultas", "Pedidos confirmados", "En revisiÛn", "Preparados", "Entregados", "Cancelados"];
   return `
     <div class="orders-workbar">
       <label class="search-box orders-search-box">
@@ -3044,10 +3045,9 @@ function getOrderSearchText(order) {
 
 function matchesOrderListFilter(order, filter) {
   if (filter === "Consultas") return !isInternalOrder(order);
-  if (filter === "Pedidos") return isInternalOrder(order);
-  if (filter === "En revisi√≥n") return order.status === "En revisi√≥n";
-  if (filter === "Confirmados") return ["Confirmado", "Pagado"].includes(order.status);
-  if (filter === "Preparados") return ["Preparado", "Preparados"].includes(order.status);
+  if (filter === "Pedidos confirmados") return isInternalOrder(order);
+  if (filter === "En revisiÛn") return order.status === "En revisiÛn";
+  if (filter === "Preparados") return ["Preparado", "Preparados", "Pagado"].includes(order.status);
   if (filter === "Entregados") return order.status === "Entregado";
   if (filter === "Cancelados") return order.status === "Cancelado";
   return true;
@@ -3072,11 +3072,7 @@ function renderOrdersCompactTable(orderList) {
 
 function renderOrderListRow(order) {
   const total = Number(order.total || order.catalogTotal) || 0;
-  const openButton = isInternalOrder(order)
-    ? `<button class="primary-button small-button" type="button" data-open-order="${order.id}">Abrir</button>`
-    : order.linkedOrderId
-      ? `<button class="primary-button small-button" type="button" data-open-linked-order="${order.linkedOrderId}">Abrir</button>`
-      : `<button class="primary-button small-button" type="button" data-build-order="${order.id}">Abrir</button>`;
+  const openButton = `<button class="primary-button small-button" type="button" data-open-order="${order.id}">Abrir</button>`;
   return `
     <article class="orders-compact-row order-status-${getStatusKey(order.status)} ${isInternalOrder(order) ? "order-row-internal" : "order-row-consultation"}" role="row">
       <strong class="orders-row-number" role="cell">${escapeHtml(formatRecordNumber(order))}</strong>
@@ -3094,36 +3090,78 @@ function renderConsultationCard(order) {
   return renderOrderListRow(order);
 }
 
+function renderOrderCustomerBlock(order) {
+  const isEditing = editingOrderCustomerId === order.id;
+  if (!isEditing) {
+    return `
+      <div class="compact-customer-readonly">
+        <span><b>Nombre</b>${escapeHtml(getOrderCustomerName(order))}</span>
+        <span><b>TelÈfono</b>${escapeHtml(order.customerPhone || "Sin telÈfono")}</span>
+        <span><b>Localidad</b>${escapeHtml(order.customerLocation || "Sin localidad")}</span>
+      </div>
+      <button class="secondary-button small-button customer-edit-toggle" type="button" data-edit-order-customer="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar datos</button>
+    `;
+  }
+  return `
+    <div class="customer-edit-grid compact-customer-grid">
+      <label>Nombre<input type="text" value="${escapeHtml(getOrderCustomerName(order))}" data-budget-customer-name="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+      <label>TelÈfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+      <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+    </div>
+    <button class="secondary-button small-button customer-edit-toggle" type="button" data-close-order-customer="${order.id}">Listo</button>
+  `;
+}
+
+function renderOrderActionButtons(order) {
+  if (!isInternalOrder(order)) {
+    return `
+      <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
+      <button class="primary-button small-button order-confirm-action" type="button" data-confirm-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Confirmar pedido</button>
+      <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
+      <button class="danger-button small-button order-secondary-action" type="button" data-cancel-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Cancelar consulta</button>
+      <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>
+    `;
+  }
+  return `
+    <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
+    <button class="secondary-button small-button order-secondary-action" type="button" data-save-order="${order.id}" ${canChangeOrderStatus(order) ? "" : "disabled"}>Cambiar estado</button>
+    <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
+    <button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>
+    <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>
+  `;
+}
+
+function getOrderQuantityUnitLabel(presentation, quantity) {
+  return getStockUnitLabel({ presentation }, quantity);
+}
 function renderInternalOrderCard(order, options = {}) {
   const totals = calculateBudgetTotals(order);
   const isOpen = options.standalone || previewOrderId === order.id || openOrderId === order.id;
   return `
-    <article class="order-card order-workspace order-kind-order order-status-${getStatusKey(order.status)} ${isConfirmed(order.status) ? "confirmed" : ""}">
+    <article class="order-card order-workspace order-kind-${isInternalOrder(order) ? "order" : "consultation"} order-status-${getStatusKey(order.status)} ${isConfirmed(order.status) ? "confirmed" : ""}">
       <div class="order-workspace-top compact-order-top">
         <div>
           <h3>${escapeHtml(formatRecordNumber(order))}</h3>
           <span>Fecha: ${escapeHtml(formatDateTime(order.createdAt))}</span>
         </div>
         <span class="status-pill status-${getStatusKey(order.status)}">${escapeHtml(order.status)}</span>
-        <button class="secondary-button small-button" type="button" data-close-order="${order.id}">‚Üê Volver</button>
+        <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Volver</button>
       </div>
 
       <details class="order-detail compact-order-detail" ${isOpen ? "open" : ""}>
         <summary>Abrir</summary>
         <section class="compact-order-section client-order-section">
-          <h4>Datos del cliente</h4>
-          <div class="customer-edit-grid compact-customer-grid">
-            <label>Nombre<input type="text" value="${escapeHtml(getOrderCustomerName(order))}" data-budget-customer-name="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
-            <label>Tel√©fono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
-            <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
+          <div class="compact-section-title-row">
+            <h4>Datos del cliente</h4>
           </div>
+          ${renderOrderCustomerBlock(order)}
         </section>
 
         <section class="compact-order-section">
           <div class="budget-product-search compact-budget-search">
             <label>
               Agregar producto
-              <input type="search" value="" placeholder="Buscar producto para agregar..." data-budget-search="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
+              <input type="search" value="" placeholder="Buscar producto para agregar" data-budget-search="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
             </label>
             <div class="budget-search-results" data-budget-search-results="${order.id}"></div>
           </div>
@@ -3135,14 +3173,13 @@ function renderInternalOrderCard(order, options = {}) {
             </div>
             <div class="budget-item budget-item-head">
               <span>Producto</span>
-              <span>Opci√≥n</span>
-              <span>Presentaci√≥n</span>
+              <span>OpciÛn</span>
               <span>Cantidad</span>
               <span>Precio</span>
               <span>Subtotal</span>
               <span>Eliminar</span>
             </div>
-            ${order.items.map((item) => renderCompactBudgetItem(order, item)).join("")}
+            ${order.items.length ? order.items.map((item) => renderCompactBudgetItem(order, item)).join("") : `<div class="empty-state compact">Este pedido no tiene productos cargados.</div>`}
           </div>
         </section>
 
@@ -3182,7 +3219,7 @@ function renderInternalOrderCard(order, options = {}) {
             ${getNormalizedDeliveryType(order.deliveryType) === "Transporte" ? `
               <label class="conditional-delivery-field">
                 Transporte
-                <input type="text" value="${escapeHtml(order.transport || "")}" placeholder="Kelly, V√≠a Cargo, Expreso..." data-budget-transport="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
+                <input type="text" value="${escapeHtml(order.transport || "")}" placeholder="Kelly, VÌa Cargo, Expreso..." data-budget-transport="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
               </label>
             ` : ""}
             ${getNormalizedDeliveryType(order.deliveryType) === "A coordinar" ? `
@@ -3201,10 +3238,7 @@ function renderInternalOrderCard(order, options = {}) {
         </aside>
 
         <div class="order-actions compact-order-actions">
-          <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
-          <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
-          <button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir documento</button>
-          <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">‚Üê Volver a pedidos</button>
+          ${renderOrderActionButtons(order)}
         </div>
       </details>
     </article>
@@ -3215,15 +3249,19 @@ function renderCompactBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
   const option = getBudgetItemOptionLabel(item, product);
   const presentation = getBudgetItemPresentation(item);
+  const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
   return `
     <div class="budget-item compact-budget-item-row">
-      <span class="budget-product-name" data-label="Producto">
-        ${escapeHtml(item.name)}
-      </span>
-      <span class="budget-option-cell" data-label="Opci√≥n">${escapeHtml(option || "-")}</span>
-      <label class="budget-field compact-presentation-field" data-label="Presentaci√≥n"><input class="inline-input" type="text" value="${escapeHtml(presentation)}" data-budget-presentation="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
-      <label class="budget-field compact-quantity-field" data-label="Cantidad"><input class="inline-input" type="number" min="1" step="1" value="${item.quantity}" data-budget-qty="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}></label>
-      <label class="budget-field compact-price-field" data-label="Precio"><input class="inline-input" type="number" min="1" step="1" value="${item.price}" data-budget-price="${order.id}" data-product="${item.id}" aria-label="Precio de ${escapeHtml(item.name)}" ${canEditOrder(order) ? "" : "disabled"}></label>
+      <span class="budget-product-name" data-label="Producto">${escapeHtml(item.name)}</span>
+      <span class="budget-option-cell" data-label="OpciÛn">${escapeHtml(option || "-")}</span>
+      <label class="budget-field compact-quantity-field" data-label="Cantidad">
+        <span>Cantidad</span>
+        <span class="quantity-with-unit"><input class="inline-input" type="number" min="1" step="1" value="${item.quantity}" data-budget-qty="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}><em>${escapeHtml(unitLabel)}</em></span>
+      </label>
+      <label class="budget-field compact-price-field" data-label="Precio">
+        <span>Precio</span>
+        <input class="inline-input" type="number" min="1" step="1" value="${item.price}" data-budget-price="${order.id}" data-product="${item.id}" aria-label="Precio de ${escapeHtml(item.name)}" ${canEditOrder(order) ? "" : "disabled"}>
+      </label>
       <strong class="budget-subtotal-cell" data-label="Subtotal">${formatMoney(item.quantity * item.price)}</strong>
       <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button>
     </div>
@@ -3260,6 +3298,7 @@ function openOrderDetail(orderId) {
 }
 
 function closeOrderDetail(orderId = openOrderId, options = {}) {
+  if (editingOrderCustomerId === orderId) editingOrderCustomerId = "";
   if (openOrderId === orderId) openOrderId = "";
   if (previewOrderId === orderId) previewOrderId = "";
   if (orderDetailHistoryActive) {
@@ -3324,7 +3363,7 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-orders-filter]").forEach((button) => {
     button.addEventListener("click", () => {
-      orderListFilter = button.dataset.ordersFilter || "Todos";
+      orderListFilter = button.dataset.ordersFilter || "Todas";
       renderOrders();
     });
   });
@@ -3346,6 +3385,25 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => {
       openOrderDetail(button.dataset.openOrder);
     });
+  });
+  els.ordersList.querySelectorAll("[data-edit-order-customer]").forEach((button) => {
+    button.addEventListener("click", () => {
+      editingOrderCustomerId = button.dataset.editOrderCustomer;
+      openOrderId = button.dataset.editOrderCustomer;
+      renderOrders();
+    });
+  });
+
+  els.ordersList.querySelectorAll("[data-close-order-customer]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (editingOrderCustomerId === button.dataset.closeOrderCustomer) editingOrderCustomerId = "";
+      openOrderId = button.dataset.closeOrderCustomer;
+      renderOrders();
+    });
+  });
+
+  els.ordersList.querySelectorAll("[data-confirm-order]").forEach((button) => {
+    button.addEventListener("click", () => confirmConsultationOrder(button.dataset.confirmOrder));
   });
 
   els.ordersList.querySelectorAll("[data-budget-customer-name]").forEach((input) => {
@@ -4572,6 +4630,25 @@ function updateRecordStatus(id, status) {
   showToast("Estado actualizado");
 }
 
+function confirmConsultationOrder(id) {
+  if (!hasPermission("orders")) return;
+  const order = orders.find((item) => item.id === id);
+  if (!order || isInternalOrder(order)) return;
+  if (!canEditOrder(order)) return;
+  order.type = "order";
+  if (!["Pagado", "Entregado", "Cancelado"].includes(order.status)) {
+    order.status = "Pendiente de pago";
+  }
+  order.updatedAt = new Date().toISOString();
+  recalculateBudget(order);
+  syncClientsFromOrders();
+  saveOrders();
+  saveClients();
+  openOrderId = order.id;
+  editingOrderCustomerId = "";
+  renderAll();
+  showToast("Pedido confirmado");
+}
 function buildInternalOrderFromConsultation(id) {
   if (!hasPermission("orders")) return;
   const consultation = orders.find((item) => item.id === id);
