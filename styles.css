@@ -9817,3 +9817,115 @@ body.cart-is-open {
     min-width: 52px;
   }
 }
+
+/* Ajuste movil final de articulos en consulta */
+.order-product-mobile-main,
+.order-product-mobile-option {
+  display: none;
+}
+
+@media (max-width: 920px) {
+  .order-product-read-row {
+    grid-template-columns: minmax(0, 1fr) 62px;
+    grid-template-areas:
+      "main edit"
+      "option edit"
+      "subtotal delete";
+    align-items: center;
+    gap: 4px 9px;
+    padding: 10px 9px;
+    min-height: 78px;
+  }
+
+  .order-product-mobile-line,
+  .order-product-quantity,
+  .order-product-line,
+  .order-product-option {
+    display: none !important;
+  }
+
+  .order-product-mobile-main {
+    grid-area: main;
+    display: block;
+    min-width: 0;
+    color: #111827;
+    font-size: 0.84rem;
+    font-weight: 900;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .order-product-mobile-option {
+    grid-area: option;
+    display: block;
+    min-height: 1em;
+    color: #4b5563;
+    font-size: 0.78rem;
+    font-weight: 850;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .order-product-subtotal {
+    grid-area: subtotal;
+    justify-self: start;
+    color: #111827;
+    font-size: 0.82rem;
+    font-weight: 950;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .order-product-subtotal::before {
+    content: "Subtotal: ";
+    color: #6b7280;
+    font-weight: 850;
+  }
+
+  .order-product-edit-action,
+  .order-product-delete-action {
+    justify-content: stretch;
+  }
+
+  .order-product-edit-action {
+    grid-area: edit;
+    align-self: end;
+  }
+
+  .order-product-delete-action {
+    grid-area: delete;
+    align-self: start;
+  }
+
+  .order-product-edit-action .small-button,
+  .order-product-delete-action .small-button {
+    width: 62px;
+    min-width: 62px;
+    min-height: 29px;
+    padding: 0.24rem 0.3rem;
+    font-size: 0.66rem;
+    text-align: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .order-product-read-row {
+    grid-template-columns: minmax(0, 1fr) 58px;
+    padding: 10px 8px;
+  }
+
+  .order-product-mobile-main {
+    font-size: 0.8rem;
+  }
+
+  .order-product-mobile-option,
+  .order-product-subtotal {
+    font-size: 0.76rem;
+  }
+
+  .order-product-edit-action .small-button,
+  .order-product-delete-action .small-button {
+    width: 58px;
+    min-width: 58px;
+  }
+}

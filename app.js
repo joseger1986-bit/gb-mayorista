@@ -3239,15 +3239,16 @@ function renderInternalOrderCard(order, options = {}) {
 function renderCompactBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
   const option = getBudgetItemOptionLabel(item, product);
+  const displayName = getOrderItemDisplayName(item.name, option);
   const presentation = getBudgetItemPresentation(item);
   const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
   const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
-  const fullLine = `${quantityLine} · ${item.name}${option ? ` · ${option}` : ""}`;
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
-      <span class="order-product-mobile-line">${escapeHtml(fullLine)}</span>
+      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(displayName)}</span>
+      <span class="order-product-mobile-option">${escapeHtml(option || "")}</span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
-      <span class="budget-product-name order-product-line">${escapeHtml(item.name)}</span>
+      <span class="budget-product-name order-product-line">${escapeHtml(displayName)}</span>
       <span class="budget-option-cell order-product-option">${escapeHtml(option || "")}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(item.quantity * item.price)}</strong>
       <span class="order-product-edit-action"><button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button></span>
@@ -3256,6 +3257,19 @@ function renderCompactBudgetItem(order, item) {
   `;
 }
 
+function getOrderItemDisplayName(name, option) {
+  const cleanName = String(name || "").trim();
+  const cleanOption = String(option || "").trim();
+  if (!cleanName || !cleanOption) return cleanName;
+  const normalizedName = normalizeProductSearchText(cleanName);
+  const normalizedOption = normalizeProductSearchText(cleanOption);
+  if (!normalizedOption || !normalizedName.includes(normalizedOption)) return cleanName;
+  const lowerName = cleanName.toLocaleLowerCase("es-AR");
+  const lowerOption = cleanOption.toLocaleLowerCase("es-AR");
+  if (!lowerName.endsWith(lowerOption)) return cleanName;
+  const stripped = cleanName.slice(0, cleanName.length - cleanOption.length).replace(/[\s·-]+$/g, "").trim();
+  return stripped || cleanName;
+}
 function renderBudgetItemEditModal() {
   if (!editingBudgetItem) return "";
   const order = orders.find((item) => item.id === editingBudgetItem.orderId);
