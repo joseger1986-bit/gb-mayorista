@@ -1,4 +1,4 @@
-﻿const STORAGE_PRODUCTS = "gb_mayorista_products";
+const STORAGE_PRODUCTS = "gb_mayorista_products";
 document.documentElement.dataset.gbApp = "loading";
 
 const STORAGE_CART = "gb_mayorista_cart";
@@ -1834,16 +1834,14 @@ function renderAdmin() {
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
+      <th>Foto</th>
       <th>${renderSortHeader("name", "Producto")}</th>
       <th>Opción</th>
       <th>${renderSortHeader("category", "Categoría")}</th>
-      ${isAdmin ? "<th>Precio costo</th>" : ""}
-      <th>${renderSortHeader("price", "Precio venta")}</th>
-      ${isAdmin ? "<th>Margen</th>" : ""}
-      <th>Presentación</th>
-      <th>Mostrar catálogo</th>
-      ${isAdmin ? "<th>Foto</th>" : ""}
+      ${isAdmin ? "<th>Costo</th>" : ""}
+      <th>${renderSortHeader("price", "Venta")}</th>
       <th>${renderSortHeader("stock", "Stock")}</th>
+      <th>Catálogo</th>
       ${isAdmin ? "<th>Editar</th>" : ""}
     `;
     adminHead.querySelectorAll("[data-sort-products]").forEach((button) => {
@@ -1879,44 +1877,36 @@ function renderAdmin() {
 
   els.adminProducts.innerHTML = orderedProducts.map((product) => `
     <tr class="${getAdminProductRowClass(product)}">
-      <td data-label="Producto"><strong>${escapeHtml(getProductBaseName(product))}</strong></td>
-      <td data-label="Opción">${escapeHtml(getProductOptionName(product) || "-")}</td>
-      <td data-label="Categoría">${escapeHtml(product.category)}</td>
-      ${isAdmin ? `<td data-label="Precio costo" class="metric-cell price-column">${formatMoney(product.cost || 0)}</td>` : ""}
-      <td data-label="Precio venta" class="metric-cell price-column ${Number(product.price) > 0 ? "" : "missing-price"}">
-        ${canEditSaleData ? `<input class="inline-edit-input price-inline-input ${Number(product.price) > 0 ? "" : "missing-price"}" type="text" inputmode="numeric" value="${escapeHtml(formatInputMoney(product.price))}" aria-label="Precio de venta" data-inline-product-field="price" data-product-id="${product.id}">` : Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}
+      <td class="mobile-product-card" colspan="${isAdmin ? 9 : 7}">
+        <div class="mobile-product-row">
+          <div class="mobile-product-thumb">
+            ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
+          </div>
+          <div class="mobile-product-info">
+            <strong>${escapeHtml(getProductBaseName(product))}</strong>
+            <span>${escapeHtml(getProductOptionName(product) || "Sin opción")}</span>
+            <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
+          </div>
+          ${isAdmin ? `<button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>` : ""}
+        </div>
       </td>
-      ${isAdmin ? `<td data-label="Margen" class="metric-cell">${Number(product.price) > 0 ? `${getProductMargin(product).toFixed(1)}%` : "Sin precio"}</td>` : ""}
-      <td data-label="Presentación">
-        ${canEditSaleData ? `<input class="inline-edit-input" type="text" value="${escapeHtml(getProductPresentation(product))}" aria-label="Presentación" data-inline-product-field="presentation" data-product-id="${product.id}">` : escapeHtml(getProductPresentation(product))}
-      </td>
-      <td data-label="Mostrar catálogo">
-        ${canEditSaleData ? `
-          <select class="compact-select" data-product-catalog="${product.id}">
-            <option value="yes" ${product.showInCatalog !== false ? "selected" : ""}>Sí</option>
-            <option value="no" ${product.showInCatalog === false ? "selected" : ""}>No</option>
-          </select>
-        ` : `<span class="catalog-status">${product.showInCatalog !== false ? "Sí" : "No"}</span>`}
-      </td>
-      ${isAdmin ? `
-        <td data-label="Foto">
-          <label class="small-file-button image-upload-cell">
-            ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}
-            <input type="file" accept="image/*" data-product-image="${product.id}">
-          </label>
-        </td>
-      ` : ""}
-      <td data-label="Stock" class="stock-column">
+      <td data-label="Foto" class="product-photo-cell">${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}</td>
+      <td data-label="Producto" class="product-name-cell"><strong>${escapeHtml(getProductBaseName(product))}</strong></td>
+      <td data-label="Opción" class="product-option-cell">${escapeHtml(getProductOptionName(product) || "-")}</td>
+      <td data-label="Categoría" class="product-category-cell">${escapeHtml(product.category)}</td>
+      ${isAdmin ? `<td data-label="Costo" class="metric-cell price-column product-cost-cell">${formatMoney(product.cost || 0)}</td>` : ""}
+      <td data-label="Venta" class="metric-cell price-column product-price-cell ${Number(product.price) > 0 ? "" : "missing-price"}">${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</td>
+      <td data-label="Stock" class="stock-column product-stock-cell">
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
+      <td data-label="Catálogo" class="product-catalog-cell"><span class="catalog-status ${product.showInCatalog !== false ? "is-visible" : "is-hidden"}">${product.showInCatalog !== false ? "Sí" : "No"}</span></td>
       ${isAdmin ? `
-        <td data-label="Editar" class="edit-column">
-          <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">✏️</button>
+        <td data-label="Editar" class="edit-column product-edit-cell">
+          <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">Editar</button>
         </td>
       ` : ""}
     </tr>
   `).join("");
-
   els.adminProducts.querySelectorAll("[data-open-stock-modal]").forEach((button) => {
     button.addEventListener("click", () => openStockModal(button.dataset.openStockModal));
   });

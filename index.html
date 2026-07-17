@@ -1,10 +1,10 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="es">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=carrito-scroll-normal-1">
+    <link rel="stylesheet" href="/styles.css?v=gestion-productos-compacto-1">
   </head>
   <body>
     <header class="topbar">
@@ -136,10 +136,15 @@
         <div class="admin-layout">
           <div class="product-action-bar">
             <button class="primary-button add-product-button" id="addProductToggle" type="button" data-manage-products-only>+ Agregar producto</button>
-            <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categoría</button>
-            <button class="secondary-button" id="importProductsButton" type="button" data-import-export-only>Importar Excel</button>
-            <button class="secondary-button" id="exportProductsButton" type="button" data-import-export-only>Exportar Excel</button>
-            <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
+            <details class="more-product-actions">
+              <summary>Más acciones</summary>
+              <div class="more-product-actions-menu">
+                <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categoría</button>
+                <button class="secondary-button" id="importProductsButton" type="button" data-import-export-only>Importar Excel</button>
+                <button class="secondary-button" id="exportProductsButton" type="button" data-import-export-only>Exportar Excel</button>
+                <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
+              </div>
+            </details>
             <input class="hidden" id="importProductsInput" type="file" accept=".csv,.txt">
           </div>
 
@@ -227,16 +232,15 @@
             <table class="admin-table">
               <thead>
                 <tr>
+                  <th>Foto</th>
                   <th>Producto</th>
                   <th>Opción</th>
                   <th>Categoría</th>
-                  <th>Precio costo</th>
-                  <th>Precio venta</th>
-                  <th>Margen</th>
-                  <th>Presentación</th>
-                  <th>Mostrar catálogo</th>
-                  <th>Foto</th>
+                  <th>Costo</th>
+                  <th>Venta</th>
                   <th>Stock</th>
+                  <th>Catálogo</th>
+                  <th>Editar</th>
                 </tr>
               </thead>
               <tbody id="adminProducts"></tbody>
@@ -562,6 +566,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=carrito-scroll-normal-1"></script>
+    <script src="/app.js?v=gestion-productos-compacto-1"></script>
   </body>
 </html>
