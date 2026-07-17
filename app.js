@@ -3172,13 +3172,12 @@ function renderInternalOrderCard(order, options = {}) {
               <h4>Productos del pedido</h4>
               <span>${order.items.length} producto${order.items.length === 1 ? "" : "s"}</span>
             </div>
-            <div class="budget-item budget-item-head">
+            <div class="budget-item budget-item-head order-product-table-head">
               <span>Cantidad</span>
               <span>Producto</span>
-              <span>Opción</span>
+              <span>Precio unitario</span>
               <span>Subtotal</span>
-              <span>Editar</span>
-              <span>Eliminar</span>
+              <span>Acciones</span>
             </div>
             ${order.items.length ? order.items.map((item) => renderCompactBudgetItem(order, item)).join("") : `<div class="empty-state compact">Este pedido no tiene productos cargados.</div>`}
           </div>
@@ -3255,19 +3254,22 @@ function renderCompactBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
   const option = getBudgetItemOptionLabel(item, product);
   const displayName = getOrderItemDisplayName(item.name, option);
+  const productLine = option ? `${displayName} - ${option}` : displayName;
   const presentation = getBudgetItemPresentation(item);
   const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
   const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
+  const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
-      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(displayName)}</span>
-      <span class="order-product-mobile-option">${escapeHtml(option || "")}</span>
+      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(productLine)}</span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
-      <span class="budget-product-name order-product-line">${escapeHtml(displayName)}</span>
-      <span class="budget-option-cell order-product-option">${escapeHtml(option || "")}</span>
-      <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(item.quantity * item.price)}</strong>
-      <span class="order-product-edit-action"><button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button></span>
-      <span class="order-product-delete-action"><button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button></span>
+      <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
+      <span class="order-product-unit-price">${formatMoney(item.price)}</span>
+      <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
+      <span class="order-product-actions">
+        <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button>
+        <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button>
+      </span>
     </div>
   `;
 }
