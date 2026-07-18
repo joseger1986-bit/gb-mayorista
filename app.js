@@ -334,7 +334,6 @@ const els = {
   printPreviewClose: document.querySelector("#printPreviewClose"),
   printPreviewPrint: document.querySelector("#printPreviewPrint"),
   printPreviewPdf: document.querySelector("#printPreviewPdf"),
-  printPreviewShare: document.querySelector("#printPreviewShare"),
   pdfDownloadSlot: document.querySelector("#pdfDownloadSlot"),
   stockModalOverlay: document.querySelector("#stockModalOverlay"),
   stockModalForm: document.querySelector("#stockModalForm"),
@@ -548,7 +547,6 @@ els.printPreviewPrint?.addEventListener("click", () => printModalContent(current
 els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
 });
-els.printPreviewShare?.addEventListener("click", shareCurrentPdf);
 els.stockModalForm?.addEventListener("submit", confirmStockModal);
 els.stockModalCancel?.addEventListener("click", closeStockModal);
 els.stockModalOverlay?.addEventListener("click", (event) => {
@@ -3506,6 +3504,27 @@ function sendBudgetPreviewByWhatsapp(orderId) {
   saveOrders();
   renderAll();
 }
+function sendBudgetPreviewPdfByWhatsapp(orderId) {
+  const order = orders.find((item) => item.id === orderId);
+  if (!order) return;
+  recalculateBudget(order);
+  currentPrintOrderId = orderId;
+  currentPrintDocument = buildOrderPrintDocument(order);
+  const documentTitle = getOrderDocumentTitle(order);
+  currentPrintFilename = buildPdfFilename(documentTitle, order);
+
+  try {
+    const pdf = createOrderDocumentPdf(currentPrintDocument);
+    clearPdfDownloadLink({ keepBlob: true });
+    currentPdfBlob = new Blob([pdf], { type: "application/pdf" });
+    currentPdfUrl = URL.createObjectURL(currentPdfBlob);
+    currentPdfFilename = currentPrintFilename;
+    shareCurrentPdf();
+  } catch (error) {
+    clearPdfDownloadLink();
+    showToast("No se pudo preparar el PDF");
+  }
+}
 function bindBudgetEditor() {
   els.ordersList.querySelector("[data-orders-search]")?.addEventListener("input", (event) => {
     orderListSearch = event.target.value;
@@ -3709,12 +3728,12 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => closeBudgetPreview(button.dataset.closePreview));
   });
 
-  els.ordersList.querySelectorAll("[data-copy-budget-preview]").forEach((button) => {
-    button.addEventListener("click", () => copyBudgetPreviewText(button.dataset.copyBudgetPreview));
-  });
-
   els.ordersList.querySelectorAll("[data-send-preview-budget]").forEach((button) => {
     button.addEventListener("click", () => sendBudgetPreviewByWhatsapp(button.dataset.sendPreviewBudget));
+  });
+
+  els.ordersList.querySelectorAll("[data-send-preview-pdf]").forEach((button) => {
+    button.addEventListener("click", () => sendBudgetPreviewPdfByWhatsapp(button.dataset.sendPreviewPdf));
   });
 
   els.ordersList.querySelector("[data-budget-preview-overlay]")?.addEventListener("click", (event) => {
@@ -5082,7 +5101,7 @@ function renderBudgetPreview(order) {
         <div class="budget-preview-head">
           <div>
             <strong>Vista previa de WhatsApp</strong>
-            <span>Editá el mensaje antes de copiar o enviar.</span>
+            <span>Revisá el mensaje antes de enviar.</span>
           </div>
           <button class="icon-button" type="button" data-close-preview="${order.id}" aria-label="Cerrar vista previa">×</button>
         </div>
@@ -5091,8 +5110,8 @@ function renderBudgetPreview(order) {
           <textarea rows="12" data-budget-preview-text="${order.id}">${escapeHtml(buildBudgetMessage(order))}</textarea>
         </label>
         <div class="order-actions budget-preview-actions">
-          <button class="secondary-button small-button" type="button" data-copy-budget-preview="${order.id}">Copiar</button>
           <button class="primary-button small-button" type="button" data-send-preview-budget="${order.id}">Enviar por WhatsApp</button>
+          <button class="secondary-button small-button" type="button" data-send-preview-pdf="${order.id}">Enviar PDF por WhatsApp</button>
           <button class="secondary-button small-button" type="button" data-close-preview="${order.id}">Cerrar</button>
         </div>
       </section>
@@ -5192,7 +5211,7 @@ function buildOrderDocumentHtml(order) {
   return `
     <html>
       <head>
-        <title>${escapeHtml(document.title)} ${escapeHtml(document.record)}</title>
+        <title>${escapeHtml(document.record)}</title>
         ${getPrintStyles()}
       </head>
       <body>
@@ -5353,7 +5372,6 @@ function preparePdfDownload(type) {
     currentPdfFilename = currentPrintFilename || `${slugifyFilename(title)}.pdf`;
     updateTopPdfLink(currentPdfUrl, currentPdfFilename);
     showPdfDownloadLink(currentPdfUrl, currentPdfFilename);
-    updatePdfShareButton();
     return true;
   } catch (error) {
     clearPdfDownloadLink();
@@ -5392,11 +5410,8 @@ async function shareCurrentPdf() {
 
 function showPdfDownloadLink(url, filename) {
   if (!els.pdfDownloadSlot) return;
-  els.pdfDownloadSlot.innerHTML = `
-    <span>PDF listo:</span>
-    <a href="${url}" download="${escapeHtml(filename)}" data-pdf-download-link>Descargar archivo</a>
-  `;
-  els.pdfDownloadSlot.classList.remove("hidden");
+  els.pdfDownloadSlot.innerHTML = "";
+  els.pdfDownloadSlot.classList.add("hidden");
 }
 
 function updateTopPdfLink(url, filename) {
@@ -5406,11 +5421,6 @@ function updateTopPdfLink(url, filename) {
   els.printPreviewPdf.classList.remove("disabled");
 }
 
-function updatePdfShareButton() {
-  if (!els.printPreviewShare) return;
-  els.printPreviewShare.disabled = !currentPdfBlob;
-  els.printPreviewShare.classList.toggle("disabled", !currentPdfBlob);
-}
 
 function clearPdfDownloadLink(options = {}) {
   if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
@@ -5424,7 +5434,6 @@ function clearPdfDownloadLink(options = {}) {
     els.printPreviewPdf.removeAttribute("download");
     els.printPreviewPdf.classList.add("disabled");
   }
-  updatePdfShareButton();
   if (!els.pdfDownloadSlot) return;
   els.pdfDownloadSlot.innerHTML = "";
   els.pdfDownloadSlot.classList.add("hidden");
