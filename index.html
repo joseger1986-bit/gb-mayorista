@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=cantidad-previa-consulta-13">
+    <link rel="stylesheet" href="/styles.css?v=editar-producto-stock-foto-15">
   </head>
   <body>
     <header class="topbar">
@@ -216,7 +216,6 @@
               </div>
             </fieldset>
             <input id="productVariants" name="variants" type="hidden">
-            <button class="secondary-button variant-manage-button" id="manageProductVariants" type="button">Administrar variantes</button>
             <div class="stock-modal-actions">
               <button class="secondary-button small-button" id="productFormCancel" type="button">Cancelar</button>
               <button class="primary-button small-button" type="submit">Agregar producto</button>
@@ -461,7 +460,7 @@
     <div class="stock-modal-overlay hidden" id="editProductOverlay" aria-hidden="true">
       <form class="stock-modal product-edit-modal product-create-modal" id="editProductForm">
         <div class="edit-product-head"><h3 id="editProductTitle">Editar producto</h3><button class="icon-button edit-product-close" id="editProductClose" type="button" aria-label="Cerrar edición">×</button></div>
-        <div class="product-edit-grid">
+        <div class="product-edit-grid compact-edit-product-grid">
           <label>
             Nombre
             <input id="editProductName" name="name" type="text" required>
@@ -474,18 +473,35 @@
             Categoría
             <select id="editProductCategory" name="category" required></select>
           </label>
+          <label class="full-field">
+            Descripción
+            <textarea id="editProductDescription" name="description" rows="3"></textarea>
+          </label>
           <label>
-            Precio de venta
-            <input id="editProductPrice" name="price" type="text" inputmode="numeric" data-money-input>
+            Presentación
+            <input id="editProductPresentation" name="presentation" type="text">
           </label>
           <label id="editProductCostWrap">
             Precio de costo
             <input id="editProductCost" name="cost" type="text" inputmode="numeric" data-money-input>
           </label>
           <label>
-            Presentación
-            <input id="editProductPresentation" name="presentation" type="text">
+            Precio de venta
+            <input id="editProductPrice" name="price" type="text" inputmode="numeric" data-money-input>
           </label>
+          <div class="edit-product-stock-block full-field">
+            <span class="edit-section-title">Stock</span>
+            <p class="context-line" id="editProductStockCurrent">Stock actual: 0</p>
+            <div class="edit-product-stock-control">
+              <button class="secondary-button small-button" id="editProductStockDecrease" type="button" aria-label="Disminuir stock">−</button>
+              <label>
+                Cantidad
+                <input id="editProductStock" name="stock" type="number" min="0" step="1" inputmode="numeric">
+              </label>
+              <button class="secondary-button small-button" id="editProductStockIncrease" type="button" aria-label="Aumentar stock">+</button>
+            </div>
+            <span class="context-line" id="editProductStockUnit"></span>
+          </div>
           <label>
             Mostrar en catálogo
             <select id="editProductCatalog" name="showInCatalog">
@@ -493,63 +509,35 @@
               <option value="no">No</option>
             </select>
           </label>
-          <label class="full-field">
-            Descripción
-            <textarea id="editProductDescription" name="description" rows="3"></textarea>
-          </label>
-          <label>
-            <span id="editProductImageLabel">Agregar foto</span>
-            <input id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
-          </label>
+          <section class="edit-product-photo-section full-field" aria-label="Foto del producto">
+            <span class="edit-section-title">Foto actual</span>
+            <div class="edit-image-preview">
+              <img id="editProductImagePreview" alt="Foto del producto">
+            </div>
+            <div class="edit-product-photo-actions">
+              <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">Reemplazar foto</button>
+              <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar foto</button>
+            </div>
+            <label class="edit-product-file-field">
+              Elegir archivo nuevo
+              <input id="editProductImage" name="imageFile" type="file" accept="image/*">
+            </label>
+          </section>
         </div>
-        <div class="edit-image-preview full-field">
-          <img id="editProductImagePreview" alt="Foto del producto">
-        </div>
-        <div class="product-image-gallery full-field" id="editProductImageGallery" aria-label="Fotos del producto"></div>
         <input id="editProductVariants" name="variants" type="hidden">
-        <details class="edit-product-more-options">
-          <summary>Más opciones</summary>
-          <div class="edit-product-more-actions">
-            <button class="secondary-button small-button variant-manage-button" id="editProductVariantsButton" type="button">Administrar variantes</button>
-            <button class="secondary-button small-button" id="duplicateProductButton" type="button">Duplicar producto</button>
-            <button class="danger-button small-button" id="deleteProductButton" type="button">Eliminar producto</button>
-          </div>
-        </details>
         <div class="stock-modal-actions edit-product-primary-actions">
           <button class="primary-button small-button" type="submit">Guardar cambios</button>
           <button class="secondary-button small-button" id="editProductCancel" type="button">Cancelar</button>
         </div>
+        <details class="edit-product-more-options">
+          <summary>Más opciones</summary>
+          <div class="edit-product-more-actions">
+            <button class="secondary-button small-button" id="duplicateProductButton" type="button">Duplicar producto</button>
+            <button class="danger-button small-button" id="deleteProductButton" type="button">Eliminar producto</button>
+          </div>
+        </details>
       </form>
     </div>
-
-    <div class="stock-modal-overlay hidden" id="variantManagerOverlay" aria-hidden="true">
-      <form class="stock-modal" id="variantManagerForm">
-        <div>
-          <p class="eyebrow">Variantes</p>
-          <h2>Administrar variantes</h2>
-        </div>
-        <label class="stock-modal-quantity">
-          Opciones
-          <textarea id="variantManagerText" rows="7" placeholder="Talle 1&#10;Talle 2&#10;Rojo&#10;Surtido"></textarea>
-        </label>
-        <p class="context-line">Escribí una variante por línea. Se guardan en el producto para usarlas en el catálogo.</p>
-        <div class="stock-modal-actions">
-          <button class="secondary-button small-button" id="variantManagerCancel" type="button">Cancelar</button>
-          <button class="primary-button small-button" type="submit">Guardar variantes</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="stock-modal-overlay hidden" id="descriptionModalOverlay" aria-hidden="true">
-      <section class="stock-modal description-modal" role="dialog" aria-modal="true" aria-labelledby="descriptionModalTitle">
-        <div class="description-modal-head">
-          <h3 id="descriptionModalTitle">Descripción del producto</h3>
-          <button class="icon-button" id="descriptionModalClose" type="button" aria-label="Cerrar descripción">x</button>
-        </div>
-        <p id="descriptionModalText"></p>
-      </section>
-    </div>
-
 
     <div class="image-lightbox hidden" id="imageLightbox" aria-hidden="true">
       <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="Cerrar imagen">&times;</button>
@@ -572,6 +560,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=pdf-whatsapp-atras-14"></script>
+    <script src="/app.js?v=editar-producto-stock-foto-15"></script>
   </body>
 </html>

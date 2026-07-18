@@ -229,7 +229,10 @@ let currentPdfFilename = "";
 let currentPrintDocument = null;
 let stockModalProductId = "";
 let editingProductId = "";
-let variantManagerTarget = "";
+let editProductInitialState = "";
+let editProductRemoveImagePending = false;
+let productDetailsMenuHistoryActive = false;
+let productDetailsMenuClosingByCode = false;
 let toastTimer;
 let internalUnlocked = false;
 let appHistoryReady = false;
@@ -299,7 +302,6 @@ const els = {
   productImageGallery: document.querySelector("#productImageGallery"),
   imagePreviewText: document.querySelector("#imagePreviewText"),
   productVariants: document.querySelector("#productVariants"),
-  manageProductVariants: document.querySelector("#manageProductVariants"),
   variantRows: document.querySelector("#variantRows"),
   addVariantRow: document.querySelector("#addVariantRow"),
   adminSearchInput: document.querySelector("#adminSearchInput"),
@@ -356,9 +358,15 @@ const els = {
   editProductImage: document.querySelector("#editProductImage"),
   editProductImageLabel: document.querySelector("#editProductImageLabel"),
   editProductImagePreview: document.querySelector("#editProductImagePreview"),
+  replaceEditProductPhoto: document.querySelector("#replaceEditProductPhoto"),
+  removeEditProductPhoto: document.querySelector("#removeEditProductPhoto"),
+  editProductStock: document.querySelector("#editProductStock"),
+  editProductStockCurrent: document.querySelector("#editProductStockCurrent"),
+  editProductStockUnit: document.querySelector("#editProductStockUnit"),
+  editProductStockDecrease: document.querySelector("#editProductStockDecrease"),
+  editProductStockIncrease: document.querySelector("#editProductStockIncrease"),
   editProductImageGallery: document.querySelector("#editProductImageGallery"),
   editProductVariants: document.querySelector("#editProductVariants"),
-  editProductVariantsButton: document.querySelector("#editProductVariantsButton"),
   duplicateProductButton: document.querySelector("#duplicateProductButton"),
   deleteProductButton: document.querySelector("#deleteProductButton"),
   editProductCancel: document.querySelector("#editProductCancel"),
@@ -375,10 +383,6 @@ const els = {
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
-  variantManagerOverlay: document.querySelector("#variantManagerOverlay"),
-  variantManagerForm: document.querySelector("#variantManagerForm"),
-  variantManagerText: document.querySelector("#variantManagerText"),
-  variantManagerCancel: document.querySelector("#variantManagerCancel"),
   descriptionModalOverlay: document.querySelector("#descriptionModalOverlay"),
   descriptionModalTitle: document.querySelector("#descriptionModalTitle"),
   descriptionModalText: document.querySelector("#descriptionModalText"),
@@ -416,7 +420,6 @@ els.productFormCancel?.addEventListener("click", closeAddProductModal);
 els.addProductOverlay?.addEventListener("click", (event) => {
   if (event.target === els.addProductOverlay) closeAddProductModal();
 });
-els.manageProductVariants?.addEventListener("click", () => openVariantManager("new"));
 els.importProductsButton?.addEventListener("click", () => {
   if (!hasPermission("importExport")) return;
   els.importProductsInput?.click();
@@ -557,8 +560,13 @@ els.editProductOverlay?.addEventListener("click", (event) => {
   if (event.target === els.editProductOverlay) closeEditProductModal();
 });
 els.editProductImage?.addEventListener("change", previewEditProductImage);
+els.replaceEditProductPhoto?.addEventListener("click", () => els.editProductImage?.click());
+els.removeEditProductPhoto?.addEventListener("click", markEditProductPhotoForRemoval);
+els.editProductStockDecrease?.addEventListener("click", () => stepEditProductStock(-1));
+els.editProductStockIncrease?.addEventListener("click", () => stepEditProductStock(1));
+els.editProductStock?.addEventListener("input", normalizeEditProductStockInput);
 els.editProductForm?.addEventListener("submit", saveEditedProduct);
-els.editProductVariantsButton?.addEventListener("click", () => openVariantManager("edit"));
+setupProductDetailsMenus();
 els.duplicateProductButton?.addEventListener("click", duplicateEditingProduct);
 els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
 els.descriptionModalClose?.addEventListener("click", closeDescriptionModal);
@@ -601,11 +609,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") showLightboxImage(lightboxIndex - 1);
   if (event.key === "ArrowRight") showLightboxImage(lightboxIndex + 1);
 });
-els.variantManagerCancel?.addEventListener("click", closeVariantManager);
-els.variantManagerOverlay?.addEventListener("click", (event) => {
-  if (event.target === els.variantManagerOverlay) closeVariantManager();
-});
-els.variantManagerForm?.addEventListener("submit", saveVariantManager);
 
 renderAll();
 setView(getInitialView(), false, { skipHistory: true });
@@ -2133,11 +2136,15 @@ function openEditProductModal(productId) {
   if (els.editProductPresentation) els.editProductPresentation.value = getProductPresentation(product);
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
+  if (els.editProductStock) els.editProductStock.value = String(Math.max(0, Number(product.stock) || 0));
+  updateEditProductStockLabels(product);
+  editProductRemoveImagePending = false;
   if (els.editProductImage) els.editProductImage.value = "";
-  if (els.editProductImageLabel) els.editProductImageLabel.textContent = getStoredProductImages(product).length ? "Agregar fotos" : "Agregar foto";
+  if (els.editProductImageLabel) els.editProductImageLabel.textContent = getStoredProductImages(product).length ? "Cambiar foto" : "Agregar foto";
   if (els.editProductImagePreview) els.editProductImagePreview.src = getPrimaryProductImage(product);
   renderEditProductImageGallery(product);
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
+  window.setTimeout(() => { editProductInitialState = getEditProductFormState(); }, 0);
   els.editProductCostWrap?.classList.toggle("hidden", !canAccess("admin"));
   els.editProductOverlay.classList.remove("hidden");
   els.editProductOverlay.setAttribute("aria-hidden", "false");
@@ -2155,12 +2162,25 @@ function fillEditCategoryOptions(selectedCategory) {
 
 function closeEditProductModal(options = {}) {
   const wasOpen = els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden");
+  if (wasOpen && !options.skipUnsavedCheck && hasEditProductUnsavedChanges()) {
+    const confirmed = window.confirm("Hay cambios sin guardar. ¿Querés salir?");
+    if (!confirmed) {
+      if (options.fromHistory && window.history?.pushState) {
+        editProductModalHistoryActive = false;
+        pushEditProductHistoryState();
+      }
+      return;
+    }
+  }
   editingProductId = "";
   els.editProductOverlay?.classList.add("hidden");
   els.editProductOverlay?.setAttribute("aria-hidden", "true");
   clearProductValidation(els.editProductForm);
   els.editProductForm?.reset();
   if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = "";
+  editProductInitialState = "";
+  editProductRemoveImagePending = false;
+  closeOpenProductDetailsMenu({ skipHistory: true });
   if (wasOpen && editProductModalHistoryActive) {
     editProductModalHistoryActive = false;
     if (!options.fromHistory && window.history?.state?.modal === "editProduct") {
@@ -2194,7 +2214,7 @@ function duplicateEditingProduct() {
   };
   products.push(copy);
   saveProducts();
-  closeEditProductModal();
+  closeEditProductModal({ skipUnsavedCheck: true });
   renderAll();
   restoreAdminTableScroll(scrollTop);
   showToast("Producto duplicado");
@@ -2214,7 +2234,7 @@ function deleteEditingProduct() {
   saveProducts();
   saveCart();
   saveStockHistory();
-  closeEditProductModal();
+  closeEditProductModal({ skipUnsavedCheck: true });
   renderAll();
   restoreAdminTableScroll(scrollTop);
   showToast("Producto eliminado");
@@ -2260,54 +2280,11 @@ function setProductFieldError(field, message) {
   label.appendChild(error);
 }
 
-function openVariantManager(target) {
-  if (!hasPermission("manageProducts") || !els.variantManagerOverlay || !els.variantManagerText) return;
-  variantManagerTarget = target;
-  const value = target === "edit"
-    ? els.editProductVariants?.value || ""
-    : els.productVariants?.value || "";
-  els.variantManagerText.value = variantsToText(value);
-  els.variantManagerOverlay.classList.remove("hidden");
-  els.variantManagerOverlay.setAttribute("aria-hidden", "false");
-  window.setTimeout(() => els.variantManagerText?.focus(), 0);
-}
-
-function closeVariantManager() {
-  variantManagerTarget = "";
-  els.variantManagerOverlay?.classList.add("hidden");
-  els.variantManagerOverlay?.setAttribute("aria-hidden", "true");
-  els.variantManagerForm?.reset();
-}
-
-function saveVariantManager(event) {
-  event.preventDefault();
-  const value = textToVariants(els.variantManagerText?.value || "");
-  if (variantManagerTarget === "edit" && els.editProductVariants) els.editProductVariants.value = value;
-  if (variantManagerTarget === "new" && els.productVariants) els.productVariants.value = value;
-  closeVariantManager();
-  showToast("Variantes guardadas");
-}
-
-function variantsToText(value) {
-  return String(value || "")
-    .split(/[\n,;]+/)
-    .map((line) => line.split("|")[0]?.trim())
-    .filter(Boolean)
-    .join("\n");
-}
-
-function textToVariants(value) {
-  return String(value || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join("\n");
-}
-
 async function previewEditProductImage() {
   const file = els.editProductImage?.files?.[0];
   if (!(file instanceof File) || !file.size || !els.editProductImagePreview) return;
   try {
+    editProductRemoveImagePending = false;
     els.editProductImagePreview.src = await processProductImageToDataUrl(file);
     if (els.editProductImageLabel) els.editProductImageLabel.textContent = "Cambiar foto";
   } catch (error) {
@@ -2332,6 +2309,7 @@ async function saveEditedProduct(event) {
   if (canAccess("admin")) product.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
   product.presentation = String(els.editProductPresentation?.value || "").trim();
   product.description = String(els.editProductDescription?.value || "").trim();
+  product.stock = Math.max(0, Math.round(Number(els.editProductStock?.value) || 0));
   product.saleType = getSaleTypeFromPresentation(product.presentation);
   product.packQuantity = getPackQuantityFromPresentation(product.presentation);
   product.variants = String(els.editProductVariants?.value || "").trim();
@@ -2339,13 +2317,14 @@ async function saveEditedProduct(event) {
 
   const imageFiles = getFileList(els.editProductImage?.files);
   if (imageFiles.length) {
-    const nextImages = await uploadOrReadImageFiles(product.id, imageFiles);
-    const currentImages = getStoredProductImages(product);
-    setProductImages(product, [...currentImages, ...nextImages]);
+    const nextImages = await uploadOrReadImageFiles(product.id, imageFiles.slice(0, 1));
+    setProductImages(product, nextImages);
+  } else if (editProductRemoveImagePending) {
+    setProductImages(product, []);
   }
 
   saveProducts();
-  closeEditProductModal();
+  closeEditProductModal({ skipUnsavedCheck: true });
   renderAll();
   restoreAdminTableScroll(scrollTop);
   showToast("Producto guardado correctamente", "success");
@@ -4670,31 +4649,92 @@ function renderSelectedProductImageGallery(images) {
 
 function renderEditProductImageGallery(product) {
   if (!els.editProductImageGallery) return;
+  els.editProductImageGallery.innerHTML = "";
   const images = getStoredProductImages(product);
-  if (!images.length) {
-    els.editProductImageGallery.innerHTML = `<div class="gallery-empty">Sin fotos cargadas.</div>`;
-    if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
-    return;
-  }
-  if (els.editProductImagePreview) els.editProductImagePreview.src = images[0];
-  els.editProductImageGallery.innerHTML = images.map((image, index) => `
-    <div class="gallery-thumb ${index === 0 ? "is-primary" : ""}">
-      <img src="${escapeHtml(image)}" alt="Foto ${index + 1} del producto">
-      <span>${index === 0 ? "Principal" : `Foto ${index + 1}`}</span>
-      <div class="gallery-thumb-actions">
-        <button type="button" data-gallery-action="primary" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Principal</button>
-        <button type="button" data-gallery-action="up" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Subir</button>
-        <button type="button" data-gallery-action="down" data-gallery-index="${index}" ${index === images.length - 1 ? "disabled" : ""}>Bajar</button>
-        <label class="gallery-replace">Reemplazar<input type="file" accept="image/*" data-gallery-replace="${index}"></label>
-        <button type="button" data-gallery-action="delete" data-gallery-index="${index}">Eliminar</button>
-      </div>
-    </div>
-  `).join("");
-  els.editProductImageGallery.querySelectorAll("[data-gallery-action]").forEach((button) => {
-    button.addEventListener("click", () => handleProductGalleryAction(button.dataset.galleryAction, Number(button.dataset.galleryIndex)));
+  if (els.editProductImagePreview) els.editProductImagePreview.src = images[0] || DEFAULT_PRODUCT_IMAGE;
+}
+
+function markEditProductPhotoForRemoval() {
+  if (!editingProductId) return;
+  editProductRemoveImagePending = true;
+  if (els.editProductImage) els.editProductImage.value = "";
+  if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
+  if (els.editProductImageLabel) els.editProductImageLabel.textContent = "Agregar foto";
+}
+
+function stepEditProductStock(delta) {
+  if (!els.editProductStock) return;
+  const current = Math.max(0, Math.round(Number(els.editProductStock.value) || 0));
+  els.editProductStock.value = String(Math.max(0, current + delta));
+}
+
+function normalizeEditProductStockInput() {
+  if (!els.editProductStock) return;
+  const value = Math.max(0, Math.round(Number(els.editProductStock.value) || 0));
+  els.editProductStock.value = String(value);
+}
+
+function updateEditProductStockLabels(product) {
+  const stock = Math.max(0, Number(product?.stock) || 0);
+  if (els.editProductStockCurrent) els.editProductStockCurrent.textContent = `Stock actual: ${formatProductStock(product, stock)}`;
+  if (els.editProductStockUnit) els.editProductStockUnit.textContent = getStockUnitLabel(product, stock);
+}
+
+function getEditProductFormState() {
+  if (!els.editProductForm || !editingProductId) return "";
+  const product = products.find((item) => item.id === editingProductId);
+  return JSON.stringify({
+    name: els.editProductName?.value || "",
+    option: els.editProductOption?.value || "",
+    category: els.editProductCategory?.value || "",
+    description: els.editProductDescription?.value || "",
+    presentation: els.editProductPresentation?.value || "",
+    cost: els.editProductCost?.value || "",
+    price: els.editProductPrice?.value || "",
+    stock: els.editProductStock?.value || "",
+    catalog: els.editProductCatalog?.value || "",
+    imageCount: getStoredProductImages(product).length,
+    removeImage: editProductRemoveImagePending,
+    newImage: Boolean(els.editProductImage?.files?.length)
   });
-  els.editProductImageGallery.querySelectorAll("[data-gallery-replace]").forEach((input) => {
-    input.addEventListener("change", () => replaceProductGalleryImage(Number(input.dataset.galleryReplace), input.files?.[0]));
+}
+
+function hasEditProductUnsavedChanges() {
+  if (!editingProductId || !editProductInitialState) return false;
+  return getEditProductFormState() !== editProductInitialState;
+}
+
+function closeOpenProductDetailsMenu(options = {}) {
+  const openDetails = document.querySelector(".more-product-actions[open], .edit-product-more-options[open]");
+  if (!openDetails) return false;
+  openDetails.open = false;
+  if (productDetailsMenuHistoryActive) {
+    productDetailsMenuHistoryActive = false;
+    if (!options.skipHistory && window.history?.state?.modal === "productDetailsMenu") {
+      productDetailsMenuClosingByCode = true;
+      window.history.back();
+    }
+  }
+  return true;
+}
+
+function pushProductDetailsMenuHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (productDetailsMenuHistoryActive || window.history.state?.modal === "productDetailsMenu") return;
+  productDetailsMenuHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "productDetailsMenu" }, "", getCurrentHistoryUrl());
+}
+
+function setupProductDetailsMenus() {
+  document.addEventListener("toggle", (event) => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || !details.matches(".more-product-actions, .edit-product-more-options")) return;
+    if (details.open) pushProductDetailsMenuHistoryState();
+  }, true);
+  document.addEventListener("click", (event) => {
+    const details = event.target.closest?.(".more-product-actions, .edit-product-more-options");
+    if (!details) closeOpenProductDetailsMenu();
+    else if (!event.target.closest("summary")) window.setTimeout(() => closeOpenProductDetailsMenu(), 0);
   });
 }
 
@@ -6253,6 +6293,13 @@ function updateAppHistory(view, options = {}) {
 }
 
 function handleAppPopState(event) {
+  if (productDetailsMenuClosingByCode) {
+    productDetailsMenuClosingByCode = false;
+    return;
+  }
+  if (productDetailsMenuHistoryActive && closeOpenProductDetailsMenu({ skipHistory: true })) {
+    return;
+  }
   if (printPreviewClosingByCode) {
     printPreviewClosingByCode = false;
     return;
