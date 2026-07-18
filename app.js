@@ -4222,8 +4222,8 @@ function renderCart() {
       return;
     }
     event.preventDefault();
-    const whatsappUrl = buildWhatsappUrl(items, totalPrice, latestCustomer);
-    saveCatalogConsultation(items, totalPrice, latestCustomer);
+    const consultation = saveCatalogConsultation(items, totalPrice, latestCustomer);
+    const whatsappUrl = buildWhatsappUrl(items, totalPrice, latestCustomer, formatConsultationNumber(consultation));
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
     cart = [];
     saveCart();
@@ -4324,6 +4324,7 @@ function saveCatalogConsultation(items, totalPrice, customer) {
   orders.unshift(order);
   syncClientsFromOrders();
   saveOrders();
+  return order;
 }
 
 function updateProductField(id, field, value) {
@@ -6029,8 +6030,10 @@ function applyPendingPaidStockDiscounts() {
   saveStockHistory();
 }
 
-function buildWhatsappUrl(items, totalPrice, customer) {
+function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
   const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
+  const cleanConsultationLabel = String(consultationLabel || "").trim();
+  const consultationId = cleanConsultationLabel.replace(/^Consulta\s+/i, "");
   const productLines = items.flatMap((item) => {
     const option = shouldShowCartOptionLine(item) ? ` - ${item.variantLabel}` : "";
     const name = `${item.name}${option}`;
@@ -6043,6 +6046,7 @@ function buildWhatsappUrl(items, totalPrice, customer) {
   const lines = [
     "🛒 PEDIDO GB MAYORISTA",
     "",
+    ...(cleanConsultationLabel ? [cleanConsultationLabel, ""] : []),
     `Cliente: ${customer.name}`,
     `Teléfono: ${customer.phone}`,
     `Localidad: ${customer.location}`,
@@ -6058,7 +6062,8 @@ function buildWhatsappUrl(items, totalPrice, customer) {
     minimumReached ? "✅ Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
     "",
     "Gracias por elegir GB Mayorista.",
-    "Nos comunicaremos a la brevedad."
+    "Nos comunicaremos a la brevedad.",
+    ...(consultationId ? ["", `ID Consulta: ${consultationId}`] : [])
   ];
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
