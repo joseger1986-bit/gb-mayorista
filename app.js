@@ -2143,9 +2143,16 @@ function openEditProductModal(productId) {
   els.editProductOverlay.classList.remove("hidden");
   els.editProductOverlay.setAttribute("aria-hidden", "false");
   pushEditProductHistoryState();
-  window.setTimeout(() => els.editProductName?.focus(), 0);
+  window.setTimeout(clearEditProductModalFocus, 0);
 }
 
+function clearEditProductModalFocus() {
+  if (!els.editProductOverlay || els.editProductOverlay.classList.contains("hidden")) return;
+  const active = document.activeElement;
+  if (active && els.editProductOverlay.contains(active) && typeof active.blur === "function") {
+    active.blur();
+  }
+}
 function fillEditCategoryOptions(selectedCategory) {
   if (!els.editProductCategory) return;
   const categoryNames = getCategories();
