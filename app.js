@@ -3807,6 +3807,10 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => sendBudgetPreviewPdfByWhatsapp(button.dataset.sendPreviewPdf));
   });
 
+  els.ordersList.querySelectorAll("[data-open-customer-chat]").forEach((button) => {
+    button.addEventListener("click", () => openBudgetCustomerChat(button.dataset.openCustomerChat));
+  });
+
   els.ordersList.querySelector("[data-budget-preview-overlay]")?.addEventListener("click", (event) => {
     if (event.target.matches("[data-budget-preview-overlay]")) {
       closeBudgetPreview(previewOrderId);
@@ -5200,6 +5204,7 @@ function renderBudgetPreview(order) {
         <div class="order-actions budget-preview-actions">
           <button class="primary-button small-button" type="button" data-send-preview-budget="${order.id}">Enviar por WhatsApp</button>
           <button class="secondary-button small-button" type="button" data-send-preview-pdf="${order.id}">Enviar PDF por WhatsApp</button>
+          <button class="secondary-button small-button" type="button" data-open-customer-chat="${order.id}">Abrir chat</button>
           <button class="secondary-button small-button" type="button" data-close-preview="${order.id}">Cerrar</button>
         </div>
       </section>
@@ -5232,6 +5237,17 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   showToast("Consulta pagada, stock descontado y venta registrada");
 }
 
+function openBudgetCustomerChat(id) {
+  const order = orders.find((item) => item.id === id);
+  if (!order) return;
+  const url = buildCustomerWhatsappChatUrl(order);
+  if (!order.customerPhone || url === "#") {
+    showToast("Esta consulta no tiene teléfono cargado.");
+    return;
+  }
+  const opened = window.open(url, "_blank", "noreferrer");
+  if (!opened) showToast("No se pudo abrir WhatsApp");
+}
 function sendBudgetByWhatsapp(id) {
   const order = orders.find((item) => item.id === id);
   if (!order || order.stockApplied) return;
@@ -6083,6 +6099,12 @@ function buildCustomerWhatsappUrl(order) {
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
   if (!phone || phone === "549") return "#";
   return `https://wa.me/${phone}?text=${encodeURIComponent(buildBudgetMessage(order))}`;
+}
+
+function buildCustomerWhatsappChatUrl(order) {
+  const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
+  if (!phone || phone === "549") return "#";
+  return `https://wa.me/${phone}`;
 }
 
 function buildBudgetMessage(order) {
