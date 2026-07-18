@@ -10667,3 +10667,70 @@ body.cart-is-open {
     max-width: 150px;
   }
 }
+
+
+/* Compacta el panel principal de Gestion Interna */
+.management-shell {
+  gap: 10px 14px;
+  margin-top: 18px;
+  padding: 12px 14px;
+}
+
+.management-shell > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.management-shell h2 {
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  line-height: 1.15;
+}
+
+.management-shell p,
+.management-shell .eyebrow {
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.management-tabs {
+  gap: 6px;
+  align-items: center;
+}
+
+.management-tabs .ghost-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 0.84rem;
+  line-height: 1.05;
+}
+
+@media (max-width: 900px) {
+  .management-shell {
+    gap: 8px;
+    margin-top: 12px;
+    padding: 10px;
+  }
+
+  .management-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .management-tabs button {
+    width: auto;
+    min-height: 34px;
+    flex: 1 1 auto;
+    padding: 7px 9px;
+    font-size: 0.8rem;
+  }
+}
+
+
+.readonly-order-note {
+  color: #6b7280;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-align: center;
+}

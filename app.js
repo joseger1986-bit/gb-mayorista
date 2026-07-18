@@ -377,8 +377,6 @@ const els = {
   adminNav: document.querySelector("#adminNav"),
   adminNavManagement: document.querySelector("#adminNavManagement"),
   adminNavCatalog: document.querySelector("#adminNavCatalog"),
-  adminNavManagementInline: document.querySelector("#adminNavManagementInline"),
-  adminNavCatalogInline: document.querySelector("#adminNavCatalogInline"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
@@ -404,8 +402,6 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
 els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
-els.adminNavManagementInline?.addEventListener("click", () => setView("admin"));
-els.adminNavCatalogInline?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 
 els.searchInput.addEventListener("input", renderCatalog);
@@ -3108,11 +3104,16 @@ function renderOrderCustomerBlock(order) {
 }
 
 function renderOrderActionButtons(order) {
+  const readonly = !canEditOrder(order);
+  const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone ? "" : "disabled"}>Vista previa de WhatsApp</button>`;
+  const documentButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>`;
+  const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>`;
+  if (readonly) return `${previewButton}${documentButton}${backButton}`;
   return `
-    <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>Guardar cambios</button>
-    <button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone && canEditOrder(order) ? "" : "disabled"}>Vista previa de WhatsApp</button>
-    <button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>
-    <button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>
+    <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}">Guardar cambios</button>
+    ${previewButton}
+    ${documentButton}
+    ${backButton}
   `;
 }
 
@@ -3143,13 +3144,15 @@ function renderInternalOrderCard(order, options = {}) {
         </section>
 
         <section class="compact-order-section">
-          <div class="budget-product-search compact-budget-search">
-            <label>
-              Agregar producto
-              <input type="search" value="" placeholder="Buscar producto para agregar" data-budget-search="${order.id}" ${canEditOrder(order) ? "" : "disabled"}>
-            </label>
-            <div class="budget-search-results" data-budget-search-results="${order.id}"></div>
-          </div>
+          ${canEditOrder(order) ? `
+            <div class="budget-product-search compact-budget-search">
+              <label>
+                Agregar producto
+                <input type="search" value="" placeholder="Buscar producto para agregar" data-budget-search="${order.id}">
+              </label>
+              <div class="budget-search-results" data-budget-search-results="${order.id}"></div>
+            </div>
+          ` : ""}
 
           <div class="budget-items compact-budget-items">
             <div class="budget-items-title-row">
@@ -3243,6 +3246,12 @@ function renderCompactBudgetItem(order, item) {
   const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
   const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
   const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
+  const actions = canEditOrder(order)
+    ? `
+        <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}">Editar</button>
+        <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto">Eliminar</button>
+      `
+    : `<span class="readonly-order-note">Solo lectura</span>`;
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
       <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(productLine)}</span>
@@ -3250,10 +3259,7 @@ function renderCompactBudgetItem(order, item) {
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
       <span class="order-product-unit-price">${formatMoney(item.price)}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
-      <span class="order-product-actions">
-        <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}" ${canEditOrder(order) ? "" : "disabled"}>Editar</button>
-        <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto" ${canEditOrder(order) ? "" : "disabled"}>Eliminar</button>
-      </span>
+      <span class="order-product-actions">${actions}</span>
     </div>
   `;
 }
@@ -3485,7 +3491,7 @@ async function copyBudgetPreviewText(orderId) {
 
 function sendBudgetPreviewByWhatsapp(orderId) {
   const order = orders.find((item) => item.id === orderId);
-  if (!order || order.stockApplied) return;
+  if (!order) return;
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
   const text = getBudgetPreviewText(orderId) || buildBudgetMessage(order);
   if (!phone || phone === "549") {
@@ -3497,12 +3503,14 @@ function sendBudgetPreviewByWhatsapp(orderId) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  if (normalizeConsultationStatus(order.status) !== "Pagado") order.status = "En revisión";
-  order.updatedAt = new Date().toISOString();
-  recalculateBudget(order);
-  previewOrderId = "";
-  saveOrders();
-  renderAll();
+  if (normalizeConsultationStatus(order.status) !== "Pagado") {
+    order.status = "En revisión";
+    order.updatedAt = new Date().toISOString();
+    recalculateBudget(order);
+    previewOrderId = "";
+    saveOrders();
+    renderAll();
+  }
 }
 function sendBudgetPreviewPdfByWhatsapp(orderId) {
   const order = orders.find((item) => item.id === orderId);
@@ -3691,6 +3699,7 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => {
       const order = orders.find((item) => item.id === button.dataset.saveOrder);
       if (!order) return;
+      if (!canEditOrder(order)) return;
       openOrderId = button.dataset.saveOrder;
       if (order.manualDraft) {
         saveManualConsultation(order);
@@ -4873,6 +4882,7 @@ function updateRecordStatus(id, status) {
   const order = orders.find((item) => item.id === id);
   if (!order || !statuses.includes(status)) return;
   const currentStatus = normalizeConsultationStatus(order.status);
+  if (currentStatus === "Pagado") return;
   if (status === "Pagado" && !order.stockApplied) {
     markOrderPaidAndDiscountStock(id, "Pagado");
     return;
@@ -5895,11 +5905,11 @@ function removeBudgetItem(orderId, productId) {
 }
 
 function canEditOrder(order) {
-  return order.status !== "Cancelado" && (!order.stockApplied || canAccess("admin"));
+  return hasPermission("orders") && normalizeConsultationStatus(order?.status) !== "Pagado" && order?.status !== "Cancelado" && !order?.stockApplied;
 }
 
 function canChangeOrderStatus(order) {
-  return hasPermission("orders") && order.status !== "Cancelado";
+  return hasPermission("orders") && normalizeConsultationStatus(order?.status) !== "Pagado" && order?.status !== "Cancelado" && !order?.stockApplied;
 }
 
 function restoreConfirmedStock(order) {
@@ -6245,8 +6255,6 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked));
   els.adminNavManagement?.classList.toggle("active", isManagementView);
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
-  els.adminNavManagementInline?.classList.toggle("active", isManagementView);
-  els.adminNavCatalogInline?.classList.toggle("active", view === "catalogo");
   els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
   els.catalogView.classList.toggle("hidden", view !== "catalogo");
   els.managementShell.classList.toggle("hidden", !isManagementView);

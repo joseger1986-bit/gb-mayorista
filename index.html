@@ -100,10 +100,6 @@
           <h2>Panel de Gestión GB Mayorista</h2>
           <p>Administrá productos, stock, pedidos, clientes y reportes.</p>
         </div>
-        <div class="admin-section-switch" aria-label="Navegación principal de administrador">
-          <button class="ghost-button active" id="adminNavManagementInline" type="button">Gestión</button>
-          <button class="ghost-button" id="adminNavCatalogInline" type="button">Ver Catálogo</button>
-        </div>
         <div class="management-tabs" aria-label="Secciones de gestión interna">
           <button class="ghost-button" data-view="admin">Productos</button>
           <button class="ghost-button" data-view="pedidos">Pedidos</button>
@@ -277,7 +273,6 @@
         <div class="section-head">
           <div>
             <h2>Consultas y pedidos</h2>
-            <p>Separá consultas del catálogo y pedidos reales para revisar productos, pago, entrega y stock.</p>
           </div>
           <button class="secondary-button" id="addSampleOrder" type="button">Agregar consulta de prueba</button>
         </div>
@@ -559,6 +554,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=talle-field-33"></script>
+    <script src="/app.js?v=paid-readonly-34"></script>
   </body>
 </html>
