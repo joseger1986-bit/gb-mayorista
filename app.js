@@ -2122,7 +2122,7 @@ function openEditProductModal(productId) {
   editingProductId = productId;
   clearProductValidation(els.editProductForm);
   fillEditCategoryOptions(product.category);
-  if (els.editProductTitle) els.editProductTitle.textContent = `Editar: ${getProductArticleName(product)}`;
+  if (els.editProductTitle) els.editProductTitle.textContent = `Editar: ${getProductBaseName(product)}`;
   if (els.editProductName) els.editProductName.value = getProductBaseName(product);
   if (els.editProductOption) els.editProductOption.value = getProductOptionName(product);
   if (els.editProductPrice) els.editProductPrice.value = formatInputMoney(product.price);
@@ -6190,7 +6190,7 @@ function formatCartPresentation(item) {
 function renderCartVariantLine(item) {
   const label = String(item?.variantLabel || "").trim();
   if (!shouldShowCartOptionLine(item)) return "";
-  return `<span>Opción: ${escapeHtml(label)}</span>`;
+  return `<span>Talle: ${escapeHtml(label)}</span>`;
 }
 
 function shouldShowCartOptionLine(item) {
