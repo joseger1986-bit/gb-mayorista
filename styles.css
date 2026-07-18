@@ -10500,3 +10500,81 @@ body.cart-is-open {
     max-width: 104px !important;
   }
 }
+
+/* Cantidad previa al agregar productos en consultas */
+.budget-search-result-with-quantity {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  cursor: default;
+}
+
+.budget-search-result-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.budget-search-result-actions {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.budget-search-quantity-label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.budget-search-quantity-stepper {
+  display: grid;
+  grid-template-columns: 30px 48px 30px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.budget-search-quantity-stepper .quantity-stepper-button {
+  width: 30px;
+  height: 32px;
+  border-radius: 0;
+  border: 0;
+}
+
+.budget-search-quantity-stepper input {
+  width: 48px;
+  height: 32px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  text-align: center;
+  font-weight: 900;
+  background: #fff;
+}
+
+.budget-search-add-button {
+  min-height: 34px;
+  padding-inline: 12px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .budget-search-result-with-quantity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .budget-search-result-actions {
+    justify-content: space-between;
+    align-items: end;
+  }
+
+  .budget-search-add-button {
+    min-width: 104px;
+  }
+}

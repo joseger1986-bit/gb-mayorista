@@ -3628,9 +3628,20 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-budget-search-results]").forEach((container) => {
     container.addEventListener("click", (event) => {
+      const decrease = event.target.closest("[data-budget-search-decrease]");
+      const increase = event.target.closest("[data-budget-search-increase]");
       const button = event.target.closest("[data-budget-pick-product]");
+      const result = event.target.closest("[data-budget-search-result]");
+      const quantityInput = result?.querySelector("[data-budget-search-quantity]");
+      if (decrease || increase) {
+        if (!quantityInput) return;
+        const current = Math.max(1, Math.round(Number(quantityInput.value) || 1));
+        quantityInput.value = String(Math.max(1, current + (increase ? 1 : -1)));
+        return;
+      }
       if (!button) return;
-      addBudgetItem(container.dataset.budgetSearchResults, button.dataset.budgetPickProduct, 1);
+      const quantity = Math.max(1, Math.round(Number(quantityInput?.value) || 1));
+      addBudgetItem(container.dataset.budgetSearchResults, button.dataset.budgetPickProduct, quantity);
     });
   });
 
@@ -4959,10 +4970,23 @@ function renderBudgetProductMatches(orderId, query) {
   }
 
   container.innerHTML = matches.map((product) => `
-    <button class="budget-search-result" type="button" data-budget-pick-product="${product.id}">
-      <strong>${escapeHtml(product.name)}</strong>
-      <span>${escapeHtml(product.category)} · ${formatMoney(product.price)}</span>
-    </button>
+    <div class="budget-search-result budget-search-result-with-quantity" data-budget-search-result="${product.id}">
+      <div class="budget-search-result-info">
+        <strong>${escapeHtml(product.name)}</strong>
+        <span>${escapeHtml(product.category)} · ${formatMoney(product.price)}</span>
+      </div>
+      <div class="budget-search-result-actions">
+        <label class="budget-search-quantity-label">
+          Cantidad
+          <span class="budget-search-quantity-stepper">
+            <button class="quantity-stepper-button" type="button" data-budget-search-decrease="${product.id}" aria-label="Restar cantidad">−</button>
+            <input type="number" min="1" step="1" value="1" inputmode="numeric" data-budget-search-quantity="${product.id}" aria-label="Cantidad de ${escapeHtml(product.name)}">
+            <button class="quantity-stepper-button" type="button" data-budget-search-increase="${product.id}" aria-label="Sumar cantidad">+</button>
+          </span>
+        </label>
+        <button class="primary-button small-button budget-search-add-button" type="button" data-budget-pick-product="${product.id}">Agregar</button>
+      </div>
+    </div>
   `).join("");
 }
 
