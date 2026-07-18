@@ -204,11 +204,16 @@ let adminProductSort = { field: "name", direction: "asc" };
 let currentView = "catalogo";
 let previewOrderId = "";
 let previewMode = "budget";
+let currentPrintOrderId = "";
 let openOrderId = "";
 let orderListSearch = "";
 let orderListFilter = "Todas";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
+let budgetPreviewHistoryActive = false;
+let budgetPreviewClosingByCode = false;
+let printPreviewHistoryActive = false;
+let printPreviewClosingByCode = false;
 let editingOrderCustomerId = "";
 let editingBudgetItem = null;
 let budgetItemEditHistoryActive = false;
@@ -3722,11 +3727,7 @@ function bindBudgetEditor() {
   });
 
   els.ordersList.querySelectorAll("[data-close-preview]").forEach((button) => {
-    button.addEventListener("click", () => {
-      openOrderId = button.dataset.closePreview;
-      previewOrderId = "";
-      renderOrders();
-    });
+    button.addEventListener("click", () => closeBudgetPreview(button.dataset.closePreview));
   });
 
   els.ordersList.querySelectorAll("[data-copy-budget-preview]").forEach((button) => {
@@ -3739,9 +3740,7 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelector("[data-budget-preview-overlay]")?.addEventListener("click", (event) => {
     if (event.target.matches("[data-budget-preview-overlay]")) {
-      openOrderId = previewOrderId;
-      previewOrderId = "";
-      renderOrders();
+      closeBudgetPreview(previewOrderId);
     }
   });
   els.ordersList.querySelectorAll("[data-view-document]").forEach((button) => {
@@ -5011,7 +5010,29 @@ function showBudgetPreview(id, mode = "view") {
   openOrderId = id;
   previewOrderId = id;
   previewMode = mode;
+  pushBudgetPreviewHistoryState();
   renderOrders();
+}
+
+function closeBudgetPreview(orderId = previewOrderId, options = {}) {
+  if (openOrderId !== orderId) openOrderId = orderId;
+  if (previewOrderId === orderId) previewOrderId = "";
+  if (budgetPreviewHistoryActive) {
+    budgetPreviewHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "budgetPreview") {
+      budgetPreviewClosingByCode = true;
+      window.history.back();
+      return;
+    }
+  }
+  renderOrders();
+}
+
+function pushBudgetPreviewHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (budgetPreviewHistoryActive || window.history.state?.modal === "budgetPreview") return;
+  budgetPreviewHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "budgetPreview" }, "", getCurrentHistoryUrl());
 }
 
 function renderBudgetPreview(order) {
@@ -5090,6 +5111,7 @@ function viewOrderDocument(id) {
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   recalculateBudget(order);
+  currentPrintOrderId = id;
   currentPrintDocument = buildOrderPrintDocument(order);
   const documentTitle = getOrderDocumentTitle(order);
   openPrintWindow(buildOrderDocumentHtml(order), "pedido", buildPdfFilename(documentTitle, order));
@@ -5227,10 +5249,11 @@ function renderInlinePrintPreview(html, type = "recibo", filename = "") {
   preparePdfDownload(type);
   els.printPreviewOverlay.classList.remove("hidden");
   els.printPreviewOverlay.setAttribute("aria-hidden", "false");
+  pushPrintPreviewHistoryState();
   return true;
 }
 
-function closeInlinePrintPreview() {
+function closeInlinePrintPreview(options = {}) {
   if (!els.printPreviewOverlay || !els.printPreviewBody) return;
   els.printPreviewOverlay.classList.add("hidden");
   els.printPreviewOverlay.setAttribute("aria-hidden", "true");
@@ -5240,6 +5263,21 @@ function closeInlinePrintPreview() {
   currentPrintType = "";
   currentPrintFilename = "";
   currentPrintDocument = null;
+  currentPrintOrderId = "";
+  if (printPreviewHistoryActive) {
+    printPreviewHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "printPreview") {
+      printPreviewClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushPrintPreviewHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (printPreviewHistoryActive || window.history.state?.modal === "printPreview") return;
+  printPreviewHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "printPreview" }, "", getCurrentHistoryUrl());
 }
 
 function printModalContent(type) {
@@ -5288,17 +5326,28 @@ async function shareCurrentPdf() {
     showToast("No se pudo preparar el PDF");
     return;
   }
+  const order = currentPrintOrderId ? orders.find((item) => item.id === currentPrintOrderId) : null;
+  const phone = normalizeArgentinaWhatsappNumber(order?.customerPhone || "");
+  if (phone) {
+    const opened = window.open("https://wa.me/" + phone, "_blank", "noreferrer");
+    if (!opened) {
+      showToast("No se pudo abrir WhatsApp");
+      return;
+    }
+    showToast("WhatsApp del cliente abierto. PDF listo para adjuntar.", "success");
+    return;
+  }
+  showToast("La consulta no tiene teléfono cargado.");
   const file = new File([currentPdfBlob], currentPdfFilename, { type: "application/pdf" });
   if (navigator.canShare?.({ files: [file] }) && navigator.share) {
     try {
       await navigator.share({ files: [file], title: "Consulta GB Mayorista", text: "Consulta GB Mayorista" });
-      showToast("PDF listo para compartir");
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
     }
   }
-  showToast("Tu navegador no permite compartir archivos. Descargá el PDF y adjuntalo por WhatsApp.");
+  showToast("Descargá el PDF y adjuntalo por WhatsApp.");
 }
 
 function showPdfDownloadLink(url, filename) {
@@ -6204,6 +6253,23 @@ function updateAppHistory(view, options = {}) {
 }
 
 function handleAppPopState(event) {
+  if (printPreviewClosingByCode) {
+    printPreviewClosingByCode = false;
+    return;
+  }
+  if (printPreviewHistoryActive && els.printPreviewOverlay && !els.printPreviewOverlay.classList.contains("hidden")) {
+    closeInlinePrintPreview({ fromHistory: true });
+    return;
+  }
+  if (budgetPreviewClosingByCode) {
+    budgetPreviewClosingByCode = false;
+    renderOrders();
+    return;
+  }
+  if (budgetPreviewHistoryActive && previewOrderId) {
+    closeBudgetPreview(previewOrderId, { fromHistory: true });
+    return;
+  }
   if (budgetItemEditClosingByCode) {
     budgetItemEditClosingByCode = false;
     renderOrders();
