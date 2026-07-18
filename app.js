@@ -207,7 +207,7 @@ let previewMode = "budget";
 let currentPrintOrderId = "";
 let openOrderId = "";
 let orderListSearch = "";
-let orderListFilter = "Todas";
+let orderListFilter = "Hoy";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let budgetPreviewHistoryActive = false;
@@ -3050,7 +3050,8 @@ function renderOrders() {
 }
 
 function renderOrdersToolbar() {
-  const filters = ["Todas", "En revisión", "Pagadas"];
+  const filters = ["Hoy", "Ayer", "En revisión", "Pagadas", "Todas"];
+  if (!filters.includes(orderListFilter)) orderListFilter = "Hoy";
   return `
     <div class="orders-workbar">
       <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva consulta</button>
@@ -3089,11 +3090,22 @@ function normalizeConsultationStatus(status) {
   return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisión";
 }
 function matchesOrderListFilter(order, filter) {
+  if (filter === "Hoy") return isOrderCreatedOnRelativeDay(order, 0);
+  if (filter === "Ayer") return isOrderCreatedOnRelativeDay(order, -1);
   if (filter === "En revisión") return normalizeConsultationStatus(order.status) === "En revisión";
   if (filter === "Pagadas") return normalizeConsultationStatus(order.status) === "Pagado";
   return true;
 }
 
+function isOrderCreatedOnRelativeDay(order, offsetDays = 0) {
+  const createdAt = order?.createdAt ? new Date(order.createdAt) : null;
+  if (!createdAt || Number.isNaN(createdAt.getTime())) return false;
+  const target = new Date();
+  target.setDate(target.getDate() + offsetDays);
+  return createdAt.getFullYear() === target.getFullYear()
+    && createdAt.getMonth() === target.getMonth()
+    && createdAt.getDate() === target.getDate();
+}
 function renderOrdersCompactTable(orderList) {
   return `
     <div class="orders-compact-table" role="table" aria-label="Listado de pedidos">
@@ -3591,7 +3603,7 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-orders-filter]").forEach((button) => {
     button.addEventListener("click", () => {
-      orderListFilter = button.dataset.ordersFilter || "Todas";
+      orderListFilter = button.dataset.ordersFilter || "Hoy";
       renderOrders();
     });
   });
