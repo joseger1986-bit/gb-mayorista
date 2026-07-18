@@ -241,6 +241,12 @@ let allowExternalBack = false;
 let lastExitBackPress = 0;
 let editProductModalHistoryActive = false;
 let editProductModalClosingByCode = false;
+let imageLightboxHistoryActive = false;
+let imageLightboxClosingByCode = false;
+let stockModalHistoryActive = false;
+let stockModalClosingByCode = false;
+let addProductModalHistoryActive = false;
+let addProductModalClosingByCode = false;
 var supabaseCatalogSyncTimer = null;
 var supabaseCatalogSyncRunning = false;
 var supabaseCatalogBootstrapped = false;
@@ -2348,13 +2354,28 @@ function openStockModal(productId) {
   if (els.stockModalQuantity) els.stockModalQuantity.value = "";
   els.stockModalOverlay.classList.remove("hidden");
   els.stockModalOverlay.setAttribute("aria-hidden", "false");
+  pushStockModalHistoryState();
   window.setTimeout(() => els.stockModalQuantity?.focus(), 0);
 }
 
-function closeStockModal() {
+function closeStockModal(options = {}) {
   stockModalProductId = "";
   els.stockModalOverlay?.classList.add("hidden");
   els.stockModalOverlay?.setAttribute("aria-hidden", "true");
+  if (stockModalHistoryActive) {
+    stockModalHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "stockModal") {
+      stockModalClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushStockModalHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (stockModalHistoryActive || window.history.state?.modal === "stockModal") return;
+  stockModalHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "stockModal" }, "", getCurrentHistoryUrl());
 }
 
 function confirmStockModal(event) {
@@ -2384,14 +2405,15 @@ function openAddProductModal() {
   if (els.productVariants) els.productVariants.value = "";
   const stockInput = els.productForm.querySelector('input[name="stock"]');
   if (stockInput) stockInput.value = "0";
-  resetImagePreview("La vista previa de la foto aparecerá antes de guardar.");
+  resetImagePreview("La vista previa de la foto aparecer\\u00e1 antes de guardar.");
   els.addProductOverlay.classList.remove("hidden");
   els.addProductOverlay.setAttribute("aria-hidden", "false");
   updateProductFormToggle();
+  pushAddProductModalHistoryState();
   window.setTimeout(() => els.productForm?.querySelector('input[name="name"]')?.focus(), 0);
 }
 
-function closeAddProductModal() {
+function closeAddProductModal(options = {}) {
   els.addProductOverlay?.classList.add("hidden");
   els.addProductOverlay?.setAttribute("aria-hidden", "true");
   clearProductValidation(els.productForm);
@@ -2399,10 +2421,23 @@ function closeAddProductModal() {
   if (els.productVariants) els.productVariants.value = "";
   const stockInput = els.productForm?.querySelector('input[name="stock"]');
   if (stockInput) stockInput.value = "0";
-  resetImagePreview("La vista previa de la foto aparecerá antes de guardar.");
+  resetImagePreview("La vista previa de la foto aparecer\\u00e1 antes de guardar.");
   updateProductFormToggle();
+  if (addProductModalHistoryActive) {
+    addProductModalHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "addProductModal") {
+      addProductModalClosingByCode = true;
+      window.history.back();
+    }
+  }
 }
 
+function pushAddProductModalHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (addProductModalHistoryActive || window.history.state?.modal === "addProductModal") return;
+  addProductModalHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "addProductModal" }, "", getCurrentHistoryUrl());
+}
 function updateProductFormToggle() {
   if (!els.addProductToggle || !els.addProductOverlay) return;
   els.addProductToggle.textContent = els.addProductOverlay.classList.contains("hidden")
@@ -4834,6 +4869,7 @@ function openImageLightbox(images, options = "Producto", startIndex = 0) {
   els.imageLightbox?.classList.remove("hidden");
   els.imageLightbox?.setAttribute("aria-hidden", "false");
   document.body.classList.add("lightbox-open");
+  pushImageLightboxHistoryState();
 }
 
 function showLightboxImage(index) {
@@ -4862,7 +4898,7 @@ function showNextLightboxImage() {
   }
 }
 
-function closeImageLightbox() {
+function closeImageLightbox(options = {}) {
   els.imageLightbox?.classList.add("hidden");
   els.imageLightbox?.setAttribute("aria-hidden", "true");
   document.body.classList.remove("lightbox-open");
@@ -4870,6 +4906,20 @@ function closeImageLightbox() {
   lightboxIndex = 0;
   lightboxTitle = "";
   lightboxDescription = "";
+  if (imageLightboxHistoryActive) {
+    imageLightboxHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "imageLightbox") {
+      imageLightboxClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushImageLightboxHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (imageLightboxHistoryActive || window.history.state?.modal === "imageLightbox") return;
+  imageLightboxHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "imageLightbox" }, "", getCurrentHistoryUrl());
 }
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -6330,6 +6380,30 @@ function updateAppHistory(view, options = {}) {
 }
 
 function handleAppPopState(event) {
+  if (imageLightboxClosingByCode) {
+    imageLightboxClosingByCode = false;
+    return;
+  }
+  if (imageLightboxHistoryActive && els.imageLightbox && !els.imageLightbox.classList.contains("hidden")) {
+    closeImageLightbox({ fromHistory: true });
+    return;
+  }
+  if (addProductModalClosingByCode) {
+    addProductModalClosingByCode = false;
+    return;
+  }
+  if (addProductModalHistoryActive && els.addProductOverlay && !els.addProductOverlay.classList.contains("hidden")) {
+    closeAddProductModal({ fromHistory: true });
+    return;
+  }
+  if (stockModalClosingByCode) {
+    stockModalClosingByCode = false;
+    return;
+  }
+  if (stockModalHistoryActive && els.stockModalOverlay && !els.stockModalOverlay.classList.contains("hidden")) {
+    closeStockModal({ fromHistory: true });
+    return;
+  }
   if (productDetailsMenuClosingByCode) {
     productDetailsMenuClosingByCode = false;
     return;
