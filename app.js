@@ -1714,7 +1714,7 @@ function renderCatalogVariantControl(group) {
 
 function hasCatalogVariantChoices(group) {
   const labels = new Set((group.variants || []).map((variant) => String(variant.label || "").trim().toLowerCase()).filter(Boolean));
-  return labels.size > 1;
+  return labels.size > 0;
 }
 
 function updateCatalogCardSelection(groupId, catalogProducts) {
@@ -1867,7 +1867,7 @@ function renderAdmin() {
     adminHead.innerHTML = `
       <th>Foto</th>
       <th>${renderSortHeader("name", "Producto")}</th>
-      <th>Opción</th>
+      <th>Talle</th>
       <th>${renderSortHeader("category", "Categoría")}</th>
       ${isAdmin ? "<th>Costo</th>" : ""}
       <th>${renderSortHeader("price", "Venta")}</th>
@@ -1918,7 +1918,7 @@ function renderAdmin() {
           </div>
           <div class="mobile-product-info">
             <strong>${escapeHtml(getProductBaseName(product))}</strong>
-            <span>${escapeHtml(getProductOptionName(product) || "Sin opción")}</span>
+            <span>${escapeHtml(getProductOptionName(product) || "Sin talle")}</span>
             <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
           </div>
           ${isAdmin ? `<button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>` : ""}
@@ -1926,7 +1926,7 @@ function renderAdmin() {
       </td>
       <td data-label="Foto" class="product-photo-cell">${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}</td>
       <td data-label="Producto" class="product-name-cell"><strong>${escapeHtml(getProductBaseName(product))}</strong></td>
-      <td data-label="Opción" class="product-option-cell">${escapeHtml(getProductOptionName(product) || "-")}</td>
+      <td data-label="Talle" class="product-option-cell">${escapeHtml(getProductOptionName(product) || "-")}</td>
       <td data-label="Categoría" class="product-category-cell">${escapeHtml(product.category)}</td>
       ${isAdmin ? `<td data-label="Costo" class="metric-cell price-column product-cost-cell">${formatMoney(product.cost || 0)}</td>` : ""}
       <td data-label="Venta" class="metric-cell price-column product-price-cell ${Number(product.price) > 0 ? "" : "missing-price"}">${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</td>
@@ -6956,7 +6956,8 @@ function buildImportedProducts(rows) {
   if (!rows.length) return [];
   const headers = rows[0].map(normalizeHeader);
   const productIndex = headers.indexOf("producto");
-  const optionIndex = headers.indexOf("opcion");
+  const optionIndex = headers.indexOf("talle");
+  const legacyOptionIndex = headers.indexOf("opcion");
   const categoryIndex = headers.indexOf("categoria");
   const costIndex = headers.indexOf("precio costo");
   const priceIndex = headers.indexOf("precio venta");
@@ -6967,7 +6968,11 @@ function buildImportedProducts(rows) {
 
   return rows.slice(1).map((row) => {
     const rawName = String(row[productIndex] || "").trim();
-    const rawOption = optionIndex >= 0 ? String(row[optionIndex] || "").trim() : "";
+    const rawOption = optionIndex >= 0
+      ? String(row[optionIndex] || "").trim()
+      : legacyOptionIndex >= 0
+        ? String(row[legacyOptionIndex] || "").trim()
+        : "";
     const identity = getProductIdentityFromName(rawName, rawOption);
     const name = buildProductArticleName(identity.baseName, identity.optionName);
     const category = String(row[categoryIndex] || "").trim();
@@ -7075,7 +7080,7 @@ function downloadImportTemplate() {
   if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
-    "Opción",
+    "Talle",
     "Categoría",
     "Precio costo",
     "Precio venta",
@@ -7107,7 +7112,7 @@ function exportProductsToExcel() {
   if (!hasPermission("importExport")) return;
   const headers = [
     "Producto",
-    "Opción",
+    "Talle",
     "Categoría",
     "Precio costo",
     "Precio venta",
