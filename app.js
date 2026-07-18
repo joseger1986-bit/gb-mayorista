@@ -1700,8 +1700,8 @@ function renderCatalogVariantControl(group) {
   if (!hasCatalogVariantChoices(group)) return "";
   return `
     <label class="variant-select-row" for="variant-${group.id}">
-      <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="Elegir opción">
-        <option value="">Elegir opción</option>
+      <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="Elegir talle">
+        <option value="">Elegir talle</option>
         ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(variant.label)}</option>`).join("")}
       </select>
     </label>
