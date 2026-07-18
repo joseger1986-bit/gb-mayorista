@@ -94,7 +94,7 @@ const definitiveDescriptions = {
 function addDefinitiveProduct(name, category, presentation = "1 Docena", description = "") {
   const identity = getProductIdentityFromName(name);
   definitiveProductCatalog.push({
-    name: buildProductArticleName(identity.baseName, identity.optionName),
+    name: identity.baseName,
     baseName: identity.baseName,
     optionName: identity.optionName,
     category,
@@ -470,17 +470,17 @@ els.productForm.addEventListener("submit", async (event) => {
   const saleType = getSaleTypeFromPresentation(presentation);
   const price = Math.max(0, parseMoneyInput(form.get("price")));
   const productId = crypto.randomUUID();
-  const baseName = String(form.get("name") || "").trim();
-  const optionName = String(form.get("option") || "").trim();
+  const optionName = normalizeProductOptionLabel(form.get("option") || "");
+  const baseName = stripProductOptionFromName(String(form.get("name") || "").trim(), optionName);
   const selectedImages = await getImagesFromProductForm(form, productId);
   const primaryImage = selectedImages[0] || DEFAULT_PRODUCT_IMAGE;
   const product = {
     id: productId,
     image: primaryImage,
     images: selectedImages.length ? selectedImages : [],
-    name: buildProductArticleName(baseName, optionName),
+    name: baseName,
     baseName,
-    optionName: normalizeProductOptionLabel(optionName),
+    optionName,
     brand: "",
     category: normalizeCategory(String(form.get("category")).trim()),
     presentation,
@@ -1024,7 +1024,7 @@ async function syncCatalogToSupabase(reason = "manual") {
       const row = {
         id: product.id,
         category_id: categoryIdByName.get(normalizeCategoryNameForCompare(product.category)) || null,
-        name: getProductArticleName(product),
+        name: supabaseProductOptionSupported ? getProductBaseName(product) : getProductArticleName(product),
         brand: product.brand || "",
         presentation: getProductPresentation(product),
         cost_price: Math.max(0, Number(product.cost) || 0),
@@ -1223,7 +1223,7 @@ function mapSupabaseProductsToLocal(rows) {
 
     return {
       id: row.id,
-      name: buildProductArticleName(identity.baseName, identity.optionName),
+      name: identity.baseName,
       baseName: identity.baseName,
       optionName: identity.optionName,
       brand: row.brand || "",
@@ -1527,7 +1527,7 @@ function getCatalogProducts() {
         ? customVariants.map((variant, index) => ({
           id: `${product.id}__${index}`,
           productId: product.id,
-          internalName: product.name,
+          internalName: getProductArticleName(product),
           label: variant.name,
           price: variant.price || product.price || 0,
           saleType: variant.saleType || product.saleType,
@@ -1538,7 +1538,7 @@ function getCatalogProducts() {
         : [{
         id: product.id,
         productId: product.id,
-        internalName: product.name,
+        internalName: getProductArticleName(product),
         label: info.variantLabel,
         price: product.price || 0,
         saleType: product.saleType,
@@ -2199,7 +2199,7 @@ function duplicateEditingProduct() {
   const copy = {
     ...product,
     id: crypto.randomUUID(),
-    name: `${product.name} copia`,
+    name: `${getProductBaseName(product)} copia`,
     images: getStoredProductImages(product),
     stock: 0,
     variantStock: {},
@@ -2218,7 +2218,7 @@ function deleteEditingProduct() {
   if (!hasPermission("manageProducts") || !editingProductId) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
-  const confirmed = window.confirm(`¿Eliminar "${product.name}"? Esta acción no borra pedidos históricos.`);
+  const confirmed = window.confirm(`¿Eliminar "${getProductArticleName(product)}"? Esta acción no borra pedidos históricos.`);
   if (!confirmed) return;
   const scrollTop = getAdminTableScrollTop();
   supabaseCatalogPendingDeletedProductIds.add(editingProductId);
@@ -2293,9 +2293,9 @@ async function saveEditedProduct(event) {
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
 
-  product.baseName = String(els.editProductName?.value || "").trim() || getProductBaseName(product);
   product.optionName = normalizeProductOptionLabel(els.editProductOption?.value || "");
-  product.name = buildProductArticleName(product.baseName, product.optionName);
+  product.baseName = stripProductOptionFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), product.optionName);
+  product.name = product.baseName;
   product.brand = product.brand || "";
   product.category = normalizeCategory(String(els.editProductCategory?.value || product.category).trim());
   const scrollTop = getAdminTableScrollTop();
@@ -2330,7 +2330,7 @@ function openStockModal(productId) {
   if (!product || !els.stockModalOverlay || !els.stockModalForm) return;
   stockModalProductId = productId;
   if (els.stockModalTitle) {
-    els.stockModalTitle.textContent = `Modificar stock: ${product.name}`;
+    els.stockModalTitle.textContent = `Modificar stock: ${getProductArticleName(product)}`;
   }
   if (els.stockModalCurrent) {
     els.stockModalCurrent.textContent = `Stock actual: ${formatProductStock(product)}`;
@@ -2429,11 +2429,11 @@ function getProductDisplayName(product) {
 }
 
 function getProductBaseName(product) {
-  return String(product?.baseName || product?.name || "").trim().replace(/\s+/g, " ");
+  return stripProductOptionFromName(product?.baseName || product?.name || "", getProductOptionName(product));
 }
 
 function getProductOptionName(product) {
-  return String(product?.optionName || "").trim().replace(/\s+/g, " ");
+  return normalizeProductOptionLabel(product?.optionName || "");
 }
 
 function getProductArticleName(product) {
@@ -2441,20 +2441,28 @@ function getProductArticleName(product) {
 }
 
 function buildProductArticleName(baseName, optionName = "") {
-  const base = String(baseName || "").trim().replace(/\s+/g, " ");
-  const option = String(optionName || "").trim().replace(/\s+/g, " ");
+  const option = normalizeProductOptionLabel(optionName);
+  const base = stripProductOptionFromName(baseName, option);
   if (!option) return base;
   return `${base} ${option}`.trim();
+}
+
+function stripProductOptionFromName(name, optionName = "") {
+  const cleanName = String(name || "").trim().replace(/\s+/g, " ");
+  const cleanOption = normalizeProductOptionLabel(optionName);
+  if (!cleanName || !cleanOption) return cleanName;
+  const escaped = cleanOption.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return cleanName.replace(new RegExp(`\\s+${escaped}$`, "i"), "").trim();
 }
 
 function getProductIdentityFromName(name, explicitOption = "") {
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
   const cleanOption = String(explicitOption || "").trim().replace(/\s+/g, " ");
   if (cleanOption) {
-    const inferred = inferProductIdentityFromLegacyName(cleanName);
+    const optionName = normalizeProductOptionLabel(cleanOption);
     return {
-      baseName: inferred.optionName ? inferred.baseName : cleanName,
-      optionName: normalizeProductOptionLabel(cleanOption)
+      baseName: stripProductOptionFromName(cleanName, optionName),
+      optionName
     };
   }
   const parts = inferProductIdentityFromLegacyName(cleanName);
@@ -2611,7 +2619,7 @@ function ensureRequestedProductCatalog() {
     if (!renamed) return;
     const requested = requestedProductCatalog.find(([name]) => name === renamed);
     const identity = getProductIdentityFromName(renamed);
-    product.name = renamed;
+    product.name = identity.baseName;
     product.baseName = identity.baseName;
     product.optionName = identity.optionName;
     product.category = requested?.[1] || "Ropa Interior Hombre";
@@ -2663,7 +2671,7 @@ function ensureRequestedProductCatalog() {
     products.push({
       id: crypto.randomUUID(),
       image: name.includes("Boxer Adulto Lody Art. 742") ? LODY_742_IMAGE : DEFAULT_PRODUCT_IMAGE,
-      name,
+      name: baseName,
       baseName,
       optionName,
       brand: getBrandFromProductName(name),
@@ -2855,7 +2863,7 @@ function renderStock() {
   const stockRows = getOrderedProducts().flatMap((product) => getProductStockRows(product));
   els.stockProducts.innerHTML = stockRows.map(({ product, variant }) => `
     <tr class="${product.active ? "" : "is-hidden-product"}">
-      <td data-label="Producto"><strong>${escapeHtml(product.name)}</strong></td>
+      <td data-label="Producto"><strong>${escapeHtml(getProductArticleName(product))}</strong></td>
       <td data-label="Categoría">${escapeHtml(product.category)}</td>
       <td data-label="Variante"><span class="muted-cell">${escapeHtml(variant.name)}</span></td>
       <td data-label="Presentación">${escapeHtml(variant.saleLabel)}</td>
@@ -4256,7 +4264,7 @@ function getCartProductNameFromCatalog(group, variant) {
 function addToCart(product, quantity) {
   if (!product) return;
   if (quantity < product.minimum) {
-    showToast(`La compra mínima de ${product.name} es ${product.minimum}`);
+    showToast(`La compra mínima de ${getProductArticleName(product)} es ${product.minimum}`);
     return;
   }
 
@@ -4333,7 +4341,7 @@ function recordStockMovement(product, delta, previousStock, nextStock, reason, m
   stockHistory.unshift({
     id: crypto.randomUUID(),
     productId: product.id,
-    productName: product.name,
+    productName: getProductArticleName(product),
     variant: meta.variant || "Base / sin variante",
     delta,
     previousStock,
@@ -4352,7 +4360,7 @@ function duplicateProduct(id) {
   products.push({
     ...product,
     id: crypto.randomUUID(),
-    name: `${product.name} copia`,
+    name: `${getProductBaseName(product)} copia`,
     active: false,
     sortOrder: getNextSortOrder()
   });
@@ -5040,7 +5048,7 @@ function renderBudgetProductMatches(orderId, query) {
   container.innerHTML = matches.map((product) => `
     <div class="budget-search-result budget-search-result-with-quantity" data-budget-search-result="${product.id}">
       <div class="budget-search-result-info">
-        <strong>${escapeHtml(product.name)}</strong>
+        <strong>${escapeHtml(getProductArticleName(product))}</strong>
         <span>${escapeHtml(product.category)} · ${formatMoney(product.price)}</span>
       </div>
       <div class="budget-search-result-actions">
@@ -5048,7 +5056,7 @@ function renderBudgetProductMatches(orderId, query) {
           Cantidad
           <span class="budget-search-quantity-stepper">
             <button class="quantity-stepper-button" type="button" data-budget-search-decrease="${product.id}" aria-label="Restar cantidad">−</button>
-            <input type="number" min="1" step="1" value="1" inputmode="numeric" data-budget-search-quantity="${product.id}" aria-label="Cantidad de ${escapeHtml(product.name)}">
+            <input type="number" min="1" step="1" value="1" inputmode="numeric" data-budget-search-quantity="${product.id}" aria-label="Cantidad de ${escapeHtml(getProductArticleName(product))}">
             <button class="quantity-stepper-button" type="button" data-budget-search-increase="${product.id}" aria-label="Sumar cantidad">+</button>
           </span>
         </label>
@@ -5791,13 +5799,13 @@ function changeBudgetItemProduct(orderId, oldProductId, newProductId) {
   if (!canEditOrder(order)) return;
   openOrderId = orderId;
   item.id = product.id;
-  item.name = product.name;
+  item.name = getProductBaseName(product);
   item.brand = product.brand;
   item.price = product.price;
   item.saleType = product.saleType;
   item.packQuantity = product.packQuantity;
   item.cost = product.cost || 0;
-  item.variant = "";
+  item.variant = getProductOptionName(product);
   recalculateBudget(order);
   saveOrders();
   renderAll();
@@ -5846,7 +5854,12 @@ function findInternalProductBySearch(value) {
   const terms = normalizeProductSearchText(value).split(" ").filter(Boolean);
   if (!terms.length) return null;
   return getOrderedProducts().find((product) => {
-    const haystack = normalizeProductSearchText(`${product.name} ${product.category} ${product.brand}`);
+    const haystack = normalizeProductSearchText([
+      getProductBaseName(product),
+      getProductOptionName(product),
+      product.category,
+      getProductPresentation(product)
+    ].filter(Boolean).join(" "));
     return terms.every((term) => haystack.includes(term));
   }) || null;
 }
@@ -5870,13 +5883,13 @@ function addBudgetItem(orderId, productId, quantity) {
   else {
     order.items.push({
       id: product.id,
-      name: product.name,
+      name: getProductBaseName(product),
       brand: product.brand,
       price: product.price,
       saleType: product.saleType,
       packQuantity: product.packQuantity,
       cost: product.cost || 0,
-      variant: "",
+      variant: getProductOptionName(product),
       quantity: Math.max(1, Math.round(quantity || 1))
     });
   }
@@ -6629,13 +6642,13 @@ function makeBudgetFromItems(items, customer, status = "En revisión", notes = "
     : customer;
   const orderItems = items.map(({ product, quantity }) => ({
     id: product.id,
-    name: product.name,
+    name: getProductBaseName(product),
     brand: product.brand,
     price: product.price,
     saleType: product.saleType,
     packQuantity: product.packQuantity,
     cost: product.cost || 0,
-    variant: "",
+    variant: getProductOptionName(product),
     quantity
   }));
 
@@ -6783,7 +6796,7 @@ function makeDefinitiveProduct(product, index = 0) {
   return {
     id: crypto.randomUUID(),
     image: name.includes("Lody Adulto Art. 742") ? LODY_742_IMAGE : DEFAULT_PRODUCT_IMAGE,
-    name: buildProductArticleName(identity.baseName, identity.optionName),
+    name: identity.baseName,
     baseName: identity.baseName,
     optionName: identity.optionName,
     brand: getBrandFromProductName(name),
@@ -6819,7 +6832,7 @@ function normalizeProducts(productList) {
     const presentation = product.presentation || getProductPresentation(product);
     return {
       ...product,
-      name: buildProductArticleName(identity.baseName, identity.optionName),
+      name: identity.baseName,
       baseName: identity.baseName,
       optionName: identity.optionName,
       brand: product.brand || "",
@@ -6982,7 +6995,7 @@ function buildImportedProducts(rows) {
         ? String(row[legacyOptionIndex] || "").trim()
         : "";
     const identity = getProductIdentityFromName(rawName, rawOption);
-    const name = buildProductArticleName(identity.baseName, identity.optionName);
+    const name = identity.baseName;
     const category = String(row[categoryIndex] || "").trim();
     const price = parseImportNumber(row[priceIndex]);
     const presentation = String(row[presentationIndex] || "").trim() || "1 Docena";

@@ -35,6 +35,12 @@ set
 where trim(coalesce(base_name, '')) = ''
    or trim(coalesce(option_name, '')) = '';
 
+update public.products
+set name = trim(base_name)
+where trim(coalesce(option_name, '')) <> ''
+  and trim(coalesce(base_name, '')) <> ''
+  and trim(name) <> trim(base_name);
+
 create index if not exists idx_products_base_name
   on public.products (base_name);
 
