@@ -3434,8 +3434,9 @@ function saveManualConsultation(order) {
   syncClientsFromOrders();
   saveOrders();
   saveClients();
-  closeOrderDetail(order.id);
-  showToast("Consulta guardada");
+  openOrderId = order.id;
+  editingOrderCustomerId = "";
+  showToast("Cambios guardados", "success");
   return true;
 }
 
@@ -3681,9 +3682,13 @@ function bindBudgetEditor() {
         saveManualConsultation(order);
         return;
       }
+      order.updatedAt = new Date().toISOString();
+      recalculateBudget(order);
+      syncClientsFromOrders();
       saveOrders();
-      closeOrderDetail(order.id);
-      showToast("Consulta guardada");
+      saveClients();
+      openOrderId = order.id;
+      showToast("Cambios guardados", "success");
     });
   });
 
