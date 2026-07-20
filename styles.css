@@ -10735,14 +10735,15 @@ body.cart-is-open {
   text-align: center;
 }
 
-/* Encuadre final de fotos del catalogo: llenar tarjetas sin deformar. */
+/* Encuadre final de fotos del catalogo: usar la imagen original sin fondos artificiales. */
 #catalogView .product-image-button {
-  background: #fff !important;
+  background: transparent !important;
   overflow: hidden !important;
 }
 
 #catalogView .product-image-button .product-image,
 #catalogView .product-card .product-image {
+  display: block !important;
   width: 100% !important;
   height: 100% !important;
   padding: 0 !important;
@@ -10752,49 +10753,63 @@ body.cart-is-open {
 }
 
 .image-lightbox {
-  padding: clamp(14px, 3vw, 34px) !important;
+  padding: 0 !important;
+  background: rgba(0, 0, 0, 0.92) !important;
+  place-items: center !important;
+  touch-action: pinch-zoom !important;
 }
 
 .image-lightbox-frame {
-  width: min(94vw, 1180px) !important;
-  max-width: calc(100vw - 28px) !important;
-  max-height: calc(100dvh - 28px) !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  padding: clamp(10px, 2vw, 22px) !important;
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) auto !important;
   gap: 10px !important;
   place-items: center !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .image-lightbox-frame img {
+  display: block !important;
   width: auto !important;
-  max-width: 100% !important;
+  max-width: calc(100vw - clamp(20px, 4vw, 44px)) !important;
   height: auto !important;
-  max-height: min(78dvh, 820px) !important;
+  max-height: calc(100dvh - 112px) !important;
   aspect-ratio: auto !important;
   object-fit: contain !important;
   object-position: center center !important;
   background: transparent !important;
-  border-radius: 8px !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  touch-action: pinch-zoom !important;
 }
 
 .image-lightbox-frame figcaption {
-  max-width: min(920px, 100%) !important;
-  max-height: 16dvh !important;
+  max-width: min(920px, calc(100vw - 28px)) !important;
+  max-height: 84px !important;
+  overflow: auto !important;
+  background: transparent !important;
 }
 
 @media (max-width: 760px) {
-  .image-lightbox {
-    padding: 12px !important;
-  }
-
   .image-lightbox-frame {
-    width: calc(100vw - 24px) !important;
-    max-height: calc(100dvh - 24px) !important;
+    padding: 8px !important;
+    gap: 8px !important;
   }
 
   .image-lightbox-frame img {
-    max-height: 74dvh !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 96px) !important;
   }
 
   .image-lightbox-frame figcaption {
-    max-height: 18dvh !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: 76px !important;
   }
 }
