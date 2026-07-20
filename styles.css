@@ -10767,12 +10767,13 @@ body.cart-is-open {
   margin: 0 !important;
   padding: clamp(10px, 2vw, 22px) !important;
   display: grid !important;
-  grid-template-rows: minmax(0, 1fr) auto !important;
+  grid-template-rows: minmax(0, 1fr) minmax(92px, auto) !important;
   gap: 10px !important;
   place-items: center !important;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
+  overflow: hidden !important;
 }
 
 .image-lightbox-frame img {
@@ -10780,7 +10781,7 @@ body.cart-is-open {
   width: auto !important;
   max-width: calc(100vw - clamp(20px, 4vw, 44px)) !important;
   height: auto !important;
-  max-height: calc(100dvh - 112px) !important;
+  max-height: calc(100dvh - min(36dvh, 260px) - 48px) !important;
   aspect-ratio: auto !important;
   object-fit: contain !important;
   object-position: center center !important;
@@ -10791,25 +10792,45 @@ body.cart-is-open {
 }
 
 .image-lightbox-frame figcaption {
+  align-self: stretch !important;
+  width: min(920px, calc(100vw - 28px)) !important;
   max-width: min(920px, calc(100vw - 28px)) !important;
-  max-height: 84px !important;
-  overflow: auto !important;
-  background: transparent !important;
+  max-height: min(36dvh, 260px) !important;
+  margin: 0 auto !important;
+  padding: 10px 12px 12px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  background: rgba(0, 0, 0, 0.38) !important;
+  border-radius: 10px !important;
+  line-height: 1.45 !important;
+  scrollbar-width: thin !important;
+}
+
+.image-lightbox-frame figcaption span {
+  display: block !important;
+  max-width: 100% !important;
+  margin-top: 6px !important;
+  white-space: normal !important;
 }
 
 @media (max-width: 760px) {
   .image-lightbox-frame {
     padding: 8px !important;
     gap: 8px !important;
+    grid-template-rows: minmax(0, 1fr) minmax(112px, auto) !important;
   }
 
   .image-lightbox-frame img {
     max-width: calc(100vw - 16px) !important;
-    max-height: calc(100dvh - 96px) !important;
+    max-height: calc(100dvh - min(42dvh, 300px) - 36px) !important;
   }
 
   .image-lightbox-frame figcaption {
+    width: calc(100vw - 20px) !important;
     max-width: calc(100vw - 20px) !important;
-    max-height: 76px !important;
+    max-height: min(42dvh, 300px) !important;
+    padding: 9px 10px 12px !important;
+    font-size: 0.92rem !important;
   }
 }
