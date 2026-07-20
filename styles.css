@@ -10735,7 +10735,7 @@ body.cart-is-open {
   text-align: center;
 }
 
-/* Encuadre final de fotos del catalogo: usar la imagen original sin fondos artificiales. */
+/* Visualizacion final de fotos del catalogo: mostrar originales sin editar ni fondos artificiales. */
 #catalogView .product-image-button {
   background: transparent !important;
   overflow: hidden !important;
@@ -10747,7 +10747,7 @@ body.cart-is-open {
   width: 100% !important;
   height: 100% !important;
   padding: 0 !important;
-  object-fit: cover !important;
+  object-fit: contain !important;
   object-position: center center !important;
   background: transparent !important;
 }
