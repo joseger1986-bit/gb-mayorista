@@ -10734,3 +10734,67 @@ body.cart-is-open {
   font-weight: 900;
   text-align: center;
 }
+
+/* Encuadre final de fotos del catalogo: llenar tarjetas sin deformar. */
+#catalogView .product-image-button {
+  background: #fff !important;
+  overflow: hidden !important;
+}
+
+#catalogView .product-image-button .product-image,
+#catalogView .product-card .product-image {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+  background: transparent !important;
+}
+
+.image-lightbox {
+  padding: clamp(14px, 3vw, 34px) !important;
+}
+
+.image-lightbox-frame {
+  width: min(94vw, 1180px) !important;
+  max-width: calc(100vw - 28px) !important;
+  max-height: calc(100dvh - 28px) !important;
+  gap: 10px !important;
+  place-items: center !important;
+}
+
+.image-lightbox-frame img {
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: min(78dvh, 820px) !important;
+  aspect-ratio: auto !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  background: transparent !important;
+  border-radius: 8px !important;
+}
+
+.image-lightbox-frame figcaption {
+  max-width: min(920px, 100%) !important;
+  max-height: 16dvh !important;
+}
+
+@media (max-width: 760px) {
+  .image-lightbox {
+    padding: 12px !important;
+  }
+
+  .image-lightbox-frame {
+    width: calc(100vw - 24px) !important;
+    max-height: calc(100dvh - 24px) !important;
+  }
+
+  .image-lightbox-frame img {
+    max-height: 74dvh !important;
+  }
+
+  .image-lightbox-frame figcaption {
+    max-height: 18dvh !important;
+  }
+}
