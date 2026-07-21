@@ -10938,3 +10938,59 @@ body.cart-is-open {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+
+/* Modal confirmacion borrado */
+.confirm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(17, 24, 39, 0.52);
+}
+
+.confirm-modal-overlay.hidden {
+  display: none;
+}
+
+.confirm-modal {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(179, 38, 30, 0.2);
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(17, 24, 39, 0.22);
+}
+
+.confirm-modal h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 1.15rem;
+}
+
+.confirm-modal p {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.45;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-modal-actions .danger-button:disabled,
+.confirm-modal-actions .secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+@media (max-width: 520px) {
+  .confirm-modal { padding: 16px; }
+  .confirm-modal-actions { display: grid; grid-template-columns: 1fr; }
+}

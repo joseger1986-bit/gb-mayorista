@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=fotos-draft-49">
+    <link rel="stylesheet" href="/styles.css?v=confirm-delete-50">
   </head>
   <body>
     <header class="topbar">
@@ -538,6 +538,17 @@
       </figure>
       <button class="image-lightbox-arrow image-lightbox-next" id="imageLightboxNext" type="button" aria-label="Imagen siguiente">&rsaquo;</button>
     </div>
+
+    <div class="confirm-modal-overlay hidden" id="confirmModalOverlay" aria-hidden="true">
+      <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+        <h3 id="confirmModalTitle">¿Estás seguro?</h3>
+        <p id="confirmModalText">Esta acción no se puede deshacer.</p>
+        <div class="confirm-modal-actions">
+          <button class="secondary-button small-button" id="confirmModalCancel" type="button">Cancelar</button>
+          <button class="danger-button small-button" id="confirmModalAccept" type="button">Sí, eliminar</button>
+        </div>
+      </section>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/supabase_config.js?v=private-gestion-1"></script>
@@ -550,6 +561,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=fotos-draft-49"></script>
+    <script src="/app.js?v=confirm-delete-50"></script>
   </body>
 </html>

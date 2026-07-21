@@ -235,6 +235,8 @@ let editProductRemoveImagePending = false;
 let productDetailsMenuHistoryActive = false;
 let productDetailsMenuClosingByCode = false;
 let toastTimer;
+let confirmDialogState = null;
+let confirmDialogBusy = false;
 let internalUnlocked = isPrivateManagementRoute() && sessionStorage.getItem(STORAGE_INTERNAL_UNLOCKED) === "true";
 let appHistoryReady = false;
 let suppressHistoryUpdate = false;
@@ -397,7 +399,12 @@ const els = {
   imageLightboxClose: document.querySelector("#imageLightboxClose"),
   imageLightboxPrev: document.querySelector("#imageLightboxPrev"),
   imageLightboxNext: document.querySelector("#imageLightboxNext"),
-  toast: document.querySelector("#toast")
+  toast: document.querySelector("#toast"),
+  confirmModalOverlay: document.querySelector("#confirmModalOverlay"),
+  confirmModalTitle: document.querySelector("#confirmModalTitle"),
+  confirmModalText: document.querySelector("#confirmModalText"),
+  confirmModalCancel: document.querySelector("#confirmModalCancel"),
+  confirmModalAccept: document.querySelector("#confirmModalAccept")
 };
 
 document.querySelectorAll("[data-view]").forEach((button) => {
@@ -562,7 +569,7 @@ els.editProductOverlay?.addEventListener("click", (event) => {
 });
 els.editProductImage?.addEventListener("change", previewEditProductImage);
 els.replaceEditProductPhoto?.addEventListener("click", () => els.editProductImage?.click());
-els.removeEditProductPhoto?.addEventListener("click", markEditProductPhotoForRemoval);
+els.removeEditProductPhoto?.addEventListener("click", confirmRemoveAllEditProductPhotos);
 els.editProductStockDecrease?.addEventListener("click", () => stepEditProductStock(-1));
 els.editProductStockIncrease?.addEventListener("click", () => stepEditProductStock(1));
 els.editProductStock?.addEventListener("input", normalizeEditProductStockInput);
@@ -570,6 +577,11 @@ els.editProductForm?.addEventListener("submit", saveEditedProduct);
 setupProductDetailsMenus();
 els.duplicateProductButton?.addEventListener("click", duplicateEditingProduct);
 els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
+els.confirmModalCancel?.addEventListener("click", () => closeConfirmDialog(false));
+els.confirmModalOverlay?.addEventListener("click", (event) => {
+  if (event.target === els.confirmModalOverlay) closeConfirmDialog(false);
+});
+els.confirmModalAccept?.addEventListener("click", runConfirmDialogAction);
 els.descriptionModalClose?.addEventListener("click", closeDescriptionModal);
 els.descriptionModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.descriptionModalOverlay) closeDescriptionModal();
@@ -593,6 +605,10 @@ els.imageLightbox?.addEventListener("touchend", (event) => {
   showLightboxImage(lightboxIndex + (delta < 0 ? 1 : -1));
 }, { passive: true });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isConfirmDialogOpen()) {
+    closeConfirmDialog(false);
+    return;
+  }
   if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
     closeEditProductModal();
     return;
@@ -622,6 +638,63 @@ window.addEventListener("pagehide", () => {
   persistUiState({ scrollY: window.scrollY || 0 });
   teardownSupabaseCatalogRealtime();
 });
+
+function isConfirmDialogOpen() {
+  return Boolean(els.confirmModalOverlay && !els.confirmModalOverlay.classList.contains("hidden"));
+}
+
+function requestDeleteConfirmation({ title = "¿Estás seguro?", text = "Esta acción no se puede deshacer.", confirmText = "Sí, eliminar", loadingText = "Eliminando...", action }) {
+  if (!els.confirmModalOverlay || typeof action !== "function") return Promise.resolve(false);
+  return new Promise((resolve) => {
+    confirmDialogState = { action, resolve, confirmText, loadingText };
+    confirmDialogBusy = false;
+    if (els.confirmModalTitle) els.confirmModalTitle.textContent = title;
+    if (els.confirmModalText) els.confirmModalText.textContent = text;
+    if (els.confirmModalAccept) {
+      els.confirmModalAccept.textContent = confirmText;
+      els.confirmModalAccept.disabled = false;
+    }
+    if (els.confirmModalCancel) els.confirmModalCancel.disabled = false;
+    els.confirmModalOverlay.classList.remove("hidden");
+    els.confirmModalOverlay.setAttribute("aria-hidden", "false");
+  });
+}
+
+function closeConfirmDialog(result) {
+  if (confirmDialogBusy) return;
+  const state = confirmDialogState;
+  confirmDialogState = null;
+  els.confirmModalOverlay?.classList.add("hidden");
+  els.confirmModalOverlay?.setAttribute("aria-hidden", "true");
+  if (els.confirmModalAccept) els.confirmModalAccept.disabled = false;
+  if (els.confirmModalCancel) els.confirmModalCancel.disabled = false;
+  state?.resolve?.(Boolean(result));
+}
+
+async function runConfirmDialogAction() {
+  if (!confirmDialogState || confirmDialogBusy) return;
+  confirmDialogBusy = true;
+  const state = confirmDialogState;
+  if (els.confirmModalAccept) {
+    els.confirmModalAccept.disabled = true;
+    els.confirmModalAccept.textContent = state.loadingText || "Eliminando...";
+  }
+  if (els.confirmModalCancel) els.confirmModalCancel.disabled = true;
+  try {
+    await state.action();
+    confirmDialogBusy = false;
+    closeConfirmDialog(true);
+  } catch (error) {
+    console.error("GB Mayorista delete confirmation action:", error);
+    showToast(error.message || "No se pudo eliminar. Intentá nuevamente.");
+    confirmDialogBusy = false;
+    if (els.confirmModalAccept) {
+      els.confirmModalAccept.disabled = false;
+      els.confirmModalAccept.textContent = state.confirmText || "Sí, eliminar";
+    }
+    if (els.confirmModalCancel) els.confirmModalCancel.disabled = false;
+  }
+}
 
 function loadProducts() {
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
@@ -2251,24 +2324,29 @@ function duplicateEditingProduct() {
   showToast("Producto duplicado");
 }
 
-function deleteEditingProduct() {
+async function deleteEditingProduct() {
   if (!hasPermission("manageProducts") || !editingProductId) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
-  const confirmed = window.confirm(`¿Eliminar "${getProductArticleName(product)}"? Esta acción no borra pedidos históricos.`);
-  if (!confirmed) return;
-  const scrollTop = getAdminTableScrollTop();
-  supabaseCatalogPendingDeletedProductIds.add(editingProductId);
-  products = products.filter((item) => item.id !== editingProductId);
-  cart = cart.filter((item) => item.id !== editingProductId && item.internalProductId !== editingProductId);
-  stockHistory = stockHistory.filter((entry) => entry.productId !== editingProductId);
-  saveProducts();
-  saveCart();
-  saveStockHistory();
-  closeEditProductModal({ skipUnsavedCheck: true });
-  renderAll();
-  restoreAdminTableScroll(scrollTop);
-  showToast("Producto eliminado");
+  const productName = getProductArticleName(product);
+  await requestDeleteConfirmation({
+    text: `¿Estás seguro de que querés eliminar "${productName}"? Esta acción no se puede deshacer.`,
+    action: async () => {
+      const scrollTop = getAdminTableScrollTop();
+      supabaseCatalogPendingDeletedProductIds.add(editingProductId);
+      products = products.filter((item) => item.id !== editingProductId);
+      cart = cart.filter((item) => item.id !== editingProductId && item.internalProductId !== editingProductId);
+      stockHistory = stockHistory.filter((entry) => entry.productId !== editingProductId);
+      saveProducts();
+      saveCart();
+      saveStockHistory();
+      closeEditProductModal({ skipUnsavedCheck: true });
+      renderCatalog();
+      renderAdmin();
+      restoreAdminTableScroll(scrollTop);
+      showToast("Producto eliminado", "success");
+    }
+  });
 }
 
 function validateProductForm(form) {
@@ -2908,16 +2986,21 @@ function toggleCategoryVisibility(name) {
   showToast(category.active ? "Categoría visible" : "Categoría oculta");
 }
 
-function deleteCategory(name) {
+async function deleteCategory(name) {
   const count = products.filter((product) => product.category === name).length;
   if (count) {
     showToast("No se puede eliminar: tiene productos asociados");
     return;
   }
-  categories = categories.filter((category) => category.name !== name);
-  saveCategories();
-  renderAll();
-  showToast("Categoría eliminada");
+  await requestDeleteConfirmation({
+    text: `Vas a eliminar la categoría "${name}". Esta acción no se puede deshacer.`,
+    action: async () => {
+      categories = categories.filter((category) => category.name !== name);
+      saveCategories();
+      renderAll();
+      showToast("Categoría eliminada", "success");
+    }
+  });
 }
 
 function addVariantRow() {
@@ -4727,7 +4810,14 @@ function markEditProductPhotoForRemoval() {
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = "+ Agregar fotos";
-  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = `<div class="gallery-empty">Sin fotos cargadas</div>`;
+  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = '<div class="gallery-empty">Sin fotos cargadas</div>';
+}
+
+async function confirmRemoveAllEditProductPhotos() {
+  await requestDeleteConfirmation({
+    text: "Vas a eliminar todas las fotos del producto.",
+    action: async () => markEditProductPhotoForRemoval()
+  });
 }
 
 function stepEditProductStock(delta) {
@@ -4810,7 +4900,12 @@ function handleProductGalleryAction(action, index) {
   if (!hasPermission("manageProducts")) return;
   if (index < 0 || index >= editProductPhotoItems.length) return;
   if (action === "primary") moveEditProductPhoto(index, 0);
-  else if (action === "delete") removeEditProductPhoto(index);
+  else if (action === "delete") {
+    requestDeleteConfirmation({
+      text: "Vas a eliminar esta foto del producto.",
+      action: async () => removeEditProductPhoto(index)
+    });
+  }
 }
 
 async function replaceProductGalleryImage(index, file) {
@@ -5778,17 +5873,24 @@ function getPrintStyles() {
     </style>
   `;
 }
-function cancelOrder(id) {
+async function cancelOrder(id) {
   if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   if (!canEditOrder(order)) return;
-  order.status = "Cancelado";
-  order.updatedAt = new Date().toISOString();
-  if (previewOrderId === id) previewOrderId = "";
-  saveOrders();
-  renderAll();
-  showToast("Consulta cancelada");
+  await requestDeleteConfirmation({
+    text: `Vas a cancelar la Consulta #${String(order.number || "").padStart(4, "0")}. Esta acción no se puede deshacer desde esta pantalla.`,
+    confirmText: "Sí, cancelar",
+    loadingText: "Cancelando...",
+    action: async () => {
+      order.status = "Cancelado";
+      order.updatedAt = new Date().toISOString();
+      if (previewOrderId === id) previewOrderId = "";
+      saveOrders();
+      renderAll();
+      showToast("Consulta cancelada", "success");
+    }
+  });
 }
 
 function updateBudgetItemQty(orderId, productId, quantity) {
@@ -5930,19 +6032,25 @@ function addBudgetItem(orderId, productId, quantity) {
   showToast("Producto agregado al presupuesto");
 }
 
-function removeBudgetItem(orderId, productId) {
+async function removeBudgetItem(orderId, productId) {
   const order = orders.find((item) => item.id === orderId);
   if (!order) return;
   if (!canEditOrder(order)) return;
-  openOrderId = orderId;
-  restoreConfirmedStock(order);
-  order.items = order.items.filter((item) => item.id !== productId);
-  recalculateBudget(order);
-  reapplyConfirmedStock(order);
-  saveProducts();
-  saveOrders();
-  renderAll();
-  showToast("Producto quitado del presupuesto");
+  const item = order.items.find((entry) => entry.id === productId);
+  await requestDeleteConfirmation({
+    text: `Vas a eliminar "${item ? getOrderItemDisplayName(item) : "este producto"}" de la consulta.`,
+    action: async () => {
+      openOrderId = orderId;
+      restoreConfirmedStock(order);
+      order.items = order.items.filter((item) => item.id !== productId);
+      recalculateBudget(order);
+      reapplyConfirmedStock(order);
+      saveProducts();
+      saveOrders();
+      renderAll();
+      showToast("Producto quitado del presupuesto", "success");
+    }
+  });
 }
 
 function canEditOrder(order) {
