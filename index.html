@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=fotos-compactas-51">
+    <link rel="stylesheet" href="/styles.css?v=selector-archivos-52">
   </head>
   <body>
     <header class="topbar">
@@ -180,8 +180,8 @@
               </label>
               <label class="full-field">
                 Foto
-                <input id="productImageInput" name="imageFile" type="file" accept="image/*" multiple>
-                <small>Podés seleccionar varias fotos. Se guarda la imagen original sin editar.</small>
+                <input id="productImageInput" name="imageFile" type="file" accept=".jpg,.jpeg,.png,.webp" multiple>
+                <small>Podés seleccionar varias fotos desde el explorador de archivos del dispositivo. Formatos: JPG, PNG o WEBP.</small>
               </label>
               <div class="image-preview-box full-field">
                 <img id="productImagePreview" alt="Vista previa de foto" hidden>
@@ -461,8 +461,8 @@
               <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">+ Agregar fotos</button>
               <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar todas</button>
             </div>
-            <input class="hidden" id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
-            <small>Podés elegir una o varias fotos desde Galería, Cámara o Archivos según tu celular.</small>
+            <input class="hidden" id="editProductImage" name="imageFile" type="file" accept=".jpg,.jpeg,.png,.webp" multiple>
+            <small>Podés elegir varias fotos desde Mis archivos, Cámara, Descargas, Catálogo u otra carpeta del dispositivo.</small>
           </section>
           <label>
             Nombre
@@ -561,6 +561,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=fotos-compactas-51"></script>
+    <script src="/app.js?v=selector-archivos-52"></script>
   </body>
 </html>

@@ -4798,7 +4798,7 @@ function renderEditProductImageGallery(product) {
       <span>${index === 0 ? "Portada" : `Foto ${index + 1}`}${item.type === "new" ? " · Nueva" : ""}</span>
       <div class="gallery-thumb-actions">
         <button type="button" data-gallery-action="primary" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Usar como portada</button>
-        <label class="gallery-replace">Reemplazar<input type="file" accept="image/*" data-gallery-replace="${index}"></label>
+        <label class="gallery-replace">Reemplazar<input type="file" accept=".jpg,.jpeg,.png,.webp" data-gallery-replace="${index}"></label>
         <button type="button" data-gallery-action="delete" data-gallery-index="${index}">Eliminar</button>
       </div>
     </div>
