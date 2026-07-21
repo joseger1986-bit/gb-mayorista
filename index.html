@@ -513,9 +513,11 @@
               <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar foto</button>
             </div>
             <label class="edit-product-file-field">
-              Elegir archivo nuevo
-              <input id="editProductImage" name="imageFile" type="file" accept="image/*">
+              Agregar fotos
+              <input id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
+              <small>Podés elegir una o varias fotos desde Galería, Cámara o Archivos según tu celular.</small>
             </label>
+            <div class="product-image-gallery edit-product-selected-gallery" id="editProductImageGallery" aria-label="Fotos del producto"></div>
           </section>
         </div>
         <input id="editProductVariants" name="variants" type="hidden">
@@ -554,6 +556,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=foto-guardado-46"></script>
+    <script src="/app.js?v=fotos-multiples-47"></script>
   </body>
 </html>
