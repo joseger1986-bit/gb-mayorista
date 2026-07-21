@@ -24,6 +24,8 @@ let processedProductImage = "";
 let editProductSaving = false;
 let editProductPhotoItems = [];
 let editProductPhotosExpanded = false;
+let editProductPreviewUrls = new Set();
+let editProductPhotoSessionId = 0;
 
 const defaultProductCategories = [
   "Medias",
@@ -1351,7 +1353,19 @@ function getSupabaseImagePath(image) {
   return value;
 }
 
+function formatUploadErrorMessage(error) {
+  if (!error) return "No se pudo guardar la foto. Intentá nuevamente.";
+  const parts = [
+    error.status || error.statusCode ? `Estado ${error.status || error.statusCode}` : "",
+    error.code ? `Código ${error.code}` : "",
+    error.message || "",
+    error.details || "",
+    error.hint || ""
+  ].filter(Boolean);
+  return parts.join(" - ") || "No se pudo guardar la foto. Intentá nuevamente.";
+}
 async function uploadProductImageToSupabase(productId, file) {
+  uploadProductImageToSupabase.lastError = null;
   const client = getSupabaseCatalogClient();
   if (!client || !(file instanceof File) || !file.size) return "";
 
@@ -1380,6 +1394,7 @@ async function uploadProductImageToSupabase(productId, file) {
       message: error.message || "No se pudo subir la imagen a Supabase. Se mantiene respaldo local.",
       scope: "images"
     });
+    uploadProductImageToSupabase.lastError = error;
     console.warn("GB Mayorista Supabase image upload:", error);
     return "";
   }
@@ -1397,7 +1412,7 @@ async function uploadProductImageForEditOrFail(productId, file) {
     20000,
     "La subida de la foto tardó demasiado. Revisá la conexión e intentá nuevamente."
   );
-  if (!imageUrl) throw new Error("No se pudo guardar la foto. Intentá nuevamente.");
+  if (!imageUrl) throw new Error(formatUploadErrorMessage(uploadProductImageToSupabase.lastError));
   const cacheSafeUrl = `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
   console.info("GB Mayorista image upload ok", { productId, imageUrl: cacheSafeUrl });
   return cacheSafeUrl;
@@ -2236,10 +2251,7 @@ function openEditProductModal(productId) {
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductStock) els.editProductStock.value = String(Math.max(0, Number(product.stock) || 0));
   updateEditProductStockLabels(product);
-  editProductRemoveImagePending = false;
-  editProductPhotoItems = getStoredProductImages(product).map((src) => ({ type: "existing", src }));
-  editProductPhotosExpanded = false;
-  if (els.editProductImage) els.editProductImage.value = "";
+  loadEditProductPhotos(product);
   renderEditProductImageGallery(product);
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
   window.setTimeout(() => { editProductInitialState = getEditProductFormState(); }, 0);
@@ -2265,6 +2277,51 @@ function fillEditCategoryOptions(selectedCategory) {
   )).join("");
 }
 
+function validateEditProductImageFile(file) {
+  if (!(file instanceof File) || !file.size) throw new Error("Seleccioná una imagen válida.");
+  const extension = String(file.name || "").split(".").pop()?.toLowerCase() || "";
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+  const allowedExtensions = ["jpg", "jpeg", "png", "webp"];
+  if ((file.type && !allowedTypes.includes(file.type)) || (!file.type && !allowedExtensions.includes(extension))) {
+    throw new Error("Formato de imagen no admitido. Usá JPG, PNG o WebP.");
+  }
+}
+
+function revokeEditProductPreviewUrl(src) {
+  if (!src || !editProductPreviewUrls.has(src)) return;
+  URL.revokeObjectURL(src);
+  editProductPreviewUrls.delete(src);
+}
+
+function revokeEditProductItemPreview(item) {
+  if (item?.type === "new") revokeEditProductPreviewUrl(item.src);
+}
+
+function resetEditProductPhotoState(options = {}) {
+  editProductPhotoItems.forEach(revokeEditProductItemPreview);
+  editProductPhotoItems = [];
+  editProductPhotosExpanded = false;
+  editProductRemoveImagePending = false;
+  editProductPhotoSessionId += 1;
+  if (!options.keepFileInput && els.editProductImage) els.editProductImage.value = "";
+  if (!options.keepGallery && els.editProductImageGallery) els.editProductImageGallery.innerHTML = "";
+  if (els.editProductImagePreview) els.editProductImagePreview.removeAttribute("src");
+}
+
+function createEditProductPhotoDraft(file) {
+  validateEditProductImageFile(file);
+  const src = URL.createObjectURL(file);
+  editProductPreviewUrls.add(src);
+  return { type: "new", file, src };
+}
+
+function loadEditProductPhotos(product) {
+  resetEditProductPhotoState();
+  editProductPhotoItems = getStoredProductImages(product).map((src) => ({ type: "existing", src }));
+  editProductPhotosExpanded = false;
+  editProductRemoveImagePending = false;
+  if (els.editProductImage) els.editProductImage.value = "";
+}
 function closeEditProductModal(options = {}) {
   const wasOpen = els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden");
   if (wasOpen && !options.skipUnsavedCheck && hasEditProductUnsavedChanges()) {
@@ -2282,11 +2339,8 @@ function closeEditProductModal(options = {}) {
   els.editProductOverlay?.setAttribute("aria-hidden", "true");
   clearProductValidation(els.editProductForm);
   els.editProductForm?.reset();
-  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = "";
+  resetEditProductPhotoState();
   editProductInitialState = "";
-  editProductRemoveImagePending = false;
-  editProductPhotoItems = [];
-  editProductPhotosExpanded = false;
   closeOpenProductDetailsMenu({ skipHistory: true });
   if (wasOpen && editProductModalHistoryActive) {
     editProductModalHistoryActive = false;
@@ -2398,15 +2452,14 @@ async function previewEditProductImage() {
   try {
     editProductRemoveImagePending = false;
     for (const file of files) {
-      const preview = await processProductImageToDataUrl(file);
-      editProductPhotoItems.push({ type: "new", file, src: preview });
+      editProductPhotoItems.push(createEditProductPhotoDraft(file));
     }
     if (els.editProductImage) els.editProductImage.value = "";
     editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((item) => item.id === editingProductId));
   } catch (error) {
     console.error("GB Mayorista edit product image preview:", error);
-    showToast("No se pudo cargar la imagen");
+    showToast(error.message || "No se pudo cargar la imagen");
   }
 }
 
@@ -2420,7 +2473,8 @@ function moveEditProductPhoto(fromIndex, toIndex) {
 
 function removeEditProductPhoto(index) {
   if (index < 0 || index >= editProductPhotoItems.length) return;
-  editProductPhotoItems.splice(index, 1);
+  const [removedItem] = editProductPhotoItems.splice(index, 1);
+  revokeEditProductItemPreview(removedItem);
   editProductRemoveImagePending = editProductPhotoItems.length === 0;
   if (editProductPhotoItems.length <= 1) editProductPhotosExpanded = false;
   renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
@@ -2429,14 +2483,15 @@ function removeEditProductPhoto(index) {
 async function replaceEditProductPhotoItem(index, file) {
   if (index < 0 || index >= editProductPhotoItems.length || !(file instanceof File) || !file.size) return;
   try {
-    const preview = await processProductImageToDataUrl(file);
-    editProductPhotoItems[index] = { type: "new", file, src: preview };
+    const nextItem = createEditProductPhotoDraft(file);
+    revokeEditProductItemPreview(editProductPhotoItems[index]);
+    editProductPhotoItems[index] = nextItem;
     editProductRemoveImagePending = false;
     editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
   } catch (error) {
     console.error("GB Mayorista replace product image preview:", error);
-    showToast("No se pudo cargar la imagen");
+    showToast(error.message || "No se pudo cargar la imagen");
   }
 }
 
@@ -2450,6 +2505,7 @@ async function saveEditedProduct(event) {
 
   const scrollTop = getAdminTableScrollTop();
   const photoItems = editProductPhotoItems.slice();
+  const photoSessionId = editProductPhotoSessionId;
   const nextProduct = {
     ...product,
     optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
@@ -2474,6 +2530,7 @@ async function saveEditedProduct(event) {
     if (photoItems.length) {
       const nextImages = [];
       for (const item of photoItems) {
+        if (photoSessionId !== editProductPhotoSessionId) throw new Error("La edición cambió durante la subida. Volvé a intentar.");
         if (item.type === "new") nextImages.push(await uploadProductImageForEditOrFail(product.id, item.file));
         else if (item.src) nextImages.push(item.src);
       }
@@ -2482,6 +2539,7 @@ async function saveEditedProduct(event) {
       setProductImages(nextProduct, []);
     }
 
+    if (photoSessionId !== editProductPhotoSessionId) throw new Error("La edición cambió durante el guardado. Volvé a intentar.");
     Object.assign(product, nextProduct);
     localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     const syncResult = await syncProductsNowOrFail("edit-product");
@@ -4822,12 +4880,13 @@ function renderEditProductImageGallery(product) {
 function markEditProductPhotoForRemoval() {
   if (!editingProductId) return;
   editProductRemoveImagePending = true;
+  editProductPhotoItems.forEach(revokeEditProductItemPreview);
   editProductPhotoItems = [];
   editProductPhotosExpanded = false;
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = "+ Agregar fotos";
-  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = '<div class="gallery-empty">Sin fotos cargadas</div>';
+  if (els.editProductImageGallery) els.editProductImageGallery.innerHTML = '<div class="gallery-empty compact-gallery-empty">Sin fotos cargadas</div>';
 }
 
 async function confirmRemoveAllEditProductPhotos() {
