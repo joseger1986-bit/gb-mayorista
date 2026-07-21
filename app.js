@@ -1235,6 +1235,52 @@ async function syncCatalogToSupabase(reason = "manual") {
   }
 }
 
+function formatSupabaseOperationError(error, fallback = "La operación en Supabase falló.") {
+  if (!error) return fallback;
+  const parts = [
+    error.status || error.statusCode ? `Estado ${error.status || error.statusCode}` : "",
+    error.code ? `Código ${error.code}` : "",
+    error.message || "",
+    error.details || "",
+    error.hint || ""
+  ].filter(Boolean);
+  return parts.join(" - ") || fallback;
+}
+
+async function ensureProductDeletedFromSupabase(productId, productName = "producto") {
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error("Supabase no está disponible. No se eliminó el producto.");
+  const id = String(productId || "").trim();
+  if (!id) throw new Error("ID de producto inválido. No se eliminó el producto.");
+
+  const { error: deleteVariantsError } = await client
+    .from("product_variants")
+    .delete()
+    .eq("product_id", id);
+  if (deleteVariantsError) throw new Error(formatSupabaseOperationError(deleteVariantsError, "No se pudieron eliminar las variantes del producto."));
+
+  const { data: deletedRows, error: deleteProductError } = await client
+    .from("products")
+    .delete()
+    .eq("id", id)
+    .select("id");
+  if (deleteProductError) throw new Error(formatSupabaseOperationError(deleteProductError, "No se pudo eliminar el producto en Supabase."));
+  if (!Array.isArray(deletedRows) || deletedRows.length !== 1 || deletedRows[0]?.id !== id) {
+    throw new Error(`Supabase no confirmó la eliminación de "${productName}". Filas eliminadas: ${Array.isArray(deletedRows) ? deletedRows.length : 0}.`);
+  }
+
+  const { data: remainingRows, error: verifyError } = await client
+    .from("products")
+    .select("id")
+    .eq("id", id)
+    .limit(1);
+  if (verifyError) throw new Error(formatSupabaseOperationError(verifyError, "No se pudo verificar la eliminación en Supabase."));
+  if (Array.isArray(remainingRows) && remainingRows.length) {
+    throw new Error(`Supabase todavía devuelve el producto "${productName}" después de eliminarlo.`);
+  }
+
+  return true;
+}
 async function deleteExplicitlyRemovedProductsFromSupabase(client) {
   const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
   if (!deletedIds.length) return 0;
@@ -1245,11 +1291,17 @@ async function deleteExplicitlyRemovedProductsFromSupabase(client) {
     .in("product_id", deletedIds);
   if (deleteVariantsError) throw deleteVariantsError;
 
-  const { error: deleteProductsError } = await client
+  const { data: deletedProducts, error: deleteProductsError } = await client
     .from("products")
     .delete()
-    .in("id", deletedIds);
+    .in("id", deletedIds)
+    .select("id");
   if (deleteProductsError) throw deleteProductsError;
+  const confirmedIds = new Set((deletedProducts || []).map((row) => row.id));
+  const missingIds = deletedIds.filter((id) => !confirmedIds.has(id));
+  if (missingIds.length) {
+    throw new Error(`Supabase no confirmó la eliminación de ${missingIds.length} producto(s): ${missingIds.join(", ")}`);
+  }
 
   deletedIds.forEach((id) => supabaseCatalogPendingDeletedProductIds.delete(id));
   return deletedIds.length;
@@ -2385,23 +2437,32 @@ async function deleteEditingProduct() {
   if (!hasPermission("manageProducts") || !editingProductId) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
+  const productId = editingProductId;
   const productName = getProductArticleName(product);
   await requestDeleteConfirmation({
     text: `¿Estás seguro de que querés eliminar "${productName}"? Esta acción no se puede deshacer.`,
     action: async () => {
       const scrollTop = getAdminTableScrollTop();
-      supabaseCatalogPendingDeletedProductIds.add(editingProductId);
-      products = products.filter((item) => item.id !== editingProductId);
-      cart = cart.filter((item) => item.id !== editingProductId && item.internalProductId !== editingProductId);
-      stockHistory = stockHistory.filter((entry) => entry.productId !== editingProductId);
-      saveProducts();
+      await ensureProductDeletedFromSupabase(productId, productName);
+      supabaseCatalogPendingDeletedProductIds.delete(productId);
+      products = products.filter((item) => item.id !== productId);
+      cart = cart.filter((item) => item.id !== productId && item.internalProductId !== productId);
+      stockHistory = stockHistory.filter((entry) => entry.productId !== productId);
+      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
       saveCart();
       saveStockHistory();
+      const rereadResult = await refreshCatalogFromSupabase("after-delete-product", { silent: true });
+      if (rereadResult?.ok && products.some((item) => item.id === productId)) {
+        throw new Error(`El producto "${productName}" sigue apareciendo después de releer Supabase.`);
+      }
+      if (rereadResult?.ok === false) {
+        console.warn("GB Mayorista product delete reread:", rereadResult);
+      }
       closeEditProductModal({ skipUnsavedCheck: true });
       renderCatalog();
       renderAdmin();
       restoreAdminTableScroll(scrollTop);
-      showToast("Producto eliminado", "success");
+      showToast("Producto eliminado correctamente", "success");
     }
   });
 }
