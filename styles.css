@@ -10994,3 +10994,89 @@ body.cart-is-open {
   .confirm-modal { padding: 16px; }
   .confirm-modal-actions { display: grid; grid-template-columns: 1fr; }
 }
+
+
+/* Fotos producto compacto mobile */
+.photo-gallery-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: #374151;
+}
+
+.gallery-toggle-button {
+  min-height: 26px !important;
+  padding: 0.22rem 0.48rem !important;
+  font-size: 0.68rem !important;
+}
+
+.edit-product-photo-section {
+  gap: 6px;
+  padding: 7px;
+}
+
+.edit-product-photo-section .edit-section-title {
+  font-size: 0.78rem;
+}
+
+.edit-product-photo-section .edit-product-photo-actions {
+  gap: 6px;
+}
+
+.edit-product-photo-section .edit-product-photo-actions .small-button {
+  min-height: 29px;
+  padding: 0.3rem 0.58rem;
+  font-size: 0.76rem;
+}
+
+.edit-product-photo-section .product-image-gallery {
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 5px;
+}
+
+.edit-product-photo-section .gallery-thumb {
+  padding: 4px;
+  gap: 3px;
+  border-radius: 7px;
+}
+
+.edit-product-photo-section .gallery-thumb img {
+  border-radius: 5px;
+}
+
+.edit-product-photo-section .gallery-thumb span {
+  font-size: 0.64rem;
+}
+
+.edit-product-photo-section .gallery-thumb-actions {
+  gap: 3px;
+}
+
+.edit-product-photo-section .gallery-thumb-actions button,
+.edit-product-photo-section .gallery-replace {
+  min-height: 22px;
+  padding: 2px 4px;
+  font-size: 0.58rem;
+  border-radius: 7px;
+}
+
+.edit-product-photo-section small {
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+@media (max-width: 680px) {
+  .edit-product-photo-section {
+    gap: 5px;
+    padding: 6px;
+  }
+
+  .edit-product-photo-section .product-image-gallery {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

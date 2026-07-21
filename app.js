@@ -23,6 +23,7 @@ const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products
 let processedProductImage = "";
 let editProductSaving = false;
 let editProductPhotoItems = [];
+let editProductPhotosExpanded = false;
 
 const defaultProductCategories = [
   "Medias",
@@ -2237,6 +2238,7 @@ function openEditProductModal(productId) {
   updateEditProductStockLabels(product);
   editProductRemoveImagePending = false;
   editProductPhotoItems = getStoredProductImages(product).map((src) => ({ type: "existing", src }));
+  editProductPhotosExpanded = false;
   if (els.editProductImage) els.editProductImage.value = "";
   renderEditProductImageGallery(product);
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
@@ -2284,6 +2286,7 @@ function closeEditProductModal(options = {}) {
   editProductInitialState = "";
   editProductRemoveImagePending = false;
   editProductPhotoItems = [];
+  editProductPhotosExpanded = false;
   closeOpenProductDetailsMenu({ skipHistory: true });
   if (wasOpen && editProductModalHistoryActive) {
     editProductModalHistoryActive = false;
@@ -2399,6 +2402,7 @@ async function previewEditProductImage() {
       editProductPhotoItems.push({ type: "new", file, src: preview });
     }
     if (els.editProductImage) els.editProductImage.value = "";
+    editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((item) => item.id === editingProductId));
   } catch (error) {
     console.error("GB Mayorista edit product image preview:", error);
@@ -2418,6 +2422,7 @@ function removeEditProductPhoto(index) {
   if (index < 0 || index >= editProductPhotoItems.length) return;
   editProductPhotoItems.splice(index, 1);
   editProductRemoveImagePending = editProductPhotoItems.length === 0;
+  if (editProductPhotoItems.length <= 1) editProductPhotosExpanded = false;
   renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
 }
 
@@ -2427,6 +2432,7 @@ async function replaceEditProductPhotoItem(index, file) {
     const preview = await processProductImageToDataUrl(file);
     editProductPhotoItems[index] = { type: "new", file, src: preview };
     editProductRemoveImagePending = false;
+    editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
   } catch (error) {
     console.error("GB Mayorista replace product image preview:", error);
@@ -4781,11 +4787,13 @@ function renderEditProductImageGallery(product) {
   if (els.editProductImagePreview) els.editProductImagePreview.src = cover;
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = "+ Agregar fotos";
   if (!images.length) {
-    els.editProductImageGallery.innerHTML = `<div class="gallery-empty">Sin fotos cargadas</div>`;
+    els.editProductImageGallery.innerHTML = `<div class="gallery-empty compact-gallery-empty">Sin fotos cargadas</div>`;
     return;
   }
-  els.editProductImageGallery.innerHTML = images.map((item, index) => `
-    <div class="gallery-thumb ${index === 0 ? "is-primary" : ""}">
+  const visibleImages = editProductPhotosExpanded ? images : images.slice(0, 1);
+  const countLabel = images.length === 1 ? "1 foto" : `${images.length} fotos`;
+  const galleryItems = visibleImages.map((item, index) => `
+    <div class="gallery-thumb compact-gallery-thumb ${index === 0 ? "is-primary" : ""}">
       <img src="${escapeHtml(item.src)}" alt="Foto del producto ${index + 1}">
       <span>${index === 0 ? "Portada" : `Foto ${index + 1}`}${item.type === "new" ? " · Nueva" : ""}</span>
       <div class="gallery-thumb-actions">
@@ -4795,6 +4803,14 @@ function renderEditProductImageGallery(product) {
       </div>
     </div>
   `).join("");
+  const toggle = images.length > 1
+    ? `<button class="secondary-button small-button gallery-toggle-button" type="button" data-gallery-toggle>${editProductPhotosExpanded ? "Ocultar fotos" : "Ver todas las fotos"}</button>`
+    : "";
+  els.editProductImageGallery.innerHTML = `<div class="photo-gallery-summary"><span>📷 ${countLabel}</span>${toggle}</div>${galleryItems}`;
+  els.editProductImageGallery.querySelector("[data-gallery-toggle]")?.addEventListener("click", () => {
+    editProductPhotosExpanded = !editProductPhotosExpanded;
+    renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
+  });
   els.editProductImageGallery.querySelectorAll("[data-gallery-action]").forEach((button) => {
     button.addEventListener("click", () => handleProductGalleryAction(button.dataset.galleryAction, Number(button.dataset.galleryIndex)));
   });
@@ -4807,6 +4823,7 @@ function markEditProductPhotoForRemoval() {
   if (!editingProductId) return;
   editProductRemoveImagePending = true;
   editProductPhotoItems = [];
+  editProductPhotosExpanded = false;
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = "+ Agregar fotos";
