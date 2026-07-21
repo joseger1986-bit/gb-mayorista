@@ -10834,3 +10834,40 @@ body.cart-is-open {
     font-size: 0.92rem !important;
   }
 }
+
+/* Fotos multiples en edicion de producto */
+.edit-product-photo-section {
+  display: grid;
+  gap: 10px;
+}
+
+.edit-product-photo-section .edit-section-title {
+  margin-bottom: 0;
+}
+
+.edit-product-photo-section .edit-product-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.edit-product-photo-section .product-image-gallery {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  max-height: none;
+  overflow: visible;
+}
+
+.edit-product-photo-section .gallery-thumb {
+  align-content: start;
+}
+
+.edit-product-photo-section .gallery-thumb-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.edit-product-photo-section .gallery-thumb-actions button,
+.edit-product-photo-section .gallery-replace {
+  width: 100%;
+  text-align: center;
+}

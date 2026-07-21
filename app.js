@@ -23,7 +23,7 @@ const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products
 let processedProductImage = "";
 let editProductSaving = false;
 let editProductSelectedImages = [];
-let editProductSelectedPrimaryIndex = 0;
+let editProductSelectedPrimaryIndex = -1;
 
 const defaultProductCategories = [
   "Medias",
@@ -2165,7 +2165,7 @@ function openEditProductModal(productId) {
   updateEditProductStockLabels(product);
   editProductRemoveImagePending = false;
   editProductSelectedImages = [];
-  editProductSelectedPrimaryIndex = 0;
+  editProductSelectedPrimaryIndex = -1;
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = getStoredProductImages(product).length ? "Cambiar foto" : "Agregar foto";
   if (els.editProductImagePreview) els.editProductImagePreview.src = getPrimaryProductImage(product);
@@ -2215,7 +2215,7 @@ function closeEditProductModal(options = {}) {
   editProductInitialState = "";
   editProductRemoveImagePending = false;
   editProductSelectedImages = [];
-  editProductSelectedPrimaryIndex = 0;
+  editProductSelectedPrimaryIndex = -1;
   closeOpenProductDetailsMenu({ skipHistory: true });
   if (wasOpen && editProductModalHistoryActive) {
     editProductModalHistoryActive = false;
@@ -2319,7 +2319,7 @@ function setProductFieldError(field, message) {
 async function previewEditProductImage() {
   const files = getFileList(els.editProductImage?.files);
   editProductSelectedImages = [];
-  editProductSelectedPrimaryIndex = 0;
+  editProductSelectedPrimaryIndex = -1;
   if (!files.length) {
     const product = products.find((item) => item.id === editingProductId);
     renderEditProductImageGallery(product);
@@ -2330,11 +2330,13 @@ async function previewEditProductImage() {
     const previews = [];
     for (const file of files) previews.push(await processProductImageToDataUrl(file));
     editProductSelectedImages = previews;
-    updateEditProductSelectedPrimary(0);
+    editProductSelectedPrimaryIndex = -1;
+    if (els.editProductImagePreview) els.editProductImagePreview.src = previews[0] || DEFAULT_PRODUCT_IMAGE;
+    renderEditProductSelectedGallery();
   } catch (error) {
     console.error("GB Mayorista edit product image preview:", error);
     editProductSelectedImages = [];
-    editProductSelectedPrimaryIndex = 0;
+    editProductSelectedPrimaryIndex = -1;
     renderEditProductImageGallery(products.find((item) => item.id === editingProductId));
     showToast("No se pudo cargar la imagen");
   }
@@ -2352,9 +2354,9 @@ function renderEditProductSelectedGallery() {
   els.editProductImageGallery.innerHTML = editProductSelectedImages.map((image, index) => `
     <div class="gallery-thumb ${index === editProductSelectedPrimaryIndex ? "is-primary" : ""}">
       <img src="${escapeHtml(image)}" alt="Foto seleccionada ${index + 1}">
-      <span>${index === editProductSelectedPrimaryIndex ? "Portada" : `Foto ${index + 1}`}</span>
+      <span>${index === editProductSelectedPrimaryIndex ? "FOTO PRINCIPAL" : `Foto nueva ${index + 1}`}</span>
       <div class="gallery-thumb-actions">
-        <button type="button" data-edit-selected-primary="${index}" ${index === editProductSelectedPrimaryIndex ? "disabled" : ""}>Portada</button>
+        <button type="button" data-edit-selected-primary="${index}" ${index === editProductSelectedPrimaryIndex ? "disabled" : ""}>Usar como portada</button>
       </div>
     </div>
   `).join("");
@@ -2379,7 +2381,7 @@ async function saveEditedProduct(event) {
   if (!product) return;
 
   const scrollTop = getAdminTableScrollTop();
-  const imageFiles = getOrderedEditImageFiles();
+  const imageFiles = getFileList(els.editProductImage?.files);
   const nextProduct = {
     ...product,
     optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
@@ -2402,9 +2404,15 @@ async function saveEditedProduct(event) {
     setEditProductSavingState(true);
 
     if (imageFiles.length) {
-      const nextImages = [];
-      for (const file of imageFiles) nextImages.push(await uploadProductImageForEditOrFail(product.id, file));
-      setProductImages(nextProduct, nextImages);
+      const uploadedImages = [];
+      for (const file of imageFiles) uploadedImages.push(await uploadProductImageForEditOrFail(product.id, file));
+      const baseImages = editProductRemoveImagePending ? [] : getStoredProductImages(product);
+      if (editProductSelectedPrimaryIndex >= 0 && editProductSelectedPrimaryIndex < uploadedImages.length) {
+        const selectedAsCover = uploadedImages.splice(editProductSelectedPrimaryIndex, 1)[0];
+        setProductImages(nextProduct, [selectedAsCover, ...baseImages, ...uploadedImages]);
+      } else {
+        setProductImages(nextProduct, [...baseImages, ...uploadedImages]);
+      }
     } else if (editProductRemoveImagePending) {
       setProductImages(nextProduct, []);
     } else {
@@ -4715,9 +4723,9 @@ function renderEditProductImageGallery(product) {
   els.editProductImageGallery.innerHTML = images.map((image, index) => `
     <div class="gallery-thumb ${index === 0 ? "is-primary" : ""}">
       <img src="${escapeHtml(image)}" alt="Foto del producto ${index + 1}">
-      <span>${index === 0 ? "Portada" : `Foto ${index + 1}`}</span>
+      <span>${index === 0 ? "FOTO PRINCIPAL" : `Foto ${index + 1}`}</span>
       <div class="gallery-thumb-actions">
-        <button type="button" data-gallery-action="primary" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Portada</button>
+        <button type="button" data-gallery-action="primary" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Usar como portada</button>
         <button type="button" data-gallery-action="up" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>Subir</button>
         <button type="button" data-gallery-action="down" data-gallery-index="${index}" ${index === images.length - 1 ? "disabled" : ""}>Bajar</button>
         <label class="gallery-replace">Reemplazar<input type="file" accept="image/*" data-gallery-replace="${index}"></label>
@@ -4737,7 +4745,7 @@ function markEditProductPhotoForRemoval() {
   if (!editingProductId) return;
   editProductRemoveImagePending = true;
   editProductSelectedImages = [];
-  editProductSelectedPrimaryIndex = 0;
+  editProductSelectedPrimaryIndex = -1;
   if (els.editProductImage) els.editProductImage.value = "";
   if (els.editProductImagePreview) els.editProductImagePreview.src = DEFAULT_PRODUCT_IMAGE;
   if (els.editProductImageLabel) els.editProductImageLabel.textContent = "Agregar foto";

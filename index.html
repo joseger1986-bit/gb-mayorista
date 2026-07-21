@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=descripcion-scroll-45">
+    <link rel="stylesheet" href="/styles.css?v=fotos-producto-48">
   </head>
   <body>
     <header class="topbar">
@@ -503,14 +503,14 @@
               <option value="no">No</option>
             </select>
           </label>
-          <section class="edit-product-photo-section full-field" aria-label="Foto del producto">
-            <span class="edit-section-title">Foto actual</span>
+          <section class="edit-product-photo-section full-field" aria-label="Fotos del producto">
+            <span class="edit-section-title">Fotos del producto</span>
             <div class="edit-image-preview">
               <img id="editProductImagePreview" alt="Foto del producto">
             </div>
             <div class="edit-product-photo-actions">
-              <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">Reemplazar foto</button>
-              <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar foto</button>
+              <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">+ Agregar fotos</button>
+              <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar todas</button>
             </div>
             <label class="edit-product-file-field">
               Agregar fotos
@@ -556,6 +556,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=fotos-multiples-47"></script>
+    <script src="/app.js?v=fotos-producto-48"></script>
   </body>
 </html>
