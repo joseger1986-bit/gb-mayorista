@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
-    <link rel="stylesheet" href="/styles.css?v=fotos-producto-48">
+    <link rel="stylesheet" href="/styles.css?v=fotos-draft-49">
   </head>
   <body>
     <header class="topbar">
@@ -454,7 +454,16 @@
     <div class="stock-modal-overlay hidden" id="editProductOverlay" aria-hidden="true">
       <form class="stock-modal product-edit-modal product-create-modal" id="editProductForm">
         <div class="edit-product-head"><h3 id="editProductTitle">Editar producto</h3><button class="icon-button edit-product-close" id="editProductClose" type="button" aria-label="Cerrar edición">×</button></div>
-        <div class="product-edit-grid compact-edit-product-grid">
+        <div class="product-edit-grid compact-edit-product-grid">          <section class="edit-product-photo-section full-field" aria-label="Fotos del producto">
+            <span class="edit-section-title">Fotos del producto</span>
+            <div class="product-image-gallery edit-product-selected-gallery" id="editProductImageGallery" aria-label="Fotos del producto"></div>
+            <div class="edit-product-photo-actions">
+              <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">+ Agregar fotos</button>
+              <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar todas</button>
+            </div>
+            <input class="hidden" id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
+            <small>Podés elegir una o varias fotos desde Galería, Cámara o Archivos según tu celular.</small>
+          </section>
           <label>
             Nombre
             <input id="editProductName" name="name" type="text" required>
@@ -503,22 +512,7 @@
               <option value="no">No</option>
             </select>
           </label>
-          <section class="edit-product-photo-section full-field" aria-label="Fotos del producto">
-            <span class="edit-section-title">Fotos del producto</span>
-            <div class="edit-image-preview">
-              <img id="editProductImagePreview" alt="Foto del producto">
-            </div>
-            <div class="edit-product-photo-actions">
-              <button class="secondary-button small-button" id="replaceEditProductPhoto" type="button">+ Agregar fotos</button>
-              <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar todas</button>
-            </div>
-            <label class="edit-product-file-field">
-              Agregar fotos
-              <input id="editProductImage" name="imageFile" type="file" accept="image/*" multiple>
-              <small>Podés elegir una o varias fotos desde Galería, Cámara o Archivos según tu celular.</small>
-            </label>
-            <div class="product-image-gallery edit-product-selected-gallery" id="editProductImageGallery" aria-label="Fotos del producto"></div>
-          </section>
+
         </div>
         <input id="editProductVariants" name="variants" type="hidden">
         <div class="stock-modal-actions edit-product-primary-actions">
@@ -556,6 +550,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=fotos-producto-48"></script>
+    <script src="/app.js?v=fotos-draft-49"></script>
   </body>
 </html>
