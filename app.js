@@ -9,6 +9,8 @@ const STORAGE_CATEGORIES = "gb_mayorista_categories";
 const STORAGE_ROLE = "gb_mayorista_role";
 const STORAGE_SCHEMA = "gb_mayorista_schema";
 const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
+const STORAGE_UI_STATE = "gb_mayorista_ui_state";
+const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
@@ -19,6 +21,7 @@ const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EGB Mayorista%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
+let editProductSaving = false;
 
 const defaultProductCategories = [
   "Medias",
@@ -194,7 +197,7 @@ let stockHistory = loadStockHistory();
 let clients = normalizeClients(loadClients());
 syncClientsFromOrders();
 applyPendingPaidStockDiscounts();
-let currentRole = "client";
+let currentRole = isPrivateManagementRoute() && sessionStorage.getItem(STORAGE_INTERNAL_UNLOCKED) === "true" ? (localStorage.getItem(STORAGE_ROLE) || "admin") : "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
 let adminProductSort = { field: "name", direction: "asc" };
@@ -231,7 +234,7 @@ let editProductRemoveImagePending = false;
 let productDetailsMenuHistoryActive = false;
 let productDetailsMenuClosingByCode = false;
 let toastTimer;
-let internalUnlocked = false;
+let internalUnlocked = isPrivateManagementRoute() && sessionStorage.getItem(STORAGE_INTERNAL_UNLOCKED) === "true";
 let appHistoryReady = false;
 let suppressHistoryUpdate = false;
 let allowExternalBack = false;
@@ -427,7 +430,7 @@ els.importProductsInput?.addEventListener("change", importProductsFromFile);
 els.clientsSearch?.addEventListener("input", renderClients);
 els.clientsSort?.addEventListener("change", renderClients);
 els.exportClientsButton?.addEventListener("click", exportClientsToExcel);
-els.adminSearchInput?.addEventListener("input", renderAdmin);
+els.adminSearchInput?.addEventListener("input", () => { persistUiState({ adminSearch: els.adminSearchInput?.value || "" }); renderAdmin(); });
 document.querySelectorAll("[data-money-input]").forEach(setupMoneyInput);
 setupEnterToNextField(els.productForm);
 els.manageCategoriesButton?.addEventListener("click", () => {
@@ -607,12 +610,17 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowRight") showLightboxImage(lightboxIndex + 1);
 });
 
+restoreUiStateBeforeInitialView();
 renderAll();
 setView(getInitialView(), false, { skipHistory: true });
+restoreSavedScrollPosition();
 initializeAppHistory();
 document.documentElement.dataset.gbApp = "loaded";
 initializeSupabaseCatalog();
-window.addEventListener("pagehide", teardownSupabaseCatalogRealtime);
+window.addEventListener("pagehide", () => {
+  persistUiState({ scrollY: window.scrollY || 0 });
+  teardownSupabaseCatalogRealtime();
+});
 
 function loadProducts() {
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
@@ -1302,6 +1310,20 @@ async function uploadProductImageToSupabase(productId, file) {
   }
 }
 
+async function uploadProductImageForEditOrFail(productId, file) {
+  if (!(file instanceof File) || !file.size) return "";
+  const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  if (file.type && !supportedTypes.includes(file.type)) {
+    throw new Error("Formato de imagen no admitido. Usá JPG, PNG, WebP o GIF.");
+  }
+  const imageUrl = await withTimeout(
+    uploadProductImageToSupabase(productId, file),
+    20000,
+    "La subida de la foto tardó demasiado. Revisá la conexión e intentá nuevamente."
+  );
+  if (!imageUrl) throw new Error("No se pudo guardar la foto. Intentá nuevamente.");
+  return `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
+}
 function getImageFileExtension(file) {
   const fromName = String(file?.name || "").split(".").pop()?.toLowerCase();
   if (["jpg", "jpeg", "png", "webp", "gif"].includes(fromName)) return fromName === "jpg" ? "jpeg" : fromName;
@@ -2298,40 +2320,59 @@ async function previewEditProductImage() {
 
 async function saveEditedProduct(event) {
   event.preventDefault();
+  if (editProductSaving) return;
   if (!hasPermission("manageProducts") || !editingProductId) return;
   if (!validateProductForm(event.currentTarget)) return;
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
 
-  product.optionName = normalizeProductOptionLabel(els.editProductOption?.value || "");
-  product.baseName = stripProductOptionFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), product.optionName);
-  product.name = product.baseName;
-  product.brand = product.brand || "";
-  product.category = normalizeCategory(String(els.editProductCategory?.value || product.category).trim());
   const scrollTop = getAdminTableScrollTop();
-  product.price = Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value)));
-  if (canAccess("admin")) product.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
-  product.presentation = String(els.editProductPresentation?.value || "").trim();
-  product.description = String(els.editProductDescription?.value || "").trim();
-  product.stock = Math.max(0, Math.round(Number(els.editProductStock?.value) || 0));
-  product.saleType = getSaleTypeFromPresentation(product.presentation);
-  product.packQuantity = getPackQuantityFromPresentation(product.presentation);
-  product.variants = String(els.editProductVariants?.value || "").trim();
-  product.showInCatalog = els.editProductCatalog?.value !== "no";
-
   const imageFiles = getFileList(els.editProductImage?.files);
-  if (imageFiles.length) {
-    const nextImages = await uploadOrReadImageFiles(product.id, imageFiles.slice(0, 1));
-    setProductImages(product, nextImages);
-  } else if (editProductRemoveImagePending) {
-    setProductImages(product, []);
-  }
+  const nextProduct = {
+    ...product,
+    optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
+    brand: product.brand || "",
+    category: normalizeCategory(String(els.editProductCategory?.value || product.category).trim()),
+    price: Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value))),
+    presentation: String(els.editProductPresentation?.value || "").trim(),
+    description: String(els.editProductDescription?.value || "").trim(),
+    stock: Math.max(0, Math.round(Number(els.editProductStock?.value) || 0)),
+    variants: String(els.editProductVariants?.value || "").trim(),
+    showInCatalog: els.editProductCatalog?.value !== "no"
+  };
+  nextProduct.baseName = stripProductOptionFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName);
+  nextProduct.name = nextProduct.baseName;
+  if (canAccess("admin")) nextProduct.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
+  nextProduct.saleType = getSaleTypeFromPresentation(nextProduct.presentation);
+  nextProduct.packQuantity = getPackQuantityFromPresentation(nextProduct.presentation);
 
-  saveProducts();
-  closeEditProductModal({ skipUnsavedCheck: true });
-  renderAll();
-  restoreAdminTableScroll(scrollTop);
-  showToast("Producto guardado correctamente", "success");
+  try {
+    setEditProductSavingState(true);
+
+    if (imageFiles.length) {
+      const imageUrl = await uploadProductImageForEditOrFail(product.id, imageFiles[0]);
+      setProductImages(nextProduct, [imageUrl]);
+    } else if (editProductRemoveImagePending) {
+      setProductImages(nextProduct, []);
+    } else {
+      setProductImages(nextProduct, getStoredProductImages(product));
+    }
+
+    Object.assign(product, nextProduct);
+    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    const syncResult = await syncProductsNowOrFail("edit-product");
+    if (syncResult?.reread?.ok === false) console.warn("GB Mayorista Supabase reread after edit-product:", syncResult.reread);
+
+    closeEditProductModal({ skipUnsavedCheck: true });
+    renderAll();
+    restoreAdminTableScroll(scrollTop);
+    showToast("Producto guardado correctamente", "success");
+  } catch (error) {
+    console.error("GB Mayorista edit product save:", error);
+    showToast(imageFiles.length ? "No se pudo guardar la foto. Intentá nuevamente." : (error.message || "No se pudo guardar el producto. Intentá nuevamente."));
+  } finally {
+    setEditProductSavingState(false);
+  }
 }
 
 function openStockModal(productId) {
@@ -2454,6 +2495,7 @@ function renderAdminCategories() {
   els.adminCategoryFilters.querySelectorAll("[data-admin-category]").forEach((button) => {
     button.addEventListener("click", () => {
       currentAdminCategory = button.dataset.adminCategory;
+      persistUiState({ adminCategory: currentAdminCategory });
       renderAdmin();
     });
   });
@@ -3595,12 +3637,14 @@ function sendBudgetPreviewPdfByWhatsapp(orderId) {
 function bindBudgetEditor() {
   els.ordersList.querySelector("[data-orders-search]")?.addEventListener("input", (event) => {
     orderListSearch = event.target.value;
+    persistUiState({ orderListSearch });
     renderOrders();
   });
 
   els.ordersList.querySelectorAll("[data-orders-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       orderListFilter = button.dataset.ordersFilter || "Hoy";
+      persistUiState({ orderListFilter });
       renderOrders();
     });
   });
@@ -4460,6 +4504,43 @@ function getNextSortOrder() {
   return products.reduce((max, product) => Math.max(max, product.sortOrder || 0), 0) + 1;
 }
 
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timeoutId));
+}
+
+function getEditProductSubmitButton() {
+  return els.editProductForm?.querySelector('button[type="submit"]') || null;
+}
+
+function setEditProductSavingState(isSaving) {
+  editProductSaving = Boolean(isSaving);
+  const button = getEditProductSubmitButton();
+  if (!button) return;
+  if (!button.dataset.defaultText) button.dataset.defaultText = button.textContent || "Guardar cambios";
+  button.disabled = editProductSaving;
+  button.textContent = editProductSaving ? "Guardando..." : button.dataset.defaultText;
+  els.editProductForm?.classList.toggle("is-saving", editProductSaving);
+}
+
+async function waitForCatalogSyncIdle(timeoutMs = 5000) {
+  const start = Date.now();
+  while (supabaseCatalogSyncRunning) {
+    if (Date.now() - start > timeoutMs) throw new Error("Hay otra sincronizacion con Supabase en curso. Intentá nuevamente.");
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+  }
+}
+
+async function syncProductsNowOrFail(reason) {
+  if (!getSupabaseCatalogClient()) return { ok: true, mode: "local" };
+  await waitForCatalogSyncIdle();
+  const result = await withTimeout(syncCatalogToSupabase(reason), 18000, "Supabase tardó demasiado en guardar el producto.");
+  if (!result?.ok) throw new Error(result?.message || "No se pudo guardar el producto en Supabase.");
+  return result;
+}
 function getFileList(files) {
   return Array.from(files || []).filter((file) => file instanceof File && file.size);
 }
@@ -6153,6 +6234,56 @@ function formatCustomerLineSubtotal(item) {
   return price > 0 ? formatMoney(price * Math.max(1, Number(item.quantity) || 1)) : "Sin precio cargado";
 }
 
+function getSavedUiState() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_UI_STATE) || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function persistUiState(extra = {}) {
+  if (!isPrivateManagementRoute()) return;
+  const state = {
+    ...getSavedUiState(),
+    view: currentView,
+    role: currentRole,
+    adminCategory: currentAdminCategory,
+    adminSearch: els.adminSearchInput?.value || "",
+    orderListSearch,
+    orderListFilter,
+    scrollY: window.scrollY || 0,
+    updatedAt: Date.now(),
+    ...extra
+  };
+  localStorage.setItem(STORAGE_UI_STATE, JSON.stringify(state));
+}
+
+function restoreUiStateBeforeInitialView() {
+  if (!isPrivateManagementRoute()) return;
+  const state = getSavedUiState();
+  if (state.adminCategory && getCategories().includes(state.adminCategory)) currentAdminCategory = state.adminCategory;
+  if (typeof state.orderListSearch === "string") orderListSearch = state.orderListSearch;
+  if (typeof state.orderListFilter === "string") orderListFilter = state.orderListFilter;
+  if (els.adminSearchInput && typeof state.adminSearch === "string") els.adminSearchInput.value = state.adminSearch;
+}
+
+function restoreSavedScrollPosition() {
+  if (!isPrivateManagementRoute()) return;
+  const state = getSavedUiState();
+  const scrollY = Math.max(0, Number(state.scrollY) || 0);
+  if (!scrollY) return;
+  window.setTimeout(() => window.scrollTo({ top: scrollY, left: 0, behavior: "auto" }), 120);
+}
+
+function getSavedInitialManagementView() {
+  const state = getSavedUiState();
+  const managementViews = getManagementViews();
+  const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "admin";
+  if (view === "reportes" && !hasPermission("reports")) return "admin";
+  if (view === "importacion" && !hasPermission("importExport")) return "admin";
+  return view;
+}
 function setView(view, preserveRole = false, historyOptions = {}) {
   const managementViews = getManagementViews();
   if (!["catalogo", ...managementViews].includes(view)) view = "catalogo";
@@ -6184,6 +6315,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
   currentView = view;
+  persistUiState({ view });
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
   els.internalLoginView?.classList.add("hidden");
@@ -6365,7 +6497,7 @@ function getCurrentHistoryUrl() {
 }
 
 function getInitialView() {
-  return isPrivateManagementRoute() ? "admin" : "catalogo";
+  return isPrivateManagementRoute() ? getSavedInitialManagementView() : "catalogo";
 }
 
 function isPrivateManagementRoute() {
@@ -6414,11 +6546,13 @@ async function handleInternalLogin(event) {
     return;
   }
   internalUnlocked = true;
+  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
   currentRole = user.role;
   els.internalLoginError?.classList.add("hidden");
   if (els.internalPassword) els.internalPassword.value = "";
   renderAll();
-  setView("admin");
+  setView(getInitialView());
+  restoreSavedScrollPosition();
   await refreshCatalogFromSupabase("gestion-login", { silent: true });
 }
 
