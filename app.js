@@ -1237,6 +1237,117 @@ async function syncCatalogToSupabase(reason = "manual") {
   }
 }
 
+async function getSupabaseCategoryIdForProduct(client, product) {
+  const categoryName = String(product?.category || "").trim();
+  if (!categoryName) return null;
+  const categoryIndex = Math.max(0, categories.findIndex((category) => normalizeCategoryNameForCompare(category.name) === normalizeCategoryNameForCompare(categoryName)));
+  const row = {
+    name: categoryName,
+    active: true,
+    sort_order: (categoryIndex + 1) * 10
+  };
+  const { data, error } = await client
+    .from("categories")
+    .upsert([row], { onConflict: "name" })
+    .select("id, name")
+    .limit(1);
+  if (error) throw error;
+  const saved = Array.isArray(data) ? data[0] : null;
+  if (saved?.id) return saved.id;
+
+  const { data: existing, error: readError } = await client
+    .from("categories")
+    .select("id, name")
+    .eq("name", categoryName)
+    .limit(1);
+  if (readError) throw readError;
+  return Array.isArray(existing) && existing[0]?.id ? existing[0].id : null;
+}
+
+function buildSupabaseProductRow(product, categoryId, sortOrder) {
+  const row = {
+    id: product.id,
+    category_id: categoryId || null,
+    name: supabaseProductOptionSupported ? getProductBaseName(product) : getProductArticleName(product),
+    brand: product.brand || "",
+    presentation: getProductPresentation(product),
+    cost_price: Math.max(0, Number(product.cost) || 0),
+    sale_price: Math.max(0, Number(product.price) || 0),
+    stock: Math.max(0, Number(product.stock) || 0),
+    show_in_catalog: product.showInCatalog !== false,
+    image_path: getSupabaseImagePath(product.image),
+    active: product.active !== false,
+    sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : sortOrder
+  };
+  if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
+  if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
+  if (supabaseProductOptionSupported) {
+    row.base_name = getProductBaseName(product);
+    row.option_name = getProductOptionName(product);
+  }
+  return row;
+}
+
+async function syncSingleProductToSupabase(product, reason = "edit-product") {
+  const client = getSupabaseCatalogClient();
+  if (!client) return { ok: true, mode: "local" };
+  await waitForCatalogSyncIdle();
+  return withTimeout((async () => {
+    supabaseCatalogSyncRunning = true;
+    try {
+      supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
+      supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
+      supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
+      const categoryId = await getSupabaseCategoryIdForProduct(client, product);
+      const sortOrder = Math.max(1, products.findIndex((item) => String(item.id) === String(product.id)) + 1);
+      const row = buildSupabaseProductRow(product, categoryId, sortOrder);
+      const { data: savedRows, error: saveError } = await client
+        .from("products")
+        .upsert([row], { onConflict: "id" })
+        .select("id, image_path, gallery_images, show_in_catalog");
+      if (saveError) throw saveError;
+      if (!Array.isArray(savedRows) || savedRows.length !== 1 || String(savedRows[0]?.id) !== String(product.id)) {
+        throw new Error("Supabase no confirmo la escritura del producto editado.");
+      }
+
+      const { data: rereadRows, error: rereadError } = await client
+        .from("products")
+        .select("*, categories(name), product_variants(*)")
+        .eq("id", product.id)
+        .limit(1);
+      if (rereadError) throw rereadError;
+      if (!Array.isArray(rereadRows) || rereadRows.length !== 1) {
+        throw new Error("Supabase no devolvio el producto despues de guardarlo.");
+      }
+      const mappedProduct = mapSupabaseProductsToLocal(rereadRows)[0];
+      if (!mappedProduct) throw new Error("No se pudo reconstruir el producto guardado desde Supabase.");
+      const currentIndex = products.findIndex((item) => String(item.id) === String(product.id));
+      if (currentIndex >= 0) products[currentIndex] = mappedProduct;
+      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+      updateSupabaseCatalogStatus({
+        ok: true,
+        mode: "supabase-product-save",
+        message: "Producto guardado y verificado en Supabase.",
+        reason,
+        productId: product.id
+      });
+      setupSupabaseCatalogRealtime();
+      return { ok: true, product: mappedProduct, reread: { ok: true } };
+    } catch (error) {
+      updateSupabaseCatalogStatus({
+        ok: false,
+        mode: "localStorage",
+        message: error.message || "No se pudo guardar el producto en Supabase.",
+        reason,
+        code: error.code || null,
+        hint: error.hint || error.details || null
+      });
+      return { ok: false, message: error.message || "No se pudo guardar el producto en Supabase.", code: error.code || null };
+    } finally {
+      supabaseCatalogSyncRunning = false;
+    }
+  })(), "Supabase tardo demasiado en guardar el producto editado.", 25000);
+}
 function formatSupabaseOperationError(error, fallback = "La operación en Supabase falló.") {
   if (!error) return fallback;
   const parts = [
@@ -2436,50 +2547,7 @@ function duplicateEditingProduct() {
 }
 
 async function deleteEditingProduct() {
-  if (!hasPermission("manageProducts") || !editingProductId) return;
-  const product = products.find((item) => item.id === editingProductId);
-  if (!product) return;
-  const productId = editingProductId;
-  const productName = getProductArticleName(product);
-  await requestDeleteConfirmation({
-    title: "Ocultar del catalogo",
-    text: `Vas a ocultar "${productName}" del catalogo publico. El producto seguira guardado en Gestion y podras volver a publicarlo editando "Mostrar en catalogo".`,
-    confirmText: "Si, ocultar",
-    loadingText: "Ocultando...",
-    action: async () => {
-      const scrollTop = getAdminTableScrollTop();
-      const originalVisibility = product.showInCatalog;
-      product.showInCatalog = false;
-      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-
-      try {
-        const syncResult = await syncProductsNowOrFail("hide-product-from-catalog");
-        if (syncResult?.reread?.ok === false) {
-          throw new Error(syncResult.reread.message || "Supabase guardo el cambio, pero no confirmo la relectura del producto.");
-        }
-        const rereadResult = await refreshCatalogFromSupabase("verify-hide-product", { silent: true });
-        if (rereadResult?.ok === false) {
-          throw new Error(rereadResult.message || "No se pudo verificar en Supabase que el producto quedo oculto.");
-        }
-        const hiddenProduct = products.find((item) => String(item.id) === String(productId));
-        if (!hiddenProduct) {
-          throw new Error(`No se pudo verificar el producto "${productName}" despues de ocultarlo.`);
-        }
-        if (hiddenProduct.showInCatalog !== false) {
-          throw new Error(`Supabase no confirmo que "${productName}" haya quedado oculto del catalogo.`);
-        }
-        closeEditProductModal({ skipUnsavedCheck: true });
-        renderCatalog();
-        renderAdmin();
-        restoreAdminTableScroll(scrollTop);
-        showToast("Producto ocultado del catalogo correctamente", "success");
-      } catch (error) {
-        product.showInCatalog = originalVisibility;
-        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-        throw error;
-      }
-    }
-  });
+  showToast("Eliminar producto queda pendiente hasta implementar borrado seguro con autenticacion.");
 }
 
 function validateProductForm(form) {
@@ -2582,6 +2650,7 @@ async function saveEditedProduct(event) {
   const scrollTop = getAdminTableScrollTop();
   const photoItems = editProductPhotoItems.slice();
   const photoSessionId = editProductPhotoSessionId;
+  const originalProductSnapshot = JSON.parse(JSON.stringify(product));
   const nextProduct = {
     ...product,
     optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
@@ -2624,7 +2693,8 @@ async function saveEditedProduct(event) {
     if (photoSessionId !== editProductPhotoSessionId) throw new Error("La edición cambió durante el guardado. Volvé a intentar.");
     Object.assign(product, nextProduct);
     localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-    const syncResult = await syncProductsNowOrFail("edit-product");
+    const syncResult = await syncSingleProductToSupabase(product, "edit-product");
+    if (!syncResult?.ok) throw new Error(syncResult?.message || "No se pudo guardar el producto en Supabase.");
     if (syncResult?.reread?.ok === false) {
       throw new Error(syncResult.reread.message || "Supabase guardo el producto, pero no confirmo la relectura.");
     }
@@ -2635,6 +2705,10 @@ async function saveEditedProduct(event) {
     restoreAdminTableScroll(scrollTop);
     showToast("Producto guardado correctamente", "success");
   } catch (error) {
+    if (product && originalProductSnapshot) {
+      Object.assign(product, originalProductSnapshot);
+      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    }
     console.error("GB Mayorista edit product save:", error);
     showToast(error.message || "No se pudo guardar el producto. Intentá nuevamente.");
   } finally {
