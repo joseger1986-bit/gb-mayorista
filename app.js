@@ -1346,7 +1346,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
     } finally {
       supabaseCatalogSyncRunning = false;
     }
-  })(), "Supabase tardo demasiado en guardar el producto editado.", 25000);
+  })(), 25000, "Supabase tardo demasiado en guardar el producto editado.");
 }
 function formatSupabaseOperationError(error, fallback = "La operación en Supabase falló.") {
   if (!error) return fallback;
