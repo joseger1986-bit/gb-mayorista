@@ -523,7 +523,7 @@
           <summary>Más opciones</summary>
           <div class="edit-product-more-actions">
             <button class="secondary-button small-button" id="duplicateProductButton" type="button">Duplicar producto</button>
-            <button class="danger-button small-button" id="deleteProductButton" type="button">Eliminar producto</button>
+            <button class="secondary-button small-button" id="deleteProductButton" type="button">Ocultar del catálogo</button>
           </div>
         </details>
       </form>
@@ -541,6 +541,7 @@
 
     <div class="confirm-modal-overlay hidden" id="confirmModalOverlay" aria-hidden="true">
       <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+        <button class="modal-close" id="confirmModalClose" type="button" aria-label="Cerrar">×</button>
         <h3 id="confirmModalTitle">¿Estás seguro?</h3>
         <p id="confirmModalText">Esta acción no se puede deshacer.</p>
         <div class="confirm-modal-actions">

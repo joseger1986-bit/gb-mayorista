@@ -407,6 +407,7 @@ const els = {
   confirmModalTitle: document.querySelector("#confirmModalTitle"),
   confirmModalText: document.querySelector("#confirmModalText"),
   confirmModalCancel: document.querySelector("#confirmModalCancel"),
+  confirmModalClose: document.querySelector("#confirmModalClose"),
   confirmModalAccept: document.querySelector("#confirmModalAccept")
 };
 
@@ -581,6 +582,7 @@ setupProductDetailsMenus();
 els.duplicateProductButton?.addEventListener("click", duplicateEditingProduct);
 els.deleteProductButton?.addEventListener("click", deleteEditingProduct);
 els.confirmModalCancel?.addEventListener("click", () => closeConfirmDialog(false));
+els.confirmModalClose?.addEventListener("click", () => closeConfirmDialog(false));
 els.confirmModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.confirmModalOverlay) closeConfirmDialog(false);
 });
@@ -1359,7 +1361,7 @@ function mapSupabaseProductsToLocal(rows) {
     const presentation = row.presentation || "";
     const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "");
     const galleryImages = Array.isArray(row.gallery_images) ? row.gallery_images.map(getCatalogImage).filter(Boolean) : [];
-    const productImages = mergeProductImages(row.image_path, galleryImages);
+    const productImages = galleryImages.length ? mergeProductImages(galleryImages) : mergeProductImages(row.image_path);
 
     return {
       id: row.id,
@@ -2440,29 +2442,42 @@ async function deleteEditingProduct() {
   const productId = editingProductId;
   const productName = getProductArticleName(product);
   await requestDeleteConfirmation({
-    text: `¿Estás seguro de que querés eliminar "${productName}"? Esta acción no se puede deshacer.`,
+    title: "Ocultar del catalogo",
+    text: `Vas a ocultar "${productName}" del catalogo publico. El producto seguira guardado en Gestion y podras volver a publicarlo editando "Mostrar en catalogo".`,
+    confirmText: "Si, ocultar",
+    loadingText: "Ocultando...",
     action: async () => {
       const scrollTop = getAdminTableScrollTop();
-      await ensureProductDeletedFromSupabase(productId, productName);
-      supabaseCatalogPendingDeletedProductIds.delete(productId);
-      products = products.filter((item) => item.id !== productId);
-      cart = cart.filter((item) => item.id !== productId && item.internalProductId !== productId);
-      stockHistory = stockHistory.filter((entry) => entry.productId !== productId);
+      const originalVisibility = product.showInCatalog;
+      product.showInCatalog = false;
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      saveCart();
-      saveStockHistory();
-      const rereadResult = await refreshCatalogFromSupabase("after-delete-product", { silent: true });
-      if (rereadResult?.ok && products.some((item) => item.id === productId)) {
-        throw new Error(`El producto "${productName}" sigue apareciendo después de releer Supabase.`);
+
+      try {
+        const syncResult = await syncProductsNowOrFail("hide-product-from-catalog");
+        if (syncResult?.reread?.ok === false) {
+          throw new Error(syncResult.reread.message || "Supabase guardo el cambio, pero no confirmo la relectura del producto.");
+        }
+        const rereadResult = await refreshCatalogFromSupabase("verify-hide-product", { silent: true });
+        if (rereadResult?.ok === false) {
+          throw new Error(rereadResult.message || "No se pudo verificar en Supabase que el producto quedo oculto.");
+        }
+        const hiddenProduct = products.find((item) => String(item.id) === String(productId));
+        if (!hiddenProduct) {
+          throw new Error(`No se pudo verificar el producto "${productName}" despues de ocultarlo.`);
+        }
+        if (hiddenProduct.showInCatalog !== false) {
+          throw new Error(`Supabase no confirmo que "${productName}" haya quedado oculto del catalogo.`);
+        }
+        closeEditProductModal({ skipUnsavedCheck: true });
+        renderCatalog();
+        renderAdmin();
+        restoreAdminTableScroll(scrollTop);
+        showToast("Producto ocultado del catalogo correctamente", "success");
+      } catch (error) {
+        product.showInCatalog = originalVisibility;
+        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+        throw error;
       }
-      if (rereadResult?.ok === false) {
-        console.warn("GB Mayorista product delete reread:", rereadResult);
-      }
-      closeEditProductModal({ skipUnsavedCheck: true });
-      renderCatalog();
-      renderAdmin();
-      restoreAdminTableScroll(scrollTop);
-      showToast("Producto eliminado correctamente", "success");
     }
   });
 }
@@ -2596,6 +2611,12 @@ async function saveEditedProduct(event) {
         else if (item.src) nextImages.push(item.src);
       }
       setProductImages(nextProduct, nextImages);
+      if (getStoredProductImages(nextProduct).length > 1 && getSupabaseCatalogClient()) {
+        supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(getSupabaseCatalogClient());
+        if (!supabaseProductGallerySupported) {
+          throw new Error("Falta aplicar la migracion gallery_images en Supabase. No se pueden guardar multiples fotos hasta crear esa columna.");
+        }
+      }
     } else {
       setProductImages(nextProduct, []);
     }
@@ -2604,7 +2625,9 @@ async function saveEditedProduct(event) {
     Object.assign(product, nextProduct);
     localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     const syncResult = await syncProductsNowOrFail("edit-product");
-    if (syncResult?.reread?.ok === false) console.warn("GB Mayorista Supabase reread after edit-product:", syncResult.reread);
+    if (syncResult?.reread?.ok === false) {
+      throw new Error(syncResult.reread.message || "Supabase guardo el producto, pero no confirmo la relectura.");
+    }
 
     closeEditProductModal({ skipUnsavedCheck: true });
     renderCatalog();
@@ -2613,7 +2636,7 @@ async function saveEditedProduct(event) {
     showToast("Producto guardado correctamente", "success");
   } catch (error) {
     console.error("GB Mayorista edit product save:", error);
-    showToast(photoItems.some((item) => item.type === "new") ? "No se pudo guardar la foto. Intentá nuevamente." : (error.message || "No se pudo guardar el producto. Intentá nuevamente."));
+    showToast(error.message || "No se pudo guardar el producto. Intentá nuevamente.");
   } finally {
     setEditProductSavingState(false);
   }
