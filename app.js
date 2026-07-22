@@ -1472,7 +1472,7 @@ function mapSupabaseProductsToLocal(rows) {
     const presentation = row.presentation || "";
     const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "");
     const galleryImages = Array.isArray(row.gallery_images) ? row.gallery_images.map(getCatalogImage).filter(Boolean) : [];
-    const productImages = galleryImages.length ? mergeProductImages(galleryImages) : mergeProductImages(row.image_path);
+    const productImages = mergeProductImages(galleryImages, row.image_path);
 
     return {
       id: row.id,
@@ -4950,7 +4950,7 @@ function getPrimaryProductImage(product) {
 function setProductImages(product, images) {
   const cleanImages = mergeProductImages(images);
   product.images = cleanImages;
-  product.image = cleanImages[0] || DEFAULT_PRODUCT_IMAGE;
+  product.image = cleanImages[0] || "";
 }
 
 async function handleProductImagePreview() {
@@ -7287,6 +7287,7 @@ function normalizeProducts(productList) {
       ? getProductIdentityFromName(explicitBaseName || product.name || "", explicitOptionName)
       : getProductIdentityFromName(product.name || explicitBaseName || "");
     const presentation = product.presentation || getProductPresentation(product);
+    const productImages = normalizeProductImages(product);
     return {
       ...product,
       name: identity.baseName,
@@ -7302,8 +7303,8 @@ function normalizeProducts(productList) {
       packQuantity: Math.max(1, Number(product.packQuantity) || getPackQuantityFromPresentation(presentation)),
       stock: Math.max(0, Number(product.stock) || 0),
       cost: Number.isFinite(Number(product.cost)) ? Number(product.cost) : 0,
-      image: getPrimaryProductImage(product),
-      images: normalizeProductImages(product),
+      image: productImages[0] || "",
+      images: productImages,
       active: product.active !== false,
       showInCatalog: product.showInCatalog !== false,
       sortOrder: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
