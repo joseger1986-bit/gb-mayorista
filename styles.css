@@ -11252,3 +11252,231 @@ body.cart-is-open {
     border-radius: 9px;
   }
 }
+/* Encabezado público negro y dorado */
+.topbar.public-catalog-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 6 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  min-height: 0 !important;
+  padding: 14px clamp(16px, 4vw, 48px) 12px !important;
+  background: #050505 !important;
+  border-bottom: 1px solid rgba(206, 164, 74, 0.5) !important;
+  color: #f7efd9 !important;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.22) !important;
+  backdrop-filter: none !important;
+}
+
+.public-brand-shell {
+  width: min(100%, 720px);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.public-catalog-brand.brand {
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex: 0 1 auto !important;
+  display: grid !important;
+  justify-items: center !important;
+  gap: 8px !important;
+  text-align: center !important;
+}
+
+.public-brand-mark.brand-mark {
+  width: 70px !important;
+  height: 70px !important;
+  border: 1.5px solid #cfa24a !important;
+  border-radius: 999px !important;
+  background: radial-gradient(circle at 50% 35%, #18120a 0%, #050505 68%) !important;
+  color: #d6ad55 !important;
+  font-family: Georgia, 'Times New Roman', serif !important;
+  font-size: 1.75rem !important;
+  line-height: 1 !important;
+  font-weight: 900 !important;
+  letter-spacing: -0.08em !important;
+  box-shadow: 0 0 0 4px rgba(207, 162, 74, 0.08), 0 10px 24px rgba(0, 0, 0, 0.32) !important;
+}
+
+.public-brand-copy,
+.public-brand-copy h1,
+.public-brand-copy p {
+  min-width: 0 !important;
+  max-width: none !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  text-align: center !important;
+}
+
+.public-brand-copy h1 {
+  margin: 0 !important;
+  color: #ffffff !important;
+  font-size: clamp(1.75rem, 6.8vw, 3rem) !important;
+  line-height: 0.95 !important;
+  font-weight: 950 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.public-brand-copy p {
+  margin: 5px 0 0 !important;
+  color: #d6ad55 !important;
+  font-size: clamp(0.84rem, 2.8vw, 1.02rem) !important;
+  line-height: 1.1 !important;
+  font-weight: 850 !important;
+}
+
+.public-brand-copy::after {
+  content: "";
+  display: block;
+  width: 54px;
+  height: 2px;
+  margin: 9px auto 0;
+  border-radius: 999px;
+  background: #cfa24a;
+}
+
+.public-social-links.top-actions {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-wrap: nowrap !important;
+  gap: clamp(16px, 7vw, 52px) !important;
+  margin: 0 !important;
+}
+
+.public-social-link {
+  min-width: 64px;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 0.74rem;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.public-social-link svg {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.28));
+}
+
+.public-social-whatsapp svg { color: #25d366; background: #fff; }
+.public-social-instagram svg { color: #e4408f; background: #fff; }
+.public-social-facebook svg { color: #1877f2; background: #fff; }
+
+.public-header-cart-hidden.header-cart-button,
+.cart-button.public-header-cart-hidden {
+  display: none !important;
+}
+
+.public-catalog-header + .minimum-banner {
+  position: relative !important;
+  top: auto !important;
+  z-index: 5 !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  background: linear-gradient(90deg, #111 0%, #cfa24a 18%, #e0b85d 50%, #cfa24a 82%, #111 100%) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35) !important;
+  color: #050505 !important;
+  overflow: hidden !important;
+}
+
+.public-catalog-header + .minimum-banner::before,
+.public-catalog-header + .minimum-banner::after {
+  background: linear-gradient(90deg, #050505, rgba(5, 5, 5, 0)) !important;
+}
+
+.public-catalog-header + .minimum-banner::after {
+  background: linear-gradient(270deg, #050505, rgba(5, 5, 5, 0)) !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee {
+  gap: 46px !important;
+  animation-duration: 18s !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee span {
+  color: #050505 !important;
+  font-size: 0.88rem !important;
+  font-weight: 950 !important;
+  letter-spacing: 0 !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee span::before,
+.public-catalog-header + .minimum-banner .minimum-marquee span::after {
+  background: #050505 !important;
+}
+
+@media (min-width: 901px) {
+  .topbar.public-catalog-header {
+    padding-top: 18px !important;
+    padding-bottom: 14px !important;
+  }
+
+  .public-brand-shell {
+    gap: 14px;
+  }
+
+  .public-brand-mark.brand-mark {
+    width: 76px !important;
+    height: 76px !important;
+    font-size: 1.9rem !important;
+  }
+
+  .public-social-link svg {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar.public-catalog-header {
+    padding: 12px 12px 10px !important;
+  }
+
+  .public-brand-shell {
+    gap: 10px;
+  }
+
+  .public-brand-mark.brand-mark {
+    width: 62px !important;
+    height: 62px !important;
+    font-size: 1.55rem !important;
+  }
+
+  .public-social-links.top-actions {
+    gap: clamp(14px, 8vw, 30px) !important;
+  }
+
+  .public-social-link {
+    min-width: 58px;
+    font-size: 0.68rem;
+  }
+
+  .public-social-link svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .public-catalog-header + .minimum-banner {
+    height: 34px !important;
+    line-height: 34px !important;
+  }
+
+  .public-catalog-header + .minimum-banner .minimum-marquee span {
+    font-size: 0.78rem !important;
+  }
+}
