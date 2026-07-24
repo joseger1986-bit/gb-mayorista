@@ -11080,3 +11080,258 @@ body.cart-is-open {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Ajuste escritorio catálogo y orden manual en Gestión */
+.catalog-order-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 22px rgba(24, 33, 28, 0.05);
+}
+
+.catalog-order-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 12px;
+  align-items: end;
+}
+
+.catalog-order-head h3,
+.catalog-order-head p {
+  margin: 0;
+}
+
+.catalog-order-head h3 {
+  font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.catalog-order-head p {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.catalog-order-head label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.catalog-order-head select {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 850;
+}
+
+.catalog-order-list {
+  display: grid;
+  gap: 7px;
+}
+
+.catalog-order-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf4;
+}
+
+.catalog-order-thumb {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.catalog-order-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.catalog-order-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.catalog-order-info strong,
+.catalog-order-info span {
+  overflow-wrap: anywhere;
+}
+
+.catalog-order-info strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.18;
+}
+
+.catalog-order-info span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.catalog-order-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.catalog-order-controls .small-button {
+  width: 36px;
+  min-width: 36px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.catalog-order-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (min-width: 901px) {
+  .product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .product-card {
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+  }
+
+  .product-body {
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    align-content: start;
+    gap: 9px;
+    padding: 12px;
+  }
+
+  .variant-select-row,
+  .variant-placeholder {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 38px;
+    margin: 0;
+    overflow: visible;
+  }
+
+  .variant-select-row select {
+    width: 100%;
+    min-width: 0;
+    height: 38px;
+    min-height: 38px;
+    padding: 0 10px;
+    font-size: 0.86rem;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  .pack-price {
+    min-height: 66px;
+    gap: 5px;
+  }
+
+  .quantity-row.quantity-stepper-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 7px;
+    min-height: 0;
+    padding-top: 0;
+  }
+
+  .quantity-stepper-row label {
+    display: block;
+    min-height: 0;
+    font-size: 0.82rem;
+    line-height: 1.15;
+  }
+
+  .quantity-stepper {
+    width: min(150px, 100%);
+    grid-template-columns: 34px 54px 34px;
+    justify-content: start;
+    gap: 6px;
+  }
+
+  .quantity-stepper input,
+  .quantity-row .quantity-stepper input {
+    width: 54px;
+    max-width: 54px;
+  }
+
+  .quantity-stepper-row .primary-button {
+    width: 100%;
+    min-height: 40px;
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1181px) {
+  .product-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .catalog-order-panel {
+    padding: 10px;
+  }
+
+  .catalog-order-head {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-order-item {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 7px;
+  }
+
+  .catalog-order-thumb {
+    width: 38px;
+    height: 38px;
+  }
+
+  .catalog-order-controls {
+    flex-direction: column;
+  }
+
+  .catalog-order-controls .small-button {
+    width: 34px;
+    min-width: 34px;
+    height: 30px;
+    min-height: 30px;
+  }
+
+  .catalog-order-actions .primary-button {
+    width: 100%;
+  }
+}

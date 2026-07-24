@@ -185,6 +185,7 @@ applyPendingPaidStockDiscounts();
 let currentRole = "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
+let currentCatalogOrderCategory = currentAdminCategory;
 let adminProductSort = { field: "name", direction: "asc" };
 let currentView = "catalogo";
 let previewOrderId = "";
@@ -299,6 +300,9 @@ const els = {
   addVariantRow: document.querySelector("#addVariantRow"),
   adminSearchInput: document.querySelector("#adminSearchInput"),
   adminCategoryFilters: document.querySelector("#adminCategoryFilters"),
+  catalogOrderCategory: document.querySelector("#catalogOrderCategory"),
+  catalogOrderList: document.querySelector("#catalogOrderList"),
+  saveCatalogOrder: document.querySelector("#saveCatalogOrder"),
   manageCategoriesButton: document.querySelector("#manageCategoriesButton"),
   categoryManager: document.querySelector("#categoryManager"),
   closeCategoryManager: document.querySelector("#closeCategoryManager"),
@@ -405,6 +409,11 @@ els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
+els.catalogOrderCategory?.addEventListener("change", () => {
+  currentCatalogOrderCategory = els.catalogOrderCategory.value;
+  renderCatalogOrderPanel();
+});
+els.saveCatalogOrder?.addEventListener("click", saveCatalogOrder);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -1658,6 +1667,7 @@ function renderAll() {
   renderCatalog();
   if (internalUnlocked) {
     renderAdmin();
+    renderCatalogOrderPanel();
     renderCategoryManager();
     renderStock();
     renderOrders();
@@ -2884,12 +2894,130 @@ function renderAdminCategories() {
   els.adminCategoryFilters.querySelectorAll("[data-admin-category]").forEach((button) => {
     button.addEventListener("click", () => {
       currentAdminCategory = button.dataset.adminCategory;
+      currentCatalogOrderCategory = currentAdminCategory;
       persistUiState({ adminCategory: currentAdminCategory });
       renderAdmin();
     });
   });
 }
 
+function renderCatalogOrderPanel() {
+  if (!els.catalogOrderCategory || !els.catalogOrderList) return;
+  const categoryNames = getVisibleCategories();
+  if (!categoryNames.length) {
+    els.catalogOrderCategory.innerHTML = "";
+    els.catalogOrderList.innerHTML = `<div class="empty-state compact">No hay categorías visibles para ordenar.</div>`;
+    return;
+  }
+  if (!categoryNames.includes(currentCatalogOrderCategory)) currentCatalogOrderCategory = currentAdminCategory || categoryNames[0];
+  if (!categoryNames.includes(currentCatalogOrderCategory)) currentCatalogOrderCategory = categoryNames[0];
+  els.catalogOrderCategory.innerHTML = categoryNames.map((category) => `
+    <option value="${escapeHtml(category)}" ${category === currentCatalogOrderCategory ? "selected" : ""}>${escapeHtml(category)}</option>
+  `).join("");
+
+  const categoryProducts = getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.category === currentCatalogOrderCategory);
+
+  if (!categoryProducts.length) {
+    els.catalogOrderList.innerHTML = `<div class="empty-state compact">No hay productos en esta categoría.</div>`;
+    return;
+  }
+
+  els.catalogOrderList.innerHTML = categoryProducts.map((product, index) => `
+    <div class="catalog-order-item" data-order-product="${escapeHtml(product.id)}">
+      <div class="catalog-order-thumb">
+        ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
+      </div>
+      <div class="catalog-order-info">
+        <strong>${escapeHtml(getProductBaseName(product))}</strong>
+        <span>${escapeHtml(getProductOptionName(product) || "Sin talle")} · ${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</span>
+      </div>
+      <div class="catalog-order-controls">
+        <button class="secondary-button small-button" type="button" data-order-move="up" data-product-id="${escapeHtml(product.id)}" ${index === 0 ? "disabled" : ""} aria-label="Subir producto">↑</button>
+        <button class="secondary-button small-button" type="button" data-order-move="down" data-product-id="${escapeHtml(product.id)}" ${index === categoryProducts.length - 1 ? "disabled" : ""} aria-label="Bajar producto">↓</button>
+      </div>
+    </div>
+  `).join("");
+
+  els.catalogOrderList.querySelectorAll("[data-order-move]").forEach((button) => {
+    button.addEventListener("click", () => moveCatalogOrderProduct(button.dataset.productId, button.dataset.orderMove));
+  });
+}
+
+function getCatalogOrderProducts(category = currentCatalogOrderCategory) {
+  return getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.category === category);
+}
+
+function moveCatalogOrderProduct(productId, direction) {
+  if (!hasPermission("manageProducts")) return;
+  const ordered = getCatalogOrderProducts();
+  const currentIndex = ordered.findIndex((product) => product.id === productId);
+  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+  const [item] = ordered.splice(currentIndex, 1);
+  ordered.splice(nextIndex, 0, item);
+  applyCatalogOrderToCategory(currentCatalogOrderCategory, ordered);
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  renderCatalogOrderPanel();
+  renderCatalog();
+  renderAdmin();
+}
+
+function applyCatalogOrderToCategory(category, orderedCategoryProducts) {
+  const existingOrderValues = getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.category === category)
+    .map((product, index) => Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : (index + 1) * 10)
+    .sort((a, b) => a - b);
+
+  orderedCategoryProducts.forEach((product, index) => {
+    product.sortOrder = existingOrderValues[index] ?? (getNextSortOrder() + index);
+  });
+}
+
+async function saveCatalogOrder() {
+  if (!hasPermission("manageProducts")) return;
+  const client = getSupabaseCatalogClient();
+  const ordered = getCatalogOrderProducts();
+  if (!ordered.length) return;
+  if (els.saveCatalogOrder) {
+    els.saveCatalogOrder.disabled = true;
+    els.saveCatalogOrder.textContent = "Guardando...";
+  }
+  try {
+    applyCatalogOrderToCategory(currentCatalogOrderCategory, ordered);
+    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    renderCatalog();
+    renderAdmin();
+    renderCatalogOrderPanel();
+
+    if (client) {
+      for (const product of ordered) {
+        const { error } = await client
+          .from("products")
+          .update({ sort_order: Number(product.sortOrder) || 0 })
+          .eq("id", product.id);
+        if (error) throw error;
+      }
+      await refreshCatalogFromSupabase("catalog-order-save", { silent: true });
+    } else {
+      saveProducts();
+    }
+    showToast("Orden del catálogo guardado", "success");
+  } catch (error) {
+    console.error("GB Mayorista catalog order save:", error);
+    showToast(error.message || "No se pudo guardar el orden");
+  } finally {
+    if (els.saveCatalogOrder) {
+      els.saveCatalogOrder.disabled = false;
+      els.saveCatalogOrder.textContent = "Guardar orden";
+    }
+    renderCatalogOrderPanel();
+  }
+}
 function getProductDisplayName(product) {
   return getProductArticleName(product)
     .replace(/\bpack\s*x\s*\d+\b/ig, "")
@@ -4891,7 +5019,12 @@ function moveProduct(id, direction) {
 }
 
 function getOrderedProducts() {
-  return [...products].sort((a, b) => a.sortOrder - b.sortOrder);
+  return [...products].sort((a, b) => {
+    const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+    const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+    if (left !== right) return left - right;
+    return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+  });
 }
 
 function getNextSortOrder() {
@@ -6687,7 +6820,10 @@ function persistUiState(extra = {}) {
 function restoreUiStateBeforeInitialView() {
   if (!isPrivateManagementRoute()) return;
   const state = getSavedUiState();
-  if (state.adminCategory && getCategories().includes(state.adminCategory)) currentAdminCategory = state.adminCategory;
+  if (state.adminCategory && getCategories().includes(state.adminCategory)) {
+    currentAdminCategory = state.adminCategory;
+    currentCatalogOrderCategory = state.adminCategory;
+  }
   if (typeof state.orderListSearch === "string") orderListSearch = state.orderListSearch;
   if (typeof state.orderListFilter === "string") orderListFilter = state.orderListFilter;
   if (els.adminSearchInput && typeof state.adminSearch === "string") els.adminSearchInput.value = state.adminSearch;

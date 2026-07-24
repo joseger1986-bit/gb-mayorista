@@ -141,6 +141,22 @@
             </details>
             <input class="hidden" id="importProductsInput" type="file" accept=".csv,.txt">
           </div>
+          <section class="catalog-order-panel" id="catalogOrderPanel" data-manage-products-only>
+            <div class="catalog-order-head">
+              <div>
+                <h3>Ordenar catálogo</h3>
+                <p>Definí el orden de los productos dentro de cada categoría.</p>
+              </div>
+              <label>
+                Categoría
+                <select id="catalogOrderCategory"></select>
+              </label>
+            </div>
+            <div class="catalog-order-list" id="catalogOrderList" aria-label="Orden de productos del catálogo"></div>
+            <div class="catalog-order-actions">
+              <button class="primary-button small-button" id="saveCatalogOrder" type="button">Guardar orden</button>
+            </div>
+          </section>
 
           <div class="stock-modal-overlay hidden" id="addProductOverlay" aria-hidden="true">
           <form id="productForm" class="stock-modal product-edit-modal product-create-modal">
