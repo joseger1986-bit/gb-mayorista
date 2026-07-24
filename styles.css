@@ -11480,3 +11480,108 @@ body.cart-is-open {
     font-size: 0.78rem !important;
   }
 }
+/* Tema visual público negro, dorado y neutro: solo colores del catálogo. */
+body:not(.private-management-mode) {
+  background: #f3f1ec !important;
+  color: #111111;
+}
+
+body:not(.private-management-mode) main {
+  background: transparent;
+}
+
+body:not(.private-management-mode) #catalogView .product-card {
+  background: #ffffff !important;
+  border-color: #d8d8d8 !important;
+  box-shadow: 0 10px 26px rgba(11, 11, 11, 0.07) !important;
+}
+
+body:not(.private-management-mode) #catalogView .product-card:hover {
+  border-color: rgba(201, 162, 74, 0.55) !important;
+  box-shadow: 0 12px 30px rgba(11, 11, 11, 0.1) !important;
+}
+
+body:not(.private-management-mode) #catalogView .pack-main-price {
+  color: #0b0b0b !important;
+}
+
+body:not(.private-management-mode) #catalogView .pack-sale-detail,
+body:not(.private-management-mode) #catalogView .product-title-row,
+body:not(.private-management-mode) #catalogView .quantity-stepper-row label {
+  color: #6b6250 !important;
+}
+
+body:not(.private-management-mode) #catalogView .quantity-stepper-button {
+  background: #c9a24a !important;
+  border-color: #0b0b0b !important;
+  color: #0b0b0b !important;
+}
+
+body:not(.private-management-mode) #catalogView .quantity-stepper input,
+body:not(.private-management-mode) #catalogView .quantity-row .quantity-stepper input {
+  background: #fffdf7 !important;
+  border-color: #d8d8d8 !important;
+  color: #111111 !important;
+}
+
+body:not(.private-management-mode) #catalogView .quantity-stepper-row .primary-button {
+  background: #0b0b0b !important;
+  border-color: #c9a24a !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+body:not(.private-management-mode) #catalogView .quantity-stepper-row .primary-button:hover,
+body:not(.private-management-mode) #catalogView .quantity-stepper-row .primary-button:focus-visible {
+  background: #c9a24a !important;
+  border-color: #0b0b0b !important;
+  color: #0b0b0b !important;
+}
+
+body:not(.private-management-mode) #catalogView .category-row button {
+  background: #ffffff !important;
+  border-color: #d8d8d8 !important;
+  color: #111111 !important;
+  box-shadow: none !important;
+}
+
+body:not(.private-management-mode) #catalogView .category-row button.active {
+  background: #c9a24a !important;
+  border-color: #0b0b0b !important;
+  color: #0b0b0b !important;
+  box-shadow: none !important;
+}
+
+body:not(.private-management-mode) #catalogView .search-box input {
+  background: #ffffff !important;
+  border-color: #6f6a60 !important;
+  color: #111111 !important;
+}
+
+body:not(.private-management-mode) #catalogView .search-box input:focus {
+  border-color: #c9a24a !important;
+  outline-color: rgba(201, 162, 74, 0.35) !important;
+}
+
+body:not(.private-management-mode) #catalogView .search-box input::placeholder {
+  color: #756f64 !important;
+}
+
+body:not(.private-management-mode) .floating-cart-button {
+  background: #0b0b0b !important;
+  border: 1px solid #c9a24a !important;
+  color: #c9a24a !important;
+  box-shadow: 0 12px 28px rgba(11, 11, 11, 0.2) !important;
+}
+
+body:not(.private-management-mode) .floating-cart-icon,
+body:not(.private-management-mode) .floating-cart-label {
+  color: #c9a24a !important;
+}
+
+body:not(.private-management-mode) .floating-cart-count,
+body:not(.private-management-mode) #floatingCartCount {
+  background: #c9a24a !important;
+  color: #0b0b0b !important;
+  border-color: #0b0b0b !important;
+}
