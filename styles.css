@@ -11648,3 +11648,173 @@ body:not(.private-management-mode) #floatingCartCount {
     gap: clamp(18px, 9vw, 34px) !important;
   }
 }
+
+/* Ajuste final del header publico con logo aprobado */
+.topbar.public-catalog-header {
+  padding: 7px 12px 6px !important;
+}
+
+.public-brand-shell {
+  gap: 6px !important;
+  width: min(100%, 720px) !important;
+}
+
+.public-catalog-brand.brand {
+  gap: 3px !important;
+}
+
+.public-brand-mark.brand-mark,
+.public-brand-copy {
+  display: none !important;
+}
+
+.public-brand-logo {
+  display: block;
+  width: min(430px, 92vw);
+  max-height: 76px;
+  object-fit: contain;
+}
+
+.public-brand-rubro {
+  margin: 1px 0 0 !important;
+  color: #c9a24a !important;
+  font-size: clamp(0.66rem, 2.5vw, 0.86rem) !important;
+  font-weight: 850 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.15 !important;
+  text-align: center !important;
+}
+
+.public-social-links.top-actions {
+  gap: clamp(14px, 5.5vw, 28px) !important;
+  margin-top: 1px !important;
+}
+
+.public-social-link {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+}
+
+.public-social-link svg {
+  width: 30px !important;
+  height: 30px !important;
+}
+
+.public-catalog-header + .minimum-banner {
+  height: 30px !important;
+  line-height: 30px !important;
+  background: #c9a24a !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-bottom: 1px solid rgba(11, 11, 11, 0.28) !important;
+  box-shadow: none !important;
+}
+
+.public-catalog-header + .minimum-banner::before,
+.public-catalog-header + .minimum-banner::after {
+  content: none !important;
+  display: none !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee {
+  gap: 16px !important;
+  animation-duration: 18s !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee span {
+  color: #0b0b0b !important;
+  font-size: 0.78rem !important;
+  font-weight: 950 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-marquee span::before,
+.public-catalog-header + .minimum-banner .minimum-marquee span::after {
+  content: none !important;
+  display: none !important;
+}
+
+.public-catalog-header + .minimum-banner .minimum-separator {
+  color: #6f5519 !important;
+  font-size: 0.78rem !important;
+  padding: 0 2px !important;
+}
+
+@media (min-width: 901px) {
+  .topbar.public-catalog-header {
+    padding-top: 8px !important;
+    padding-bottom: 7px !important;
+  }
+
+  .public-brand-logo {
+    width: min(460px, 48vw);
+    max-height: 84px;
+  }
+
+  .public-social-link {
+    width: 34px !important;
+    min-width: 34px !important;
+    height: 34px !important;
+  }
+
+  .public-social-link svg {
+    width: 32px !important;
+    height: 32px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar.public-catalog-header {
+    padding-top: 6px !important;
+    padding-bottom: 5px !important;
+  }
+
+  .public-brand-shell {
+    gap: 5px !important;
+  }
+
+  .public-brand-logo {
+    width: min(340px, 91vw);
+    max-height: 62px;
+  }
+
+  .public-brand-rubro {
+    font-size: 0.64rem !important;
+  }
+
+  .public-social-links.top-actions {
+    gap: clamp(13px, 7vw, 26px) !important;
+  }
+
+  .public-social-link {
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 30px !important;
+  }
+
+  .public-social-link svg {
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  .public-catalog-header + .minimum-banner {
+    height: 28px !important;
+    line-height: 28px !important;
+  }
+
+  .public-catalog-header + .minimum-banner .minimum-marquee span {
+    font-size: 0.7rem !important;
+  }
+}
+
+/* Ajuste de continuidad del ticker final */
+.public-catalog-header + .minimum-banner .minimum-marquee {
+  padding-left: 0 !important;
+}
+
+@media (max-width: 520px) {
+  .public-brand-logo {
+    max-height: 70px;
+  }
+}
