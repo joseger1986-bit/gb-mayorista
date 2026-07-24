@@ -11585,3 +11585,66 @@ body:not(.private-management-mode) #floatingCartCount {
   color: #0b0b0b !important;
   border-color: #0b0b0b !important;
 }
+/* Limpieza final del encabezado público: solo iconos y menor altura. */
+.public-brand-copy p,
+.public-brand-copy::after,
+.public-social-link span {
+  display: none !important;
+}
+
+.topbar.public-catalog-header {
+  padding-top: 10px !important;
+  padding-bottom: 9px !important;
+}
+
+.public-brand-shell {
+  gap: 8px !important;
+}
+
+.public-catalog-brand.brand {
+  gap: 5px !important;
+}
+
+.public-social-links.top-actions {
+  gap: clamp(18px, 6vw, 42px) !important;
+}
+
+.public-social-link {
+  min-width: 44px !important;
+  gap: 0 !important;
+}
+
+@media (min-width: 901px) {
+  .topbar.public-catalog-header {
+    padding-top: 12px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .public-brand-shell {
+    gap: 9px !important;
+  }
+
+  .public-brand-mark.brand-mark {
+    width: 72px !important;
+    height: 72px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar.public-catalog-header {
+    padding-top: 8px !important;
+    padding-bottom: 7px !important;
+  }
+
+  .public-brand-shell {
+    gap: 7px !important;
+  }
+
+  .public-catalog-brand.brand {
+    gap: 4px !important;
+  }
+
+  .public-social-links.top-actions {
+    gap: clamp(18px, 9vw, 34px) !important;
+  }
+}
