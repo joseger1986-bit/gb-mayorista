@@ -5942,26 +5942,53 @@ async function shareCurrentPdf() {
   }
   const order = currentPrintOrderId ? orders.find((item) => item.id === currentPrintOrderId) : null;
   const phone = normalizeArgentinaWhatsappNumber(order?.customerPhone || "");
-  if (phone) {
-    const opened = window.open("https://wa.me/" + phone, "_blank", "noreferrer");
-    if (!opened) {
-      showToast("No se pudo abrir WhatsApp");
-      return;
-    }
-    showToast("WhatsApp del cliente abierto. PDF listo para adjuntar.", "success");
-    return;
-  }
-  showToast("La consulta no tiene teléfono cargado.");
   const file = new File([currentPdfBlob], currentPdfFilename, { type: "application/pdf" });
-  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+  const canSharePdf = Boolean(navigator.share && navigator.canShare?.({ files: [file] }));
+
+  if (canSharePdf && isMobileShareEnvironment()) {
     try {
-      await navigator.share({ files: [file], title: "Consulta GB Mayorista", text: "Consulta GB Mayorista" });
+      await navigator.share({
+        files: [file],
+        title: "Consulta GB Mayorista",
+        text: phone ? "Compartí el PDF por WhatsApp al cliente." : "Consulta GB Mayorista"
+      });
+      showToast("PDF compartido desde el celular", "success");
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
+      console.warn("GB Mayorista PDF share:", error);
     }
   }
-  showToast("Descargá el PDF y adjuntalo por WhatsApp.");
+
+  triggerPdfDownload(currentPdfBlob, currentPdfFilename);
+  if (!phone || phone === "549") {
+    showToast("La consulta no tiene teléfono cargado. PDF descargado.");
+    return;
+  }
+  const opened = window.open("https://wa.me/" + phone, "_blank", "noreferrer");
+  if (!opened) {
+    showToast("PDF descargado. No se pudo abrir WhatsApp.");
+    return;
+  }
+  showToast("PDF descargado. Adjuntalo en el chat de WhatsApp Web.", "success");
+}
+
+function isMobileShareEnvironment() {
+  const ua = navigator.userAgent || "";
+  const hasTouch = navigator.maxTouchPoints > 1;
+  return /Android|iPhone|iPad|iPod/i.test(ua) || (hasTouch && /Mobile|Tablet/i.test(ua));
+}
+
+function triggerPdfDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "Consulta-GB-Mayorista.pdf";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 function showPdfDownloadLink(url, filename) {
