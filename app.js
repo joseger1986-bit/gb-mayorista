@@ -185,7 +185,8 @@ applyPendingPaidStockDiscounts();
 let currentRole = "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
-let adminProductSort = { field: "name", direction: "asc" };
+let adminProductSort = { field: "sortOrder", direction: "asc" };
+let savingOrderProductId = "";
 let currentView = "catalogo";
 let previewOrderId = "";
 let previewMode = "budget";
@@ -2238,7 +2239,7 @@ function renderAdmin() {
   }
 
   els.adminProducts.innerHTML = orderedProducts.map((product, index) => `
-    <tr class="${getAdminProductRowClass(product)}">
+    <tr class="${getAdminProductRowClass(product)}" data-admin-product-row="${escapeHtml(product.id)}">
       <td class="mobile-product-card" colspan="${isAdmin ? 10 : 7}">
         <div class="mobile-product-row">
           <div class="mobile-product-thumb">
@@ -2309,17 +2310,19 @@ function renderAdmin() {
 function renderAdminOrderButtons(product, index, total, scope = "desktop") {
   const categoryProducts = getAdminOrderProducts(product.category);
   const categoryIndex = categoryProducts.findIndex((item) => item.id === product.id);
+  const isSaving = savingOrderProductId === product.id;
   const isFirst = categoryIndex <= 0;
   const isLast = categoryIndex < 0 || categoryIndex >= categoryProducts.length - 1;
   const labelScope = scope === "mobile" ? " móvil" : "";
+  const upDisabled = isSaving || isFirst ? "disabled" : "";
+  const downDisabled = isSaving || isLast ? "disabled" : "";
   return `
     <div class="admin-order-buttons ${scope === "mobile" ? "mobile-order-buttons" : ""}" aria-label="Orden del producto">
-      <button class="admin-order-button" type="button" data-admin-order-move="up" data-product-id="${escapeHtml(product.id)}" ${isFirst ? "disabled" : ""} aria-label="Subir producto${labelScope}">↑</button>
-      <button class="admin-order-button" type="button" data-admin-order-move="down" data-product-id="${escapeHtml(product.id)}" ${isLast ? "disabled" : ""} aria-label="Bajar producto${labelScope}">↓</button>
+      <button class="admin-order-button" type="button" data-admin-order-move="up" data-product-id="${escapeHtml(product.id)}" ${upDisabled} aria-label="Subir producto${labelScope}">↑</button>
+      <button class="admin-order-button" type="button" data-admin-order-move="down" data-product-id="${escapeHtml(product.id)}" ${downDisabled} aria-label="Bajar producto${labelScope}">↓</button>
     </div>
   `;
 }
-
 function getAdminOrderProducts(category) {
   return getOrderedProducts()
     .filter((product) => product.active !== false)
@@ -2356,7 +2359,7 @@ async function persistProductSortOrder(orderedProducts) {
 }
 
 async function moveAdminProductOrder(productId, direction) {
-  if (!hasPermission("manageProducts")) return;
+  if (!hasPermission("manageProducts") || savingOrderProductId) return;
   const product = products.find((item) => item.id === productId);
   if (!product) return;
   const category = product.category;
@@ -2365,19 +2368,37 @@ async function moveAdminProductOrder(productId, direction) {
   const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
   if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
 
+  const scrollTop = getAdminTableScrollTop();
+  const previousSortOrders = products.map((item) => ({ id: item.id, sortOrder: item.sortOrder }));
+  const previousSort = { ...adminProductSort };
+  savingOrderProductId = productId;
+  adminProductSort = { field: "sortOrder", direction: "asc" };
+
   const [item] = ordered.splice(currentIndex, 1);
   ordered.splice(nextIndex, 0, item);
   applyProductOrderToCategory(category, ordered);
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
   renderCatalog();
   renderAdmin();
+  restoreAdminTableScroll(scrollTop);
 
   try {
     await persistProductSortOrder(ordered);
     showToast("Orden guardado", "success");
   } catch (error) {
+    previousSortOrders.forEach((snapshot) => {
+      const productToRestore = products.find((item) => item.id === snapshot.id);
+      if (productToRestore) productToRestore.sortOrder = snapshot.sortOrder;
+    });
+    adminProductSort = previousSort;
+    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     console.error("No se pudo guardar el orden", error);
     showToast(error.message || "No se pudo guardar el orden");
+  } finally {
+    savingOrderProductId = "";
+    renderCatalog();
+    renderAdmin();
+    restoreAdminTableScroll(scrollTop);
   }
 }
 function updateProductCatalogVisibility(productId, showInCatalog) {
@@ -2421,15 +2442,21 @@ function sortAdminProducts(productList) {
     } else if (adminProductSort.field === "stock") {
       left = getProductTotalStock(a);
       right = getProductTotalStock(b);
+    } else if (adminProductSort.field === "sortOrder") {
+      left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+      right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
     } else {
       left = getProductDisplayName(a);
       right = getProductDisplayName(b);
     }
-    if (typeof left === "number" || typeof right === "number") return (left - right) * direction;
+    if (typeof left === "number" || typeof right === "number") {
+      const diff = (left - right) * direction;
+      if (diff !== 0) return diff;
+      return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+    }
     return String(left).localeCompare(String(right), "es", { sensitivity: "base" }) * direction;
   });
 }
-
 async function updateProductImage(productId, file) {
   if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === productId);
