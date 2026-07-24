@@ -15,8 +15,6 @@ const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
-const DEFAULT_ADMIN_PASSWORD = "1234";
-const DEFAULT_EMPLOYEE_PASSWORD = "0000";
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EGB Mayorista%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
@@ -56,23 +54,6 @@ const roles = {
     description: "Puede trabajar productos, precios de venta y stock. No ve costos, márgenes, reportes ni exportaciones."
   }
 };
-
-const userProfiles = [
-  {
-    id: "admin",
-    name: "Administrador",
-    role: "admin",
-    password: DEFAULT_ADMIN_PASSWORD,
-    active: true
-  },
-  {
-    id: "empleado",
-    name: "Empleado",
-    role: "employee",
-    password: DEFAULT_EMPLOYEE_PASSWORD,
-    active: true
-  }
-];
 
 const rolePermissions = {
   client: [],
@@ -201,7 +182,7 @@ let stockHistory = loadStockHistory();
 let clients = normalizeClients(loadClients());
 syncClientsFromOrders();
 applyPendingPaidStockDiscounts();
-let currentRole = isPrivateManagementRoute() && sessionStorage.getItem(STORAGE_INTERNAL_UNLOCKED) === "true" ? (localStorage.getItem(STORAGE_ROLE) || "admin") : "client";
+let currentRole = "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
 let adminProductSort = { field: "name", direction: "asc" };
@@ -240,7 +221,7 @@ let productDetailsMenuClosingByCode = false;
 let toastTimer;
 let confirmDialogState = null;
 let confirmDialogBusy = false;
-let internalUnlocked = isPrivateManagementRoute() && sessionStorage.getItem(STORAGE_INTERNAL_UNLOCKED) === "true";
+let internalUnlocked = false;
 let appHistoryReady = false;
 let suppressHistoryUpdate = false;
 let allowExternalBack = false;
@@ -383,12 +364,14 @@ const els = {
   editProductCancel: document.querySelector("#editProductCancel"),
   internalLoginView: document.querySelector("#internalLoginView"),
   internalLoginForm: document.querySelector("#internalLoginForm"),
-  internalUserRole: document.querySelector("#internalUserRole"),
+  internalEmail: document.querySelector("#internalEmail"),
   internalPassword: document.querySelector("#internalPassword"),
+  internalLoginSubmit: document.querySelector("#internalLoginSubmit"),
   internalLoginError: document.querySelector("#internalLoginError"),
   adminNav: document.querySelector("#adminNav"),
   adminNavManagement: document.querySelector("#adminNavManagement"),
   adminNavCatalog: document.querySelector("#adminNavCatalog"),
+  adminLogout: document.querySelector("#adminLogout"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
@@ -421,6 +404,7 @@ els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
 els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
+els.adminLogout?.addEventListener("click", handleInternalLogout);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -632,13 +616,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowRight") showLightboxImage(lightboxIndex + 1);
 });
 
-restoreUiStateBeforeInitialView();
-renderAll();
-setView(getInitialView(), false, { skipHistory: true });
-restoreSavedScrollPosition();
-initializeAppHistory();
-document.documentElement.dataset.gbApp = "loaded";
-initializeSupabaseCatalog();
+initializeApp();
 window.addEventListener("pagehide", () => {
   persistUiState({ scrollY: window.scrollY || 0 });
   teardownSupabaseCatalogRealtime();
@@ -701,6 +679,76 @@ async function runConfirmDialogAction() {
   }
 }
 
+async function initializeApp() {
+  restoreUiStateBeforeInitialView();
+  renderAll();
+  await initializeSupabaseAuth();
+  setView(getInitialView(), false, { skipHistory: true });
+  restoreSavedScrollPosition();
+  initializeAppHistory();
+  document.documentElement.dataset.gbApp = "loaded";
+  initializeSupabaseCatalog();
+}
+
+function getSupabaseAuthClient() {
+  const client = getSupabaseCatalogClient();
+  return client?.auth ? client : null;
+}
+
+function unlockInternalSession(session) {
+  internalUnlocked = Boolean(session?.user);
+  currentRole = internalUnlocked ? "admin" : "client";
+  if (internalUnlocked) {
+    localStorage.setItem(STORAGE_ROLE, "admin");
+    sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
+  } else {
+    sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
+    localStorage.setItem(STORAGE_ROLE, "client");
+  }
+}
+
+function lockInternalSession() {
+  internalUnlocked = false;
+  currentRole = "client";
+  sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
+  localStorage.setItem(STORAGE_ROLE, "client");
+}
+
+async function initializeSupabaseAuth() {
+  const client = getSupabaseAuthClient();
+  if (!client) {
+    lockInternalSession();
+    if (isPrivateManagementRoute()) showInternalLogin(true, "Supabase Auth no está disponible.");
+    return;
+  }
+
+  try {
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    if (data?.session?.user) unlockInternalSession(data.session);
+    else lockInternalSession();
+  } catch (error) {
+    console.error("GB Mayorista Supabase Auth session:", error);
+    lockInternalSession();
+    if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
+  }
+
+  client.auth.onAuthStateChange((event, session) => {
+    if (session?.user) {
+      unlockInternalSession(session);
+      if (isPrivateManagementRoute()) {
+        renderAll();
+        setView(getInitialView(), true, { replace: true });
+        refreshCatalogFromSupabase("auth-session", { silent: true });
+      }
+      return;
+    }
+    if (event === "SIGNED_OUT" || isPrivateManagementRoute()) {
+      lockInternalSession();
+      if (isPrivateManagementRoute()) showInternalLogin(false);
+    }
+  });
+}
 function loadProducts() {
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
   if (stored) return JSON.parse(stored);
@@ -6886,8 +6934,8 @@ function normalizeRoutePath(pathname) {
   return normalized === "/" ? "/" : normalized.toLowerCase();
 }
 
-function showInternalLogin(showError = false) {
-  currentRole = "client";
+function showInternalLogin(showError = false, message = "") {
+  lockInternalSession();
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
   document.body.classList.remove("admin-catalog-preview");
@@ -6905,32 +6953,67 @@ function showInternalLogin(showError = false) {
   els.reportsView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
   els.internalLoginView?.classList.remove("hidden");
-  els.internalLoginError?.classList.toggle("hidden", !showError);
-  window.setTimeout(() => els.internalPassword?.focus(), 0);
+  if (els.internalLoginError) {
+    if (message) els.internalLoginError.textContent = message;
+    els.internalLoginError.classList.toggle("hidden", !showError);
+  }
+  window.setTimeout(() => els.internalEmail?.focus(), 0);
 }
 
 async function handleInternalLogin(event) {
   event.preventDefault();
-  const selectedRole = String(els.internalUserRole?.value || "admin");
+  const client = getSupabaseAuthClient();
+  const email = String(els.internalEmail?.value || "").trim();
   const password = String(els.internalPassword?.value || "");
-  const user = userProfiles.find((profile) => profile.active && profile.role === selectedRole && profile.password === password);
-  if (!user) {
-    if (els.internalPassword) {
-      els.internalPassword.value = "";
-      els.internalPassword.focus();
-    }
-    showInternalLogin(true);
+  if (!client) {
+    showInternalLogin(true, "Supabase Auth no está disponible.");
     return;
   }
-  internalUnlocked = true;
-  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
-  currentRole = user.role;
-  els.internalLoginError?.classList.add("hidden");
-  if (els.internalPassword) els.internalPassword.value = "";
-  renderAll();
-  setView(getInitialView());
-  restoreSavedScrollPosition();
-  await refreshCatalogFromSupabase("gestion-login", { silent: true });
+  if (!email || !password) {
+    showInternalLogin(true, "Ingresá email y contraseña.");
+    return;
+  }
+
+  if (els.internalLoginSubmit) {
+    els.internalLoginSubmit.disabled = true;
+    els.internalLoginSubmit.textContent = "Ingresando...";
+  }
+  try {
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
+    unlockInternalSession(data.session);
+    els.internalLoginError?.classList.add("hidden");
+    if (els.internalPassword) els.internalPassword.value = "";
+    renderAll();
+    setView(getInitialView(), true);
+    restoreSavedScrollPosition();
+    await refreshCatalogFromSupabase("gestion-login", { silent: true });
+  } catch (error) {
+    console.error("GB Mayorista Supabase Auth login:", error);
+    if (els.internalPassword) els.internalPassword.value = "";
+    showInternalLogin(true, error.message || "No se pudo iniciar sesión.");
+  } finally {
+    if (els.internalLoginSubmit) {
+      els.internalLoginSubmit.disabled = false;
+      els.internalLoginSubmit.textContent = "Ingresar";
+    }
+  }
+}
+
+async function handleInternalLogout() {
+  const client = getSupabaseAuthClient();
+  try {
+    if (client) await client.auth.signOut();
+  } catch (error) {
+    console.error("GB Mayorista Supabase Auth logout:", error);
+    showToast("No se pudo cerrar sesión");
+  } finally {
+    lockInternalSession();
+    teardownSupabaseCatalogRealtime();
+    if (isPrivateManagementRoute()) showInternalLogin(false);
+    else setView("catalogo");
+  }
 }
 
 function getManagementViews() {
