@@ -185,7 +185,6 @@ applyPendingPaidStockDiscounts();
 let currentRole = "client";
 let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
-let currentCatalogOrderCategory = currentAdminCategory;
 let adminProductSort = { field: "name", direction: "asc" };
 let currentView = "catalogo";
 let previewOrderId = "";
@@ -300,9 +299,6 @@ const els = {
   addVariantRow: document.querySelector("#addVariantRow"),
   adminSearchInput: document.querySelector("#adminSearchInput"),
   adminCategoryFilters: document.querySelector("#adminCategoryFilters"),
-  catalogOrderCategory: document.querySelector("#catalogOrderCategory"),
-  catalogOrderList: document.querySelector("#catalogOrderList"),
-  saveCatalogOrder: document.querySelector("#saveCatalogOrder"),
   manageCategoriesButton: document.querySelector("#manageCategoriesButton"),
   categoryManager: document.querySelector("#categoryManager"),
   closeCategoryManager: document.querySelector("#closeCategoryManager"),
@@ -409,11 +405,6 @@ els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
-els.catalogOrderCategory?.addEventListener("change", () => {
-  currentCatalogOrderCategory = els.catalogOrderCategory.value;
-  renderCatalogOrderPanel();
-});
-els.saveCatalogOrder?.addEventListener("click", saveCatalogOrder);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -1667,7 +1658,6 @@ function renderAll() {
   renderCatalog();
   if (internalUnlocked) {
     renderAdmin();
-    renderCatalogOrderPanel();
     renderCategoryManager();
     renderStock();
     renderOrders();
@@ -2210,6 +2200,7 @@ function renderAdmin() {
       <th>${renderSortHeader("price", "Venta")}</th>
       <th>${renderSortHeader("stock", "Stock")}</th>
       <th>Catálogo</th>
+      ${isAdmin ? "<th>Orden</th>" : ""}
       ${isAdmin ? "<th>Editar</th>" : ""}
     `;
     adminHead.querySelectorAll("[data-sort-products]").forEach((button) => {
@@ -2238,7 +2229,7 @@ function renderAdmin() {
   if (!orderedProducts.length) {
     els.adminProducts.innerHTML = `
       <tr>
-        <td colspan="${isAdmin ? 11 : 7}">
+        <td colspan="${isAdmin ? 10 : 7}">
           <div class="empty-state compact">No hay productos para mostrar en esta categoría. Podés agregar uno nuevo o cambiar el filtro.</div>
         </td>
       </tr>
@@ -2246,9 +2237,9 @@ function renderAdmin() {
     return;
   }
 
-  els.adminProducts.innerHTML = orderedProducts.map((product) => `
+  els.adminProducts.innerHTML = orderedProducts.map((product, index) => `
     <tr class="${getAdminProductRowClass(product)}">
-      <td class="mobile-product-card" colspan="${isAdmin ? 9 : 7}">
+      <td class="mobile-product-card" colspan="${isAdmin ? 10 : 7}">
         <div class="mobile-product-row">
           <div class="mobile-product-thumb">
             ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
@@ -2258,7 +2249,12 @@ function renderAdmin() {
             <span>${escapeHtml(getProductOptionName(product) || "Sin talle")}</span>
             <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
           </div>
-          ${isAdmin ? `<button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>` : ""}
+          ${isAdmin ? `
+            <div class="mobile-product-actions">
+              ${renderAdminOrderButtons(product, index, orderedProducts.length, "mobile")}
+              <button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>
+            </div>
+          ` : ""}
         </div>
       </td>
       <td data-label="Foto" class="product-photo-cell">${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}</td>
@@ -2271,6 +2267,7 @@ function renderAdmin() {
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
       <td data-label="Catálogo" class="product-catalog-cell"><span class="catalog-status ${product.showInCatalog !== false ? "is-visible" : "is-hidden"}">${product.showInCatalog !== false ? "Sí" : "No"}</span></td>
+      ${isAdmin ? `<td data-label="Orden" class="product-order-cell">${renderAdminOrderButtons(product, index, orderedProducts.length, "desktop")}</td>` : ""}
       ${isAdmin ? `
         <td data-label="Editar" class="edit-column product-edit-cell">
           <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">Editar</button>
@@ -2300,11 +2297,89 @@ function renderAdmin() {
     input.addEventListener("blur", () => updateInlineProductField(input));
   });
 
+  els.adminProducts.querySelectorAll("[data-admin-order-move]").forEach((button) => {
+    button.addEventListener("click", () => moveAdminProductOrder(button.dataset.productId, button.dataset.adminOrderMove));
+  });
+
   els.adminProducts.querySelectorAll("[data-edit-product]").forEach((button) => {
     button.addEventListener("click", () => openEditProductModal(button.dataset.editProduct));
   });
 }
 
+function renderAdminOrderButtons(product, index, total, scope = "desktop") {
+  const categoryProducts = getAdminOrderProducts(product.category);
+  const categoryIndex = categoryProducts.findIndex((item) => item.id === product.id);
+  const isFirst = categoryIndex <= 0;
+  const isLast = categoryIndex < 0 || categoryIndex >= categoryProducts.length - 1;
+  const labelScope = scope === "mobile" ? " móvil" : "";
+  return `
+    <div class="admin-order-buttons ${scope === "mobile" ? "mobile-order-buttons" : ""}" aria-label="Orden del producto">
+      <button class="admin-order-button" type="button" data-admin-order-move="up" data-product-id="${escapeHtml(product.id)}" ${isFirst ? "disabled" : ""} aria-label="Subir producto${labelScope}">↑</button>
+      <button class="admin-order-button" type="button" data-admin-order-move="down" data-product-id="${escapeHtml(product.id)}" ${isLast ? "disabled" : ""} aria-label="Bajar producto${labelScope}">↓</button>
+    </div>
+  `;
+}
+
+function getAdminOrderProducts(category) {
+  return getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.category === category);
+}
+
+function applyProductOrderToCategory(category, orderedCategoryProducts) {
+  const existingOrderValues = getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.category === category)
+    .map((product, index) => Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : (index + 1) * 10)
+    .sort((a, b) => a - b);
+
+  orderedCategoryProducts.forEach((orderedProduct, index) => {
+    const product = products.find((item) => item.id === orderedProduct.id);
+    if (product) product.sortOrder = existingOrderValues[index] ?? (index + 1) * 10;
+  });
+}
+
+async function persistProductSortOrder(orderedProducts) {
+  const client = getSupabaseCatalogClient();
+  if (!client) {
+    queueSupabaseCatalogSync("admin-sort-order");
+    return;
+  }
+
+  for (const product of orderedProducts) {
+    const { error } = await client
+      .from("products")
+      .update({ sort_order: Number(product.sortOrder) || 0 })
+      .eq("id", product.id);
+    if (error) throw error;
+  }
+}
+
+async function moveAdminProductOrder(productId, direction) {
+  if (!hasPermission("manageProducts")) return;
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  const category = product.category;
+  const ordered = getAdminOrderProducts(category);
+  const currentIndex = ordered.findIndex((item) => item.id === productId);
+  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+
+  const [item] = ordered.splice(currentIndex, 1);
+  ordered.splice(nextIndex, 0, item);
+  applyProductOrderToCategory(category, ordered);
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  renderCatalog();
+  renderAdmin();
+
+  try {
+    await persistProductSortOrder(ordered);
+    showToast("Orden guardado", "success");
+  } catch (error) {
+    console.error("No se pudo guardar el orden", error);
+    showToast(error.message || "No se pudo guardar el orden");
+  }
+}
 function updateProductCatalogVisibility(productId, showInCatalog) {
   if (!hasPermission("editSaleData") && !canAccess("admin")) return;
   const product = products.find((item) => item.id === productId);
@@ -2894,130 +2969,12 @@ function renderAdminCategories() {
   els.adminCategoryFilters.querySelectorAll("[data-admin-category]").forEach((button) => {
     button.addEventListener("click", () => {
       currentAdminCategory = button.dataset.adminCategory;
-      currentCatalogOrderCategory = currentAdminCategory;
       persistUiState({ adminCategory: currentAdminCategory });
       renderAdmin();
     });
   });
 }
 
-function renderCatalogOrderPanel() {
-  if (!els.catalogOrderCategory || !els.catalogOrderList) return;
-  const categoryNames = getVisibleCategories();
-  if (!categoryNames.length) {
-    els.catalogOrderCategory.innerHTML = "";
-    els.catalogOrderList.innerHTML = `<div class="empty-state compact">No hay categorías visibles para ordenar.</div>`;
-    return;
-  }
-  if (!categoryNames.includes(currentCatalogOrderCategory)) currentCatalogOrderCategory = currentAdminCategory || categoryNames[0];
-  if (!categoryNames.includes(currentCatalogOrderCategory)) currentCatalogOrderCategory = categoryNames[0];
-  els.catalogOrderCategory.innerHTML = categoryNames.map((category) => `
-    <option value="${escapeHtml(category)}" ${category === currentCatalogOrderCategory ? "selected" : ""}>${escapeHtml(category)}</option>
-  `).join("");
-
-  const categoryProducts = getOrderedProducts()
-    .filter((product) => product.active !== false)
-    .filter((product) => product.category === currentCatalogOrderCategory);
-
-  if (!categoryProducts.length) {
-    els.catalogOrderList.innerHTML = `<div class="empty-state compact">No hay productos en esta categoría.</div>`;
-    return;
-  }
-
-  els.catalogOrderList.innerHTML = categoryProducts.map((product, index) => `
-    <div class="catalog-order-item" data-order-product="${escapeHtml(product.id)}">
-      <div class="catalog-order-thumb">
-        ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
-      </div>
-      <div class="catalog-order-info">
-        <strong>${escapeHtml(getProductBaseName(product))}</strong>
-        <span>${escapeHtml(getProductOptionName(product) || "Sin talle")} · ${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</span>
-      </div>
-      <div class="catalog-order-controls">
-        <button class="secondary-button small-button" type="button" data-order-move="up" data-product-id="${escapeHtml(product.id)}" ${index === 0 ? "disabled" : ""} aria-label="Subir producto">↑</button>
-        <button class="secondary-button small-button" type="button" data-order-move="down" data-product-id="${escapeHtml(product.id)}" ${index === categoryProducts.length - 1 ? "disabled" : ""} aria-label="Bajar producto">↓</button>
-      </div>
-    </div>
-  `).join("");
-
-  els.catalogOrderList.querySelectorAll("[data-order-move]").forEach((button) => {
-    button.addEventListener("click", () => moveCatalogOrderProduct(button.dataset.productId, button.dataset.orderMove));
-  });
-}
-
-function getCatalogOrderProducts(category = currentCatalogOrderCategory) {
-  return getOrderedProducts()
-    .filter((product) => product.active !== false)
-    .filter((product) => product.category === category);
-}
-
-function moveCatalogOrderProduct(productId, direction) {
-  if (!hasPermission("manageProducts")) return;
-  const ordered = getCatalogOrderProducts();
-  const currentIndex = ordered.findIndex((product) => product.id === productId);
-  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
-  const [item] = ordered.splice(currentIndex, 1);
-  ordered.splice(nextIndex, 0, item);
-  applyCatalogOrderToCategory(currentCatalogOrderCategory, ordered);
-  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-  renderCatalogOrderPanel();
-  renderCatalog();
-  renderAdmin();
-}
-
-function applyCatalogOrderToCategory(category, orderedCategoryProducts) {
-  const existingOrderValues = getOrderedProducts()
-    .filter((product) => product.active !== false)
-    .filter((product) => product.category === category)
-    .map((product, index) => Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : (index + 1) * 10)
-    .sort((a, b) => a - b);
-
-  orderedCategoryProducts.forEach((product, index) => {
-    product.sortOrder = existingOrderValues[index] ?? (getNextSortOrder() + index);
-  });
-}
-
-async function saveCatalogOrder() {
-  if (!hasPermission("manageProducts")) return;
-  const client = getSupabaseCatalogClient();
-  const ordered = getCatalogOrderProducts();
-  if (!ordered.length) return;
-  if (els.saveCatalogOrder) {
-    els.saveCatalogOrder.disabled = true;
-    els.saveCatalogOrder.textContent = "Guardando...";
-  }
-  try {
-    applyCatalogOrderToCategory(currentCatalogOrderCategory, ordered);
-    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-    renderCatalog();
-    renderAdmin();
-    renderCatalogOrderPanel();
-
-    if (client) {
-      for (const product of ordered) {
-        const { error } = await client
-          .from("products")
-          .update({ sort_order: Number(product.sortOrder) || 0 })
-          .eq("id", product.id);
-        if (error) throw error;
-      }
-      await refreshCatalogFromSupabase("catalog-order-save", { silent: true });
-    } else {
-      saveProducts();
-    }
-    showToast("Orden del catálogo guardado", "success");
-  } catch (error) {
-    console.error("GB Mayorista catalog order save:", error);
-    showToast(error.message || "No se pudo guardar el orden");
-  } finally {
-    if (els.saveCatalogOrder) {
-      els.saveCatalogOrder.disabled = false;
-      els.saveCatalogOrder.textContent = "Guardar orden";
-    }
-    renderCatalogOrderPanel();
-  }
-}
 function getProductDisplayName(product) {
   return getProductArticleName(product)
     .replace(/\bpack\s*x\s*\d+\b/ig, "")
@@ -6849,7 +6806,6 @@ function restoreUiStateBeforeInitialView() {
   const state = getSavedUiState();
   if (state.adminCategory && getCategories().includes(state.adminCategory)) {
     currentAdminCategory = state.adminCategory;
-    currentCatalogOrderCategory = state.adminCategory;
   }
   if (typeof state.orderListSearch === "string") orderListSearch = state.orderListSearch;
   if (typeof state.orderListFilter === "string") orderListFilter = state.orderListFilter;
