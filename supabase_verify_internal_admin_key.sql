@@ -21,7 +21,7 @@ create or replace function public.verify_internal_admin_key(admin_key text)
 returns boolean
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   current_email text;
@@ -37,7 +37,7 @@ begin
     from public.internal_admin_keys
     where active is true
       and lower(admin_email) = current_email
-      and crypt(admin_key, key_hash) = key_hash
+      and extensions.crypt(admin_key, key_hash) = key_hash
   );
 end;
 $$;
@@ -50,7 +50,7 @@ grant execute on function public.verify_internal_admin_key(text) to authenticate
 -- reemplazando los dos valores entre <> desde el SQL Editor:
 --
 -- insert into public.internal_admin_keys (admin_email, key_hash)
--- values (lower('<MAIL_ADMIN>'), crypt('<CLAVE_INTERNA_ADMIN>', gen_salt('bf')))
+-- values (lower('<MAIL_ADMIN>'), extensions.crypt('<CLAVE_INTERNA_ADMIN>', extensions.gen_salt('bf')))
 -- on conflict (admin_email)
 -- do update set
 --   key_hash = excluded.key_hash,
