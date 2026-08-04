@@ -2122,9 +2122,10 @@ function getPresentationLabelForCatalog(presentation) {
 function getCatalogUnitPriceLabel(variant) {
   const price = Number(variant?.price) || 0;
   const presentation = String(variant?.presentation || "").trim();
-  if (!price || !/docena/i.test(presentation)) return "";
-  const docenas = Math.max(1, Number(presentation.match(/\d+/)?.[0]) || 1);
-  return `Pagás por unidad: ${formatMoney(Math.round(price / (docenas * 12)))}`;
+  if (!price || !presentation || /unidad/i.test(presentation)) return "";
+  const unitsPerPresentation = getPackQuantityFromPresentation(presentation);
+  if (!Number.isFinite(unitsPerPresentation) || unitsPerPresentation <= 1) return "";
+  return `Pagás por unidad: ${formatMoney(Math.round(price / unitsPerPresentation))}`;
 }
 
 function getCatalogQuantityLabel(group) {
