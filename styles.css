@@ -10650,6 +10650,33 @@ body.cart-is-open {
   cursor: pointer;
 }
 
+.internal-role-card {
+  gap: 12px;
+}
+
+.role-choice-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.internal-role-actions,
+.admin-key-form {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.admin-key-form {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.admin-key-form.hidden {
+  display: none !important;
+}
+
 @media (max-width: 680px) {
   .product-edit-modal {
     gap: 10px;

@@ -11,6 +11,8 @@ const STORAGE_SCHEMA = "gb_mayorista_schema";
 const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
 const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
+const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
+const INTERNAL_ADMIN_PROFILE_TOKEN = Symbol("internal-admin-profile");
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
@@ -57,7 +59,7 @@ const roles = {
 
 const rolePermissions = {
   client: [],
-  employee: ["internal", "products", "stock", "orders", "clients"],
+  employee: ["internal", "products", "stock", "orders", "clients", "manageProducts", "editAll"],
   admin: ["internal", "products", "stock", "orders", "clients", "reports", "costs", "margins", "importExport", "manageProducts", "editAll"]
 };
 
@@ -223,6 +225,7 @@ let toastTimer;
 let confirmDialogState = null;
 let confirmDialogBusy = false;
 let internalUnlocked = false;
+let internalAuthenticated = false;
 let appHistoryReady = false;
 let suppressHistoryUpdate = false;
 let allowExternalBack = false;
@@ -364,15 +367,25 @@ const els = {
   deleteProductButton: document.querySelector("#deleteProductButton"),
   editProductCancel: document.querySelector("#editProductCancel"),
   internalLoginView: document.querySelector("#internalLoginView"),
+  internalRoleView: document.querySelector("#internalRoleView"),
   internalLoginForm: document.querySelector("#internalLoginForm"),
   internalEmail: document.querySelector("#internalEmail"),
   internalPassword: document.querySelector("#internalPassword"),
   internalLoginSubmit: document.querySelector("#internalLoginSubmit"),
   internalLoginError: document.querySelector("#internalLoginError"),
+  chooseAdminRole: document.querySelector("#chooseAdminRole"),
+  chooseEmployeeRole: document.querySelector("#chooseEmployeeRole"),
+  adminKeyForm: document.querySelector("#adminKeyForm"),
+  adminInternalKey: document.querySelector("#adminInternalKey"),
+  adminKeyError: document.querySelector("#adminKeyError"),
+  adminKeySubmit: document.querySelector("#adminKeySubmit"),
+  cancelAdminKey: document.querySelector("#cancelAdminKey"),
+  roleLogout: document.querySelector("#roleLogout"),
   adminNav: document.querySelector("#adminNav"),
   adminNavManagement: document.querySelector("#adminNavManagement"),
   adminNavCatalog: document.querySelector("#adminNavCatalog"),
   adminLogout: document.querySelector("#adminLogout"),
+  adminSwitchRole: document.querySelector("#adminSwitchRole"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
@@ -402,10 +415,16 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 });
 
 els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
+els.chooseEmployeeRole?.addEventListener("click", () => selectInternalProfile("employee"));
+els.chooseAdminRole?.addEventListener("click", showAdminKeyForm);
+els.adminKeyForm?.addEventListener("submit", handleAdminKeySubmit);
+els.cancelAdminKey?.addEventListener("click", hideAdminKeyForm);
+els.roleLogout?.addEventListener("click", handleInternalLogout);
 els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
+els.adminSwitchRole?.addEventListener("click", showInternalRoleChoice);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -696,22 +715,29 @@ function getSupabaseAuthClient() {
   return client?.auth ? client : null;
 }
 
-function unlockInternalSession(session) {
-  internalUnlocked = Boolean(session?.user);
-  currentRole = internalUnlocked ? "admin" : "client";
-  if (internalUnlocked) {
-    localStorage.setItem(STORAGE_ROLE, "admin");
-    sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
+function unlockInternalSession(session, profile = "") {
+  internalAuthenticated = Boolean(session?.user);
+  const selectedProfile = ["admin", "employee"].includes(profile) ? profile : sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "";
+  internalUnlocked = internalAuthenticated && ["admin", "employee"].includes(selectedProfile);
+  currentRole = internalUnlocked ? selectedProfile : "client";
+  if (internalAuthenticated) {
+    sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, internalUnlocked ? "true" : "pending");
+    if (internalUnlocked) sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
+    else sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.setItem(STORAGE_ROLE, currentRole);
   } else {
     sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
     localStorage.setItem(STORAGE_ROLE, "client");
   }
 }
 
 function lockInternalSession() {
+  internalAuthenticated = false;
   internalUnlocked = false;
   currentRole = "client";
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
+  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
   localStorage.setItem(STORAGE_ROLE, "client");
 }
 
@@ -726,7 +752,7 @@ async function initializeSupabaseAuth() {
   try {
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
-    if (data?.session?.user) unlockInternalSession(data.session);
+    if (data?.session?.user) unlockInternalSession(data.session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
     else lockInternalSession();
   } catch (error) {
     console.error("GB Mayorista Supabase Auth session:", error);
@@ -736,7 +762,7 @@ async function initializeSupabaseAuth() {
 
   client.auth.onAuthStateChange((event, session) => {
     if (session?.user) {
-      unlockInternalSession(session);
+      unlockInternalSession(session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
       if (isPrivateManagementRoute()) {
         renderAll();
         setView(getInitialView(), true, { replace: true });
@@ -746,6 +772,7 @@ async function initializeSupabaseAuth() {
     }
     if (event === "SIGNED_OUT" || isPrivateManagementRoute()) {
       lockInternalSession();
+      els.internalRoleView?.classList.add("hidden");
       if (isPrivateManagementRoute()) showInternalLogin(false);
     }
   });
@@ -1166,7 +1193,6 @@ async function syncCatalogToSupabase(reason = "manual") {
         name: supabaseProductOptionSupported ? getProductBaseName(product) : getProductArticleName(product),
         brand: product.brand || "",
         presentation: getProductPresentation(product),
-        cost_price: Math.max(0, Number(product.cost) || 0),
         sale_price: Math.max(0, Number(product.price) || 0),
         stock: Math.max(0, Number(product.stock) || 0),
         show_in_catalog: product.showInCatalog !== false,
@@ -1174,6 +1200,7 @@ async function syncCatalogToSupabase(reason = "manual") {
         active: product.active !== false,
         sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
       };
+      if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
       if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
       if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
       if (supabaseProductOptionSupported) {
@@ -1320,7 +1347,6 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
     name: supabaseProductOptionSupported ? getProductBaseName(product) : getProductArticleName(product),
     brand: product.brand || "",
     presentation: getProductPresentation(product),
-    cost_price: Math.max(0, Number(product.cost) || 0),
     sale_price: Math.max(0, Number(product.price) || 0),
     stock: Math.max(0, Number(product.stock) || 0),
     show_in_catalog: product.showInCatalog !== false,
@@ -1328,6 +1354,7 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
     active: product.active !== false,
     sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : sortOrder
   };
+  if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
   if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
   if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
   if (supabaseProductOptionSupported) {
@@ -1761,7 +1788,7 @@ function renderCatalog() {
           <label for="qty-${group.id}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
           <div class="quantity-stepper" data-stepper="${group.id}">
             <button class="quantity-stepper-button" type="button" data-qty-decrease="${group.id}" aria-label="Restar cantidad">−</button>
-            <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="Cantidad para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
+            <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="${escapeHtml(getCatalogQuantityLabel(group))} para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
             <button class="quantity-stepper-button" type="button" data-qty-increase="${group.id}" aria-label="Sumar cantidad">+</button>
           </div>
           <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}><span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span></button>
@@ -2128,8 +2155,36 @@ function getCatalogUnitPriceLabel(variant) {
   return `Pagás por unidad: ${formatMoney(Math.round(price / unitsPerPresentation))}`;
 }
 
-function getCatalogQuantityLabel(group) {
+function getPresentationQuantityType(presentation) {
+  const text = String(presentation || "").trim().toLowerCase();
+  if (/pack\s*x\s*\d+/i.test(text) || /\bpack\b/i.test(text)) return "packs";
+  if (/docenas?|venta\s+por\s+docena/i.test(text)) return "docenas";
+  if (/unidades?|venta\s+por\s+unidad/i.test(text)) return "unidades";
+  return "";
+}
+
+function getQuantityLabelForPresentation(presentation) {
+  const type = getPresentationQuantityType(presentation);
+  if (type === "packs") return "Cantidad de packs";
+  if (type === "docenas") return "Cantidad de docenas";
+  if (type === "unidades") return "Cantidad de unidades";
   return "Cantidad";
+}
+
+function getQuantityNounForPresentation(presentation, quantity = 1) {
+  const type = getPresentationQuantityType(presentation);
+  const amount = Math.max(1, Number(quantity) || 1);
+  if (type === "packs") return amount === 1 ? "pack" : "packs";
+  if (type === "docenas") return amount === 1 ? "docena" : "docenas";
+  if (type === "unidades") return amount === 1 ? "unidad" : "unidades";
+  return amount === 1 ? "unidad" : "unidades";
+}
+
+function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
+  return `${getQuantityLabelForPresentation(presentation)}: ${Math.max(1, Number(quantity) || 1)}`;
+}
+function getCatalogQuantityLabel(group) {
+  return getQuantityLabelForPresentation(group?.variants?.[0]?.presentation || group?.presentation || "");
 }
 
 function hasCatalogPrice(price) {
@@ -2190,7 +2245,9 @@ function toggleCatalogDetails(groupId, button) {
 function renderAdmin() {
   renderAdminCategories();
   const isAdmin = canAccess("admin");
+  const canManageProducts = hasPermission("manageProducts") || isAdmin;
   const canEditSaleData = hasPermission("editSaleData") || isAdmin;
+  const adminColumnCount = 7 + (isAdmin ? 1 : 0) + (canManageProducts ? 2 : 0);
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
@@ -2202,8 +2259,8 @@ function renderAdmin() {
       <th>${renderSortHeader("price", "Venta")}</th>
       <th>${renderSortHeader("stock", "Stock")}</th>
       <th>Catálogo</th>
-      ${isAdmin ? "<th>Orden</th>" : ""}
-      ${isAdmin ? "<th>Editar</th>" : ""}
+      ${canManageProducts ? "<th>Orden</th>" : ""}
+      ${canManageProducts ? "<th>Editar</th>" : ""}
     `;
     adminHead.querySelectorAll("[data-sort-products]").forEach((button) => {
       button.addEventListener("click", () => updateAdminProductSort(button.dataset.sortProducts));
@@ -2231,7 +2288,7 @@ function renderAdmin() {
   if (!orderedProducts.length) {
     els.adminProducts.innerHTML = `
       <tr>
-        <td colspan="${isAdmin ? 10 : 7}">
+        <td colspan="${adminColumnCount}">
           <div class="empty-state compact">No hay productos para mostrar en esta categoría. Podés agregar uno nuevo o cambiar el filtro.</div>
         </td>
       </tr>
@@ -2241,7 +2298,7 @@ function renderAdmin() {
 
   els.adminProducts.innerHTML = orderedProducts.map((product, index) => `
     <tr class="${getAdminProductRowClass(product)}" data-admin-product-row="${escapeHtml(product.id)}">
-      <td class="mobile-product-card" colspan="${isAdmin ? 10 : 7}">
+      <td class="mobile-product-card" colspan="${adminColumnCount}">
         <div class="mobile-product-row">
           <div class="mobile-product-thumb">
             ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
@@ -2251,7 +2308,7 @@ function renderAdmin() {
             <span>${escapeHtml(getProductOptionName(product) || "Sin talle")}</span>
             <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
           </div>
-          ${isAdmin ? `
+          ${canManageProducts ? `
             <div class="mobile-product-actions">
               ${renderAdminOrderButtons(product, index, orderedProducts.length, "mobile")}
               <button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>
@@ -2269,8 +2326,8 @@ function renderAdmin() {
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
       <td data-label="Catálogo" class="product-catalog-cell"><span class="catalog-status ${product.showInCatalog !== false ? "is-visible" : "is-hidden"}">${product.showInCatalog !== false ? "Sí" : "No"}</span></td>
-      ${isAdmin ? `<td data-label="Orden" class="product-order-cell">${renderAdminOrderButtons(product, index, orderedProducts.length, "desktop")}</td>` : ""}
-      ${isAdmin ? `
+      ${canManageProducts ? `<td data-label="Orden" class="product-order-cell">${renderAdminOrderButtons(product, index, orderedProducts.length, "desktop")}</td>` : ""}
+      ${canManageProducts ? `
         <td data-label="Editar" class="edit-column product-edit-cell">
           <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">Editar</button>
         </td>
@@ -3851,8 +3908,7 @@ function renderCompactBudgetItem(order, item) {
   const displayName = getOrderItemDisplayName(item.name, option);
   const productLine = option ? `${displayName} - ${option}` : displayName;
   const presentation = getBudgetItemPresentation(item);
-  const unitLabel = getOrderQuantityUnitLabel(presentation, Number(item.quantity) || 1);
-  const quantityLine = `${Math.max(1, Number(item.quantity) || 1)} ${unitLabel}`;
+  const quantityLine = formatQuantityWithPresentationLabel(presentation, Number(item.quantity) || 1);
   const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
   const actions = canEditOrder(order)
     ? `
@@ -3906,7 +3962,7 @@ function renderBudgetItemEditModal() {
         </div>
         <div class="budget-item-edit-grid">
           <label>Presentación<input type="text" value="${escapeHtml(presentation)}" data-edit-item-presentation></label>
-          <label>Cantidad<input type="number" min="1" step="1" value="${Math.max(1, Number(item.quantity) || 1)}" data-edit-item-quantity></label>
+          <label>${escapeHtml(getQuantityLabelForPresentation(presentation))}<input type="number" min="1" step="1" value="${Math.max(1, Number(item.quantity) || 1)}" data-edit-item-quantity></label>
           <label>Precio unitario<input type="number" min="1" step="1" value="${Number(item.price) || 1}" data-edit-item-price></label>
         </div>
         <div class="budget-item-edit-subtotal">
@@ -4752,7 +4808,7 @@ function renderCart() {
         <div class="cart-item-meta">
           ${renderCartVariantLine(item)}
           <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
-          <span>Cantidad: ${escapeHtml(formatCartQuantity(item))}</span>
+          <span>${escapeHtml(formatCartQuantityLine(item))}</span>
                   <span>Precio: ${escapeHtml(formatMoney(Number(item.price) || 0))}</span>
         </div>
       </div>
@@ -5564,10 +5620,10 @@ function renderBudgetProductMatches(orderId, query) {
       </div>
       <div class="budget-search-result-actions">
         <label class="budget-search-quantity-label">
-          Cantidad
+          ${escapeHtml(getQuantityLabelForPresentation(getProductPresentation(product)))}
           <span class="budget-search-quantity-stepper">
             <button class="quantity-stepper-button" type="button" data-budget-search-decrease="${product.id}" aria-label="Restar cantidad">−</button>
-            <input type="number" min="1" step="1" value="1" inputmode="numeric" data-budget-search-quantity="${product.id}" aria-label="Cantidad de ${escapeHtml(getProductArticleName(product))}">
+            <input type="number" min="1" step="1" value="1" inputmode="numeric" data-budget-search-quantity="${product.id}" aria-label="${escapeHtml(getQuantityLabelForPresentation(getProductPresentation(product)))} de ${escapeHtml(getProductArticleName(product))}">
             <button class="quantity-stepper-button" type="button" data-budget-search-increase="${product.id}" aria-label="Sumar cantidad">+</button>
           </span>
         </label>
@@ -5767,7 +5823,7 @@ function buildOrderDocumentHtml(order) {
           <table class="compact-document-table">
             <thead>
               <tr>
-                <th>Cantidad</th>
+                <th>Cantidad / presentación</th>
                 <th>Producto</th>
                 <th>Precio unitario</th>
                 <th>Subtotal</th>
@@ -5798,8 +5854,7 @@ function getDocumentItemName(item) {
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
-  const unit = getDocumentPresentationAbbreviation(presentation);
-  return `${quantity} ${unit}`.trim();
+  return formatQuantityWithPresentationLabel(presentation, quantity);
 }
 
 function getDocumentPresentationAbbreviation(presentation) {
@@ -6045,7 +6100,7 @@ function createOrderDocumentPdf(document) {
   };
   const renderPdfTableHeader = () => {
     addText("Cantidad", margin, y, 8, true);
-    addText("Producto", margin + 72, y, 8, true);
+    addText("Producto", margin + 120, y, 8, true);
     addText("Precio unit.", pageWidth - 190, y, 8, true);
     addText("Subtotal", pageWidth - 98, y, 8, true);
     y -= 8;
@@ -6072,8 +6127,8 @@ function createOrderDocumentPdf(document) {
   renderPdfHeader(true);
   document.items.forEach((item) => {
     if (y < bottom + 92) newPage();
-    addText(truncatePdfText(item.quantityLabel, 13), margin, y, 8.4, false);
-    addText(truncatePdfText(item.product, 55), margin + 72, y, 8.4, false);
+    addText(truncatePdfText(item.quantityLabel, 28), margin, y, 8.2, false);
+    addText(truncatePdfText(item.product, 45), margin + 120, y, 8.4, false);
     addText(formatMoney(item.price), pageWidth - 190, y, 8.4, false);
     addText(formatMoney(item.subtotal), pageWidth - 98, y, 8.4, true);
     y -= 15;
@@ -6747,9 +6802,14 @@ function formatCartQuantity(item) {
 
 function formatCartPresentation(item) {
   const value = String(item?.presentation || "").trim();
+  if (/pack\s*x\s*\d+/i.test(value)) return value;
   if (/docenas?/i.test(value)) return "Docena";
   if (/unidades?/i.test(value)) return "Unidad";
-  if (item?.saleType === "pack") return "Docena";
+  if (item?.saleType === "pack") {
+    const packQuantity = Number(item?.packQuantity) || 0;
+    if (packQuantity === 12) return "Docena";
+    if (packQuantity > 1) return `Pack x${packQuantity}`;
+  }
   return value || "Unidad";
 }
 
@@ -6773,11 +6833,7 @@ function isPresentationOnlyLabel(value) {
 
 function formatWhatsappQuantity(item) {
   const quantity = Math.max(1, Number(item?.quantity) || 1);
-  const presentation = String(item?.presentation || "").trim().toLowerCase();
-  if (presentation.includes("docena")) return `${quantity} ${quantity === 1 ? "docena" : "docenas"}`;
-  if (presentation.includes("unidad")) return `${quantity} ${quantity === 1 ? "unidad" : "unidades"}`;
-  if (presentation.includes("pack")) return `${quantity} ${quantity === 1 ? presentation : presentation.endsWith("s") ? presentation : `${presentation}s`}`;
-  return `${quantity} ${quantity === 1 ? "unidad" : "unidades"}`;
+  return `${quantity} ${getQuantityNounForPresentation(item?.presentation || formatCartPresentation(item), quantity)}`;
 }
 
 function formatCartSubtotal(item) {
@@ -6787,16 +6843,7 @@ function formatCartSubtotal(item) {
 
 function formatCleanQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
-  if (item.presentation) {
-    const presentation = String(item.presentation || "").toLowerCase();
-    if (presentation.includes("docena")) return `${quantity} ${quantity === 1 ? "Docena" : "Docenas"}`;
-    if (presentation.includes("unidad")) return `${quantity} ${quantity === 1 ? "Unidad" : "Unidades"}`;
-    return `${quantity} x ${presentation}`;
-  }
-  if (item.saleType === "pack") {
-    return `${quantity} ${quantity === 1 ? "Docena" : "Docenas"}`;
-  }
-  return `${quantity} ${quantity === 1 ? "Unidad" : "Unidades"}`;
+  return formatQuantityWithPresentationLabel(item?.presentation || formatCartPresentation(item), quantity);
 }
 
 function formatCustomerLineSubtotal(item) {
@@ -6864,8 +6911,12 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     view = "catalogo";
     isManagementView = false;
   }
-  if (isPrivateManagementRoute() && !internalUnlocked) {
+  if (isPrivateManagementRoute() && !internalAuthenticated) {
     showInternalLogin();
+    return;
+  }
+  if (isPrivateManagementRoute() && internalAuthenticated && !internalUnlocked) {
+    showInternalRoleChoice();
     return;
   }
   if (isManagementView && !internalUnlocked) {
@@ -6891,6 +6942,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
   els.internalLoginView?.classList.add("hidden");
+  els.internalRoleView?.classList.add("hidden");
   els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked));
   els.adminNavManagement?.classList.toggle("active", isManagementView);
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
@@ -7081,6 +7133,119 @@ function normalizeRoutePath(pathname) {
   return normalized === "/" ? "/" : normalized.toLowerCase();
 }
 
+function showInternalRoleChoice() {
+  if (!internalAuthenticated) {
+    showInternalLogin(false);
+    return;
+  }
+  internalUnlocked = false;
+  currentRole = "client";
+  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
+  localStorage.setItem(STORAGE_ROLE, "client");
+  currentView = "gestion-login";
+  document.body.classList.add("private-management-mode");
+  document.body.classList.remove("admin-catalog-preview");
+  els.topbar?.classList.add("hidden");
+  els.siteFooter?.classList.add("hidden");
+  els.internalLoginView?.classList.add("hidden");
+  els.internalRoleView?.classList.add("hidden");
+  els.internalRoleView?.classList.remove("hidden");
+  els.adminNav?.classList.add("hidden");
+  els.backToManagement?.classList.add("hidden");
+  els.catalogView?.classList.add("hidden");
+  els.managementShell?.classList.add("hidden");
+  els.adminView?.classList.add("hidden");
+  els.stockView?.classList.add("hidden");
+  els.importView?.classList.add("hidden");
+  els.ordersView?.classList.add("hidden");
+  els.clientsView?.classList.add("hidden");
+  els.reportsView?.classList.add("hidden");
+  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  hideAdminKeyForm();
+}
+
+function selectInternalProfile(profile, adminToken = null) {
+  if (!internalAuthenticated || !["admin", "employee"].includes(profile)) return;
+  if (profile === "admin" && adminToken !== INTERNAL_ADMIN_PROFILE_TOKEN) {
+    showAdminKeyForm();
+    return;
+  }
+  internalUnlocked = true;
+  currentRole = profile;
+  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
+  sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, profile);
+  localStorage.setItem(STORAGE_ROLE, profile);
+  if (profile === "employee") clearAdminOnlyState();
+  els.internalRoleView?.classList.add("hidden");
+  renderAll();
+  setView(getSavedInitialManagementView(), true, { replace: true });
+  restoreSavedScrollPosition();
+}
+
+function showAdminKeyForm() {
+  els.adminKeyForm?.classList.remove("hidden");
+  els.adminKeyError?.classList.add("hidden");
+  if (els.adminInternalKey) els.adminInternalKey.value = "";
+  window.setTimeout(() => els.adminInternalKey?.focus(), 0);
+}
+
+function hideAdminKeyForm() {
+  els.adminKeyForm?.classList.add("hidden");
+  els.adminKeyError?.classList.add("hidden");
+  if (els.adminInternalKey) els.adminInternalKey.value = "";
+}
+
+async function handleAdminKeySubmit(event) {
+  event.preventDefault();
+  const key = String(els.adminInternalKey?.value || "");
+  if (!key.trim()) {
+    showAdminKeyError("Ingresá la clave interna.");
+    return;
+  }
+  if (els.adminKeySubmit) {
+    els.adminKeySubmit.disabled = true;
+    els.adminKeySubmit.textContent = "Validando...";
+  }
+  try {
+    const valid = await verifyAdminInternalKey(key);
+    if (!valid) throw new Error("Clave interna incorrecta.");
+    hideAdminKeyForm();
+    selectInternalProfile("admin", INTERNAL_ADMIN_PROFILE_TOKEN);
+  } catch (error) {
+    console.error("GB Mayorista admin profile validation:", error);
+    showAdminKeyError(error.message || "No se pudo validar la clave interna.");
+  } finally {
+    if (els.adminKeySubmit) {
+      els.adminKeySubmit.disabled = false;
+      els.adminKeySubmit.textContent = "Validar";
+    }
+  }
+}
+
+function showAdminKeyError(message) {
+  if (!els.adminKeyError) return;
+  els.adminKeyError.textContent = message;
+  els.adminKeyError.classList.remove("hidden");
+}
+
+async function verifyAdminInternalKey(key) {
+  const client = getSupabaseAuthClient();
+  if (!client) throw new Error("Supabase Auth no está disponible.");
+  const { data, error } = await withSupabaseTimeout(
+    client.rpc("verify_internal_admin_key", { admin_key: key }),
+    "No se pudo validar la clave interna a tiempo.",
+    10000
+  );
+  if (error) throw new Error(error.message || "No se pudo validar la clave interna en Supabase.");
+  return data === true || data?.valid === true;
+}
+
+function clearAdminOnlyState() {
+  if (currentView === "reportes") currentView = "admin";
+  if (els.editProductCost) els.editProductCost.value = "";
+  if (els.reportGrid) els.reportGrid.innerHTML = "";
+}
 function showInternalLogin(showError = false, message = "") {
   lockInternalSession();
   currentView = "gestion-login";
@@ -7099,6 +7264,7 @@ function showInternalLogin(showError = false, message = "") {
   els.clientsView?.classList.add("hidden");
   els.reportsView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  els.internalRoleView?.classList.add("hidden");
   els.internalLoginView?.classList.remove("hidden");
   if (els.internalLoginError) {
     if (message) els.internalLoginError.textContent = message;
@@ -7129,13 +7295,12 @@ async function handleInternalLogin(event) {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    unlockInternalSession(data.session);
+    internalAuthenticated = true;
+    unlockInternalSession(data.session, "");
     els.internalLoginError?.classList.add("hidden");
     if (els.internalPassword) els.internalPassword.value = "";
-    renderAll();
-    setView(getInitialView(), true);
-    restoreSavedScrollPosition();
     await refreshCatalogFromSupabase("gestion-login", { silent: true });
+    showInternalRoleChoice();
   } catch (error) {
     console.error("GB Mayorista Supabase Auth login:", error);
     if (els.internalPassword) els.internalPassword.value = "";
@@ -7158,6 +7323,7 @@ async function handleInternalLogout() {
   } finally {
     lockInternalSession();
     teardownSupabaseCatalogRealtime();
+    els.internalRoleView?.classList.add("hidden");
     if (isPrivateManagementRoute()) showInternalLogin(false);
     else setView("catalogo");
   }

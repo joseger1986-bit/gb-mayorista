@@ -53,62 +53,89 @@
         <strong id="heroProducts">0</strong>
         <strong id="heroCategories">0</strong>
           </div>
-      <section id="adminNav" class="admin-private-nav hidden" aria-label="Navegación de administrador">
+      <section id="adminNav" class="admin-private-nav hidden" aria-label="NavegaciÃ³n de administrador">
         <div>
           <strong>GB Mayorista</strong>
-          <span>Gestión interna</span>
+          <span>GestiÃ³n interna</span>
           </div>
         <nav>
-          <button class="ghost-button" id="adminNavManagement" type="button">Gestión</button>
-          <button class="ghost-button" id="adminNavCatalog" type="button">Ver Catálogo</button>
-          <button class="ghost-button" id="adminLogout" type="button">Cerrar sesión</button>
+          <button class="ghost-button" id="adminNavManagement" type="button">GestiÃ³n</button>
+          <button class="ghost-button" id="adminNavCatalog" type="button">Ver CatÃ¡logo</button>
+          <button class="ghost-button" id="adminSwitchRole" type="button">Cambiar perfil</button>
+          <button class="ghost-button" id="adminLogout" type="button">Cerrar sesiÃ³n</button>
         </nav>
       </section>
 
       <section id="catalogView" class="content-view">
         <div class="section-head">
           <div>
-            <h2 class="visually-hidden">Catálogo</h2>
+            <h2 class="visually-hidden">CatÃ¡logo</h2>
           </div>
           <label class="search-box">
             <span>Buscar</span>
             <input id="searchInput" type="search" placeholder="Buscar producto...">
           </label>
-          <button class="primary-button admin-return-button hidden" id="backToManagement" type="button">Volver a Gestión</button>
+          <button class="primary-button admin-return-button hidden" id="backToManagement" type="button">Volver a GestiÃ³n</button>
           </div>
-        <div class="category-row" id="categoryFilters" aria-label="Categorías"></div>
+        <div class="category-row" id="categoryFilters" aria-label="CategorÃ­as"></div>
         <div class="product-grid" id="productGrid"></div>
       </section>
       <section id="internalLoginView" class="internal-login-view hidden" aria-labelledby="internalLoginTitle">
         <form class="internal-login-card" id="internalLoginForm">
           <div class="brand-mark login-brand">GB</div>
           <p class="eyebrow">Acceso privado</p>
-          <h2 id="internalLoginTitle">Gestión interna</h2>
+          <h2 id="internalLoginTitle">GestiÃ³n interna</h2>
           <label>
             Email
             <input id="internalEmail" name="email" type="email" autocomplete="username" required>
           </label>
           <label>
-            Contraseña
+            ContraseÃ±a
             <input id="internalPassword" name="password" type="password" autocomplete="current-password" required>
           </label>
-          <p class="login-error hidden" id="internalLoginError" role="alert">No se pudo iniciar sesión.</p>
+          <p class="login-error hidden" id="internalLoginError" role="alert">No se pudo iniciar sesiÃ³n.</p>
           <button class="primary-button full" id="internalLoginSubmit" type="submit">Ingresar</button>
         </form>
       </section>
 
+
+      <section id="internalRoleView" class="internal-login-view hidden" aria-labelledby="internalRoleTitle">
+        <div class="internal-login-card internal-role-card">
+          <div class="brand-mark login-brand">GB</div>
+          <p class="eyebrow">Acceso interno</p>
+          <h2 id="internalRoleTitle">Elegir perfil</h2>
+          <p class="role-choice-copy">IngresÃ¡ al panel segÃºn el trabajo que vas a realizar.</p>
+          <div class="internal-role-actions">
+            <button class="primary-button full" id="chooseAdminRole" type="button">Entrar como Administrador</button>
+            <button class="secondary-button full" id="chooseEmployeeRole" type="button">Entrar como Empleado</button>
+          </div>
+          <form class="admin-key-form hidden" id="adminKeyForm">
+            <label>
+              Clave interna de administrador
+              <input id="adminInternalKey" name="adminInternalKey" type="password" autocomplete="off" required>
+            </label>
+            <p class="login-error hidden" id="adminKeyError" role="alert">No se pudo validar la clave.</p>
+            <div class="stock-modal-actions">
+              <button class="secondary-button small-button" id="cancelAdminKey" type="button">Cancelar</button>
+              <button class="primary-button small-button" id="adminKeySubmit" type="submit">Validar</button>
+            </div>
+          </form>
+          <button class="ghost-button full" id="roleLogout" type="button">Cerrar sesiÃ³n</button>
+        </div>
+      </section>
+
       <section id="managementShell" class="management-shell hidden">
         <div>
-          <span class="eyebrow dark">Panel interno de gestión</span>
-          <h2>Panel de Gestión GB Mayorista</h2>
-          <p>Administrá productos, stock, pedidos, clientes y reportes.</p>
+          <span class="eyebrow dark">Panel interno de gestiÃ³n</span>
+          <h2>Panel de GestiÃ³n GB Mayorista</h2>
+          <p>AdministrÃ¡ productos, stock, pedidos, clientes y reportes.</p>
           </div>
-        <div class="management-tabs" aria-label="Secciones de gestión interna">
+        <div class="management-tabs" aria-label="Secciones de gestiÃ³n interna">
           <button class="ghost-button" data-view="admin">Productos</button>
           <button class="ghost-button" data-view="pedidos">Pedidos</button>
           <button class="ghost-button" data-view="clientes">Clientes</button>
           <button class="ghost-button" data-view="reportes" data-reports-only>Reportes</button>
-          <button class="ghost-button" data-view="importacion" data-import-export-only>Importación Excel</button>
+          <button class="ghost-button" data-view="importacion" data-import-export-only>ImportaciÃ³n Excel</button>
           </div>
       </section>
 
@@ -116,27 +143,27 @@
         <div class="section-head">
           <div>
             <h2>Productos</h2>
-            <p>Catálogo interno por categorías con precios y stock en una sola pantalla.</p>
+            <p>CatÃ¡logo interno por categorÃ­as con precios y stock en una sola pantalla.</p>
           </div>
           <button class="secondary-button" id="resetProducts" type="button" data-manage-products-only>Restaurar prueba</button>
           </div>
         <div class="internal-product-toolbar">
           <label class="search-box internal-search">
-            Buscar producto o categoría
+            Buscar producto o categorÃ­a
             <input id="adminSearchInput" type="search">
           </label>
           <div>
-            <span class="toolbar-label">Categorías</span>
-            <div id="adminCategoryFilters" class="category-row" aria-label="Categorías internas"></div>
+            <span class="toolbar-label">CategorÃ­as</span>
+            <div id="adminCategoryFilters" class="category-row" aria-label="CategorÃ­as internas"></div>
           </div>
           </div>
         <div class="admin-layout">
           <div class="product-action-bar">
             <button class="primary-button add-product-button" id="addProductToggle" type="button" data-manage-products-only>+ Agregar producto</button>
             <details class="more-product-actions">
-              <summary>Más acciones</summary>
+              <summary>MÃ¡s acciones</summary>
               <div class="more-product-actions-menu">
-                <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categoría</button>
+                <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categorÃ­a</button>
                 <button class="secondary-button" id="importProductsButton" type="button" data-import-export-only>Importar Excel</button>
                 <button class="secondary-button" id="exportProductsButton" type="button" data-import-export-only>Exportar Excel</button>
                 <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
@@ -158,30 +185,30 @@
                 <input name="option" type="text" placeholder="Ej: Talle 1 o Surtido T1-4">
               </label>
               <label>
-                Categoría
+                CategorÃ­a
                 <select name="category" required>
                   <option value="Medias">Medias</option>
                   <option value="Ropa Interior Hombre">Ropa Interior Hombre</option>
                   <option value="Ropa Interior Dama">Ropa Interior Dama</option>
-                  <option value="Ropa Interior Niño">Ropa Interior Niño</option>
-                  <option value="Blanquería">Blanquería</option>
+                  <option value="Ropa Interior NiÃ±o">Ropa Interior NiÃ±o</option>
+                  <option value="BlanquerÃ­a">BlanquerÃ­a</option>
                 </select>
               </label>
               <label>
-                Mostrar en catálogo
+                Mostrar en catÃ¡logo
                 <select name="showInCatalog">
-                  <option value="yes">Sí</option>
+                  <option value="yes">SÃ­</option>
                   <option value="no">No</option>
                 </select>
               </label>
               <label class="full-field">
-                Descripción
-                <textarea name="description" rows="3" placeholder="Texto opcional para mostrar en el catálogo"></textarea>
+                DescripciÃ³n
+                <textarea name="description" rows="3" placeholder="Texto opcional para mostrar en el catÃ¡logo"></textarea>
               </label>
               <label class="full-field">
                 Foto
                 <input id="productImageInput" name="imageFile" type="file" accept=".jpg,.jpeg,.png,.webp" multiple>
-                <small>Podés seleccionar varias fotos desde el explorador de archivos del dispositivo. Formatos: JPG, PNG o WEBP.</small>
+                <small>PodÃ©s seleccionar varias fotos desde el explorador de archivos del dispositivo. Formatos: JPG, PNG o WEBP.</small>
               </label>
               <div class="image-preview-box full-field">
                 <img id="productImagePreview" alt="Vista previa de foto" hidden>
@@ -194,7 +221,7 @@
               <legend>Datos comerciales</legend>
               <div class="form-grid">
                 <label>
-                  Presentación
+                  PresentaciÃ³n
                   <input name="presentation" type="text">
                 </label>
                 <label data-admin-only>
@@ -229,11 +256,11 @@
                   <th>Foto</th>
                   <th>Producto</th>
                   <th>Talle</th>
-                  <th>Categoría</th>
+                  <th>CategorÃ­a</th>
                   <th>Costo</th>
                   <th>Venta</th>
                   <th>Stock</th>
-                  <th>Catálogo</th>
+                  <th>CatÃ¡logo</th>
                   <th>Editar</th>
                 </tr>
               </thead>
@@ -247,23 +274,23 @@
         <div class="import-planner">
           <div class="section-head compact">
             <div>
-              <h2>Importación Excel</h2>
-              <p>Plantilla preparada para cargar productos con presentación libre.</p>
+              <h2>ImportaciÃ³n Excel</h2>
+              <p>Plantilla preparada para cargar productos con presentaciÃ³n libre.</p>
           </div>
             <button class="secondary-button" id="downloadTemplate" type="button" data-import-export-only>Descargar planilla modelo Excel</button>
           </div>
           <div class="template-columns" aria-label="Columnas de la plantilla">
             <span>Producto</span>
             <span>Talle</span>
-            <span>Categoría</span>
+            <span>CategorÃ­a</span>
             <span>Precio costo</span>
             <span>Precio venta</span>
-            <span>Presentación</span>
+            <span>PresentaciÃ³n</span>
             <span>Stock</span>
-            <span>Mostrar catálogo</span>
+            <span>Mostrar catÃ¡logo</span>
           </div>
           <div class="template-example">
-            Boxer Adulto Lody Art. 742 | Talle 1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
+            Boxer Adulto Lody Art. 742 | Talle 1 | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | SÃ­
           </div>
           </div>
       </section>
@@ -282,21 +309,21 @@
         <div class="section-head">
           <div>
             <h2>Clientes</h2>
-            <p>Base automática de clientes para futuras campañas de WhatsApp.</p>
+            <p>Base automÃ¡tica de clientes para futuras campaÃ±as de WhatsApp.</p>
           </div>
           <button class="secondary-button" id="exportClientsButton" type="button" data-import-export-only>Exportar Excel</button>
           </div>
         <div class="internal-product-toolbar">
           <label class="search-box internal-search">
             Buscar cliente
-            <input id="clientsSearch" type="search" placeholder="Nombre, teléfono o localidad">
+            <input id="clientsSearch" type="search" placeholder="Nombre, telÃ©fono o localidad">
           </label>
           <label class="search-box internal-search">
             Filtros
             <select id="clientsSort">
-              <option value="total">Más compraron</option>
-              <option value="purchases">Más compras hicieron</option>
-              <option value="last">Última compra</option>
+              <option value="total">MÃ¡s compraron</option>
+              <option value="purchases">MÃ¡s compras hicieron</option>
+              <option value="last">Ãšltima compra</option>
               <option value="location">Localidad</option>
             </select>
           </label>
@@ -306,11 +333,11 @@
             <thead>
               <tr>
                 <th>Cliente</th>
-                <th>Teléfono</th>
+                <th>TelÃ©fono</th>
                 <th>Localidad</th>
                 <th>Pedidos</th>
                 <th>Total comprado</th>
-                <th>Última compra</th>
+                <th>Ãšltima compra</th>
                 <th>Ver</th>
               </tr>
             </thead>
@@ -324,7 +351,7 @@
         <div class="section-head">
           <div>
             <h2>Panel de reportes</h2>
-            <p>Ventas, clientes, productos y stock en bloques simples para operar rápido.</p>
+            <p>Ventas, clientes, productos y stock en bloques simples para operar rÃ¡pido.</p>
           </div>
           </div>
         <div class="report-grid" id="reportGrid"></div>
@@ -335,20 +362,20 @@
       <section class="category-modal" role="dialog" aria-modal="true" aria-labelledby="categoryManagerTitle">
         <div class="section-head compact">
           <div>
-            <h3 id="categoryManagerTitle">Categorías</h3>
-            <p>Creá, modificá, ocultá o eliminá categorías.</p>
+            <h3 id="categoryManagerTitle">CategorÃ­as</h3>
+            <p>CreÃ¡, modificÃ¡, ocultÃ¡ o eliminÃ¡ categorÃ­as.</p>
           </div>
           <button class="secondary-button small-button" id="closeCategoryManager" type="button">Cerrar</button>
           </div>
         <div class="category-add-row">
-          <input id="newCategoryName" type="text" placeholder="Nueva categoría">
-          <button class="primary-button small-button" id="addCategoryButton" type="button">Crear categoría</button>
+          <input id="newCategoryName" type="text" placeholder="Nueva categorÃ­a">
+          <button class="primary-button small-button" id="addCategoryButton" type="button">Crear categorÃ­a</button>
           </div>
         <div class="category-manager-list" id="categoryManagerList"></div>
       </section>
           </div>
     <button class="floating-cart-button" id="floatingCartButton" type="button" data-catalog-only aria-label="Abrir carrito">
-      <span class="floating-cart-icon" aria-hidden="true">🛒</span>
+      <span class="floating-cart-icon" aria-hidden="true">ðŸ›’</span>
       <span class="floating-cart-label">Carrito</span>
       <span class="floating-cart-count" id="floatingCartCount">0</span>
     </button>
@@ -359,7 +386,7 @@
             <h2>Carrito</h2>
             <p id="cartSubtitle">Sin productos</p>
           </div>
-          <button class="cart-close-button" id="closeCart" type="button" aria-label="Cerrar carrito">×</button>
+          <button class="cart-close-button" id="closeCart" type="button" aria-label="Cerrar carrito">Ã—</button>
           </div>
         <div class="cart-layout">
           <section class="cart-section customer-section">
@@ -370,7 +397,7 @@
                 <input id="customerName" type="text" placeholder="Nombre del cliente">
               </label>
               <label>
-                Teléfono
+                TelÃ©fono
                 <input id="customerPhone" type="tel" autocomplete="off" placeholder="Ej: 2477123456">
               </label>
               <label>
@@ -390,7 +417,7 @@
                 <span>Total del pedido</span>
                 <strong id="cartTotal">$0</strong>
           </div>
-              <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mínima</div>
+              <div class="minimum-status" id="minimumStatus">Faltan $100.000 para alcanzar la compra mÃ­nima</div>
             </section>
             <section class="cart-section cart-action-section">
               <div class="cart-error hidden" id="cartError" role="alert"></div>
@@ -429,7 +456,7 @@
           <label><input type="radio" name="stockMode" value="replace"> Reemplazar stock final</label>
           </div>
         <label class="stock-modal-quantity">
-          Cantidad
+          <span id="stockModalQuantityLabel">Cantidad</span>
           <input id="stockModalQuantity" type="number" min="0" step="1" placeholder="0" required>
         </label>
         <div class="stock-modal-actions">
@@ -440,8 +467,9 @@
           </div>
     <div class="stock-modal-overlay hidden" id="editProductOverlay" aria-hidden="true">
       <form class="stock-modal product-edit-modal product-create-modal" id="editProductForm">
-        <div class="edit-product-head"><h3 id="editProductTitle">Editar producto</h3><button class="icon-button edit-product-close" id="editProductClose" type="button" aria-label="Cerrar edición">×</button></div>
-        <div class="product-edit-grid compact-edit-product-grid">          <section class="edit-product-photo-section full-field" aria-label="Fotos del producto">
+        <div class="edit-product-head"><h3 id="editProductTitle">Editar producto</h3><button class="icon-button edit-product-close" id="editProductClose" type="button" aria-label="Cerrar ediciÃ³n">Ã—</button></div>
+        <div class="product-edit-grid compact-edit-product-grid">
+          <section class="edit-product-photo-section full-field" aria-label="Fotos del producto">
             <span class="edit-section-title">Fotos del producto</span>
             <div class="product-image-gallery edit-product-selected-gallery" id="editProductImageGallery" aria-label="Fotos del producto"></div>
             <div class="edit-product-photo-actions">
@@ -449,7 +477,7 @@
               <button class="danger-button small-button" id="removeEditProductPhoto" type="button">Eliminar todas</button>
           </div>
             <input class="hidden" id="editProductImage" name="imageFile" type="file" accept=".jpg,.jpeg,.png,.webp" multiple>
-            <small>Podés elegir varias fotos desde Mis archivos, Cámara, Descargas, Catálogo u otra carpeta del dispositivo.</small>
+            <small>PodÃ©s elegir varias fotos desde Mis archivos, CÃ¡mara, Descargas, CatÃ¡logo u otra carpeta del dispositivo.</small>
           </section>
           <label>
             Nombre
@@ -460,15 +488,15 @@
             <input id="editProductOption" name="option" type="text" placeholder="Ej: Talle 1 o Surtido T1-4">
           </label>
           <label>
-            Categoría
+            CategorÃ­a
             <select id="editProductCategory" name="category" required></select>
           </label>
           <label class="full-field">
-            Descripción
+            DescripciÃ³n
             <textarea id="editProductDescription" name="description" rows="3"></textarea>
           </label>
           <label>
-            Presentación
+            PresentaciÃ³n
             <input id="editProductPresentation" name="presentation" type="text">
           </label>
           <label id="editProductCostWrap">
@@ -483,9 +511,9 @@
             <span class="edit-section-title">Stock</span>
             <p class="context-line" id="editProductStockCurrent">Stock actual: 0</p>
             <div class="edit-product-stock-control">
-              <button class="secondary-button small-button" id="editProductStockDecrease" type="button" aria-label="Disminuir stock">−</button>
+              <button class="secondary-button small-button" id="editProductStockDecrease" type="button" aria-label="Disminuir stock">âˆ’</button>
               <label>
-                Cantidad
+                <span id="editProductStockQuantityLabel">Cantidad</span>
                 <input id="editProductStock" name="stock" type="number" min="0" step="1" inputmode="numeric">
               </label>
               <button class="secondary-button small-button" id="editProductStockIncrease" type="button" aria-label="Aumentar stock">+</button>
@@ -493,9 +521,9 @@
             <span class="context-line" id="editProductStockUnit"></span>
           </div>
           <label>
-            Mostrar en catálogo
+            Mostrar en catÃ¡logo
             <select id="editProductCatalog" name="showInCatalog">
-              <option value="yes">Sí</option>
+              <option value="yes">SÃ­</option>
               <option value="no">No</option>
             </select>
           </label>
@@ -506,7 +534,7 @@
           <button class="secondary-button small-button" id="editProductCancel" type="button">Cancelar</button>
           </div>
         <details class="edit-product-more-options">
-          <summary>Más opciones</summary>
+          <summary>MÃ¡s opciones</summary>
           <div class="edit-product-more-actions">
             <button class="secondary-button small-button" id="duplicateProductButton" type="button">Duplicar producto</button>
             <button class="danger-button small-button" id="deleteProductButton" type="button" disabled title="Pendiente hasta implementar borrado seguro">Eliminar producto</button>
@@ -525,12 +553,12 @@
           </div>
     <div class="confirm-modal-overlay hidden" id="confirmModalOverlay" aria-hidden="true">
       <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
-        <button class="modal-close" id="confirmModalClose" type="button" aria-label="Cerrar">×</button>
-        <h3 id="confirmModalTitle">¿Estás seguro?</h3>
-        <p id="confirmModalText">Esta acción no se puede deshacer.</p>
+        <button class="modal-close" id="confirmModalClose" type="button" aria-label="Cerrar">Ã—</button>
+        <h3 id="confirmModalTitle">Â¿EstÃ¡s seguro?</h3>
+        <p id="confirmModalText">Esta acciÃ³n no se puede deshacer.</p>
         <div class="confirm-modal-actions">
           <button class="secondary-button small-button" id="confirmModalCancel" type="button">Cancelar</button>
-          <button class="danger-button small-button" id="confirmModalAccept" type="button">Sí, eliminar</button>
+          <button class="danger-button small-button" id="confirmModalAccept" type="button">SÃ­, eliminar</button>
           </div>
       </section>
           </div>
