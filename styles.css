@@ -9156,7 +9156,7 @@ body.cart-is-open {
   .orders-row-action { grid-area: action; }
 
   .orders-row-client::after {
-    content: " � " attr(data-location);
+    content: " · " attr(data-location);
   }
 
   .orders-row-location {
@@ -10675,6 +10675,25 @@ body.cart-is-open {
 
 .admin-key-form.hidden {
   display: none !important;
+}
+
+.admin-private-nav {
+  min-height: 0;
+  padding-block: 8px;
+}
+
+.admin-private-nav .brand-mark {
+  width: 34px;
+  height: 34px;
+  font-size: 0.95rem;
+}
+
+.admin-private-nav strong {
+  line-height: 1.05;
+}
+
+.admin-private-nav span {
+  line-height: 1.1;
 }
 
 @media (max-width: 680px) {

@@ -336,6 +336,7 @@ const els = {
   stockModalForm: document.querySelector("#stockModalForm"),
   stockModalTitle: document.querySelector("#stockModalTitle"),
   stockModalCurrent: document.querySelector("#stockModalCurrent"),
+  stockModalQuantityLabel: document.querySelector("#stockModalQuantityLabel"),
   stockModalQuantity: document.querySelector("#stockModalQuantity"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
   editProductOverlay: document.querySelector("#editProductOverlay"),
@@ -358,6 +359,7 @@ const els = {
   removeEditProductPhoto: document.querySelector("#removeEditProductPhoto"),
   editProductStock: document.querySelector("#editProductStock"),
   editProductStockCurrent: document.querySelector("#editProductStockCurrent"),
+  editProductStockQuantityLabel: document.querySelector("#editProductStockQuantityLabel"),
   editProductStockUnit: document.querySelector("#editProductStockUnit"),
   editProductStockDecrease: document.querySelector("#editProductStockDecrease"),
   editProductStockIncrease: document.querySelector("#editProductStockIncrease"),
@@ -2183,6 +2185,7 @@ function getQuantityNounForPresentation(presentation, quantity = 1) {
 function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
   return `${getQuantityLabelForPresentation(presentation)}: ${Math.max(1, Number(quantity) || 1)}`;
 }
+
 function getCatalogQuantityLabel(group) {
   return getQuantityLabelForPresentation(group?.variants?.[0]?.presentation || group?.presentation || "");
 }
@@ -2944,6 +2947,9 @@ function openStockModal(productId) {
   }
   if (els.stockModalCurrent) {
     els.stockModalCurrent.textContent = `Stock actual: ${formatProductStock(product)}`;
+  }
+  if (els.stockModalQuantityLabel) {
+    els.stockModalQuantityLabel.textContent = getQuantityLabelForPresentation(getProductPresentation(product));
   }
   els.stockModalForm.reset();
   const addMode = els.stockModalForm.querySelector('input[name="stockMode"][value="add"]');
@@ -5292,6 +5298,7 @@ function updateEditProductStockLabels(product) {
   const stock = Math.max(0, Number(product?.stock) || 0);
   if (els.editProductStockCurrent) els.editProductStockCurrent.textContent = `Stock actual: ${formatProductStock(product, stock)}`;
   if (els.editProductStockUnit) els.editProductStockUnit.textContent = getStockUnitLabel(product, stock);
+  if (els.editProductStockQuantityLabel) els.editProductStockQuantityLabel.textContent = getQuantityLabelForPresentation(getProductPresentation(product));
 }
 
 function getEditProductFormState() {
@@ -6260,7 +6267,7 @@ function normalizePdfText(value) {
   return String(value ?? "")
     .replace(/\uFEFF/g, "")
     .replace(/þÿ/g, "")
-    .replace(/�/g, "")
+    .replace(/\uFFFD/g, "")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/[^\S\r\n]+/g, " ")
     .normalize("NFC");
@@ -6800,6 +6807,10 @@ function formatCartQuantity(item) {
   return String(Math.max(1, Number(item?.quantity) || 1));
 }
 
+function formatCartQuantityLine(item) {
+  return formatQuantityWithPresentationLabel(item?.presentation || formatCartPresentation(item), Math.max(1, Number(item?.quantity) || 1));
+}
+
 function formatCartPresentation(item) {
   const value = String(item?.presentation || "").trim();
   if (/pack\s*x\s*\d+/i.test(value)) return value;
@@ -7149,7 +7160,6 @@ function showInternalRoleChoice() {
   els.topbar?.classList.add("hidden");
   els.siteFooter?.classList.add("hidden");
   els.internalLoginView?.classList.add("hidden");
-  els.internalRoleView?.classList.add("hidden");
   els.internalRoleView?.classList.remove("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
@@ -7246,6 +7256,7 @@ function clearAdminOnlyState() {
   if (els.editProductCost) els.editProductCost.value = "";
   if (els.reportGrid) els.reportGrid.innerHTML = "";
 }
+
 function showInternalLogin(showError = false, message = "") {
   lockInternalSession();
   currentView = "gestion-login";
@@ -7295,7 +7306,6 @@ async function handleInternalLogin(event) {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    internalAuthenticated = true;
     unlockInternalSession(data.session, "");
     els.internalLoginError?.classList.add("hidden");
     if (els.internalPassword) els.internalPassword.value = "";
