@@ -5861,14 +5861,17 @@ function getDocumentItemName(item) {
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
-  return formatQuantityWithPresentationLabel(presentation, quantity);
+  return `${quantity} ${getDocumentPresentationLabel(presentation, quantity)}`.trim();
 }
 
-function getDocumentPresentationAbbreviation(presentation) {
+function getDocumentPresentationLabel(presentation, quantity = 1) {
   const value = String(presentation || "").trim();
-  if (/docenas?/i.test(value)) return "doc.";
-  if (/unidad(es)?/i.test(value)) return "un.";
-  return value || "un.";
+  const amount = Math.max(1, Number(quantity) || 1);
+  const packMatch = value.match(/pack\s*x\s*(\d+)/i);
+  if (packMatch) return `${amount === 1 ? "pack" : "packs"} x${packMatch[1]}`;
+  if (/docenas?|venta\s+por\s+docena/i.test(value)) return amount === 1 ? "docena" : "docenas";
+  if (/unidad(es)?|venta\s+por\s+unidad/i.test(value)) return amount === 1 ? "unidad" : "unidades";
+  return value || (amount === 1 ? "unidad" : "unidades");
 }
 
 function formatDocumentDateTime(value) {
@@ -6107,7 +6110,7 @@ function createOrderDocumentPdf(document) {
   };
   const renderPdfTableHeader = () => {
     addText("Cantidad", margin, y, 8, true);
-    addText("Producto", margin + 120, y, 8, true);
+    addText("Producto", margin + 82, y, 8, true);
     addText("Precio unit.", pageWidth - 190, y, 8, true);
     addText("Subtotal", pageWidth - 98, y, 8, true);
     y -= 8;
@@ -6134,8 +6137,8 @@ function createOrderDocumentPdf(document) {
   renderPdfHeader(true);
   document.items.forEach((item) => {
     if (y < bottom + 92) newPage();
-    addText(truncatePdfText(item.quantityLabel, 28), margin, y, 8.2, false);
-    addText(truncatePdfText(item.product, 45), margin + 120, y, 8.4, false);
+    addText(truncatePdfText(item.quantityLabel, 18), margin, y, 8.4, false);
+    addText(truncatePdfText(item.product, 52), margin + 82, y, 8.4, false);
     addText(formatMoney(item.price), pageWidth - 190, y, 8.4, false);
     addText(formatMoney(item.subtotal), pageWidth - 98, y, 8.4, true);
     y -= 15;
