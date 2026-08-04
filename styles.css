@@ -405,13 +405,20 @@ main {
   width: min(1180px, calc(100% - 32px));
 }
 
+html[data-private-management="true"] .public-catalog-header,
+html[data-private-management="true"] .public-catalog-header + .minimum-banner,
+.private-management-mode .public-catalog-header,
+.private-management-mode .public-catalog-header + .minimum-banner {
+  display: none !important;
+}
+
 .admin-private-nav {
-  margin: 24px 0 0;
+  margin: 10px 0 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -420,13 +427,19 @@ main {
 
 .admin-private-nav div {
   display: grid;
-  gap: 2px;
+  gap: 0;
+}
+
+.admin-private-nav strong {
+  font-size: 1rem;
+  line-height: 1.05;
 }
 
 .admin-private-nav span {
   color: var(--muted);
   font-weight: 800;
-  font-size: 0.82rem;
+  font-size: 0.72rem;
+  line-height: 1.05;
 }
 
 .admin-private-nav nav {
@@ -10718,8 +10731,8 @@ body.cart-is-open {
 /* Compacta el panel principal de Gestion Interna */
 .management-shell {
   gap: 10px 14px;
-  margin-top: 18px;
-  padding: 12px 14px;
+  margin-top: 8px;
+  padding: 8px 10px;
 }
 
 .management-shell > div:first-child {
@@ -10728,7 +10741,7 @@ body.cart-is-open {
 }
 
 .management-shell h2 {
-  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
   line-height: 1.15;
 }
 
@@ -10753,9 +10766,9 @@ body.cart-is-open {
 
 @media (max-width: 900px) {
   .management-shell {
-    gap: 8px;
-    margin-top: 12px;
-    padding: 10px;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px;
   }
 
   .management-tabs {

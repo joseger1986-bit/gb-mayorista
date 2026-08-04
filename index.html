@@ -4,6 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>GB Mayorista</title>
+    <script>
+      if (window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() === "gestion") {
+        document.documentElement.dataset.privateManagement = "true";
+      }
+    </script>
     <link rel="stylesheet" href="/styles.css?v=header-logo-hero-1">
   </head>
   <body>
@@ -55,8 +60,8 @@
           </div>
       <section id="adminNav" class="admin-private-nav hidden" aria-label="Navegación de administrador">
         <div>
-          <strong>GB Mayorista</strong>
-          <span>Gestión interna</span>
+          <strong>Gestión Interna</strong>
+          <span>GB Mayorista</span>
           </div>
         <nav>
           <button class="ghost-button" id="adminNavManagement" type="button">Gestión</button>
@@ -125,10 +130,9 @@
 
       <section id="managementShell" class="management-shell hidden">
         <div>
-          <span class="eyebrow dark">Panel interno de gestión</span>
-          <h2>Panel de Gestión GB Mayorista</h2>
-          <p>Administrá productos, stock, pedidos, clientes y reportes.</p>
-          </div>
+          <span class="eyebrow dark">GB Mayorista</span>
+          <h2>Gestión Interna</h2>
+        </div>
         <div class="management-tabs" aria-label="Secciones de gestión interna">
           <button class="ghost-button" data-view="admin">Productos</button>
           <button class="ghost-button" data-view="pedidos">Pedidos</button>

@@ -6951,6 +6951,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   currentView = view;
   persistUiState({ view });
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
+  document.documentElement.dataset.privateManagement = isPrivateManagementRoute() ? "true" : "false";
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
@@ -7156,6 +7157,7 @@ function showInternalRoleChoice() {
   localStorage.setItem(STORAGE_ROLE, "client");
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
+  document.documentElement.dataset.privateManagement = "true";
   document.body.classList.remove("admin-catalog-preview");
   els.topbar?.classList.add("hidden");
   els.siteFooter?.classList.add("hidden");
@@ -7261,6 +7263,7 @@ function showInternalLogin(showError = false, message = "") {
   lockInternalSession();
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
+  document.documentElement.dataset.privateManagement = "true";
   document.body.classList.remove("admin-catalog-preview");
   els.topbar?.classList.add("hidden");
   els.siteFooter?.classList.add("hidden");
