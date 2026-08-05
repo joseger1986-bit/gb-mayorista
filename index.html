@@ -100,6 +100,41 @@
           </label>
           <p class="login-error hidden" id="internalLoginError" role="alert">No se pudo iniciar sesión.</p>
           <button class="primary-button full" id="internalLoginSubmit" type="submit">Ingresar</button>
+          <button class="login-link-button" id="forgotPasswordButton" type="button">¿Olvidaste tu contraseña?</button>
+        </form>
+      </section>
+
+      <section id="passwordRecoveryView" class="internal-login-view hidden" aria-labelledby="passwordRecoveryTitle">
+        <form class="internal-login-card" id="passwordRecoveryForm">
+          <div class="brand-mark login-brand">GB</div>
+          <p class="eyebrow">Recuperar acceso</p>
+          <h2 id="passwordRecoveryTitle">Restablecer contraseña</h2>
+          <p class="login-help">Ingresá tu email y te enviaremos un enlace para crear una nueva contraseña.</p>
+          <label>
+            Email
+            <input id="passwordRecoveryEmail" name="email" type="email" autocomplete="username" required>
+          </label>
+          <p class="login-error hidden" id="passwordRecoveryMessage" role="alert"></p>
+          <button class="primary-button full" id="passwordRecoverySubmit" type="submit">Enviar enlace</button>
+          <button class="secondary-button full" id="passwordRecoveryBack" type="button">Volver al login</button>
+        </form>
+      </section>
+
+      <section id="passwordResetView" class="internal-login-view hidden" aria-labelledby="passwordResetTitle">
+        <form class="internal-login-card" id="passwordResetForm">
+          <div class="brand-mark login-brand">GB</div>
+          <p class="eyebrow">Nuevo acceso</p>
+          <h2 id="passwordResetTitle">Crear nueva contraseña</h2>
+          <label>
+            Nueva contraseña
+            <input id="passwordResetNew" name="newPassword" type="password" autocomplete="new-password" minlength="6" required>
+          </label>
+          <label>
+            Repetir contraseña
+            <input id="passwordResetConfirm" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required>
+          </label>
+          <p class="login-error hidden" id="passwordResetMessage" role="alert"></p>
+          <button class="primary-button full" id="passwordResetSubmit" type="submit">Guardar contraseña</button>
         </form>
       </section>
 

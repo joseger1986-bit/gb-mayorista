@@ -495,6 +495,32 @@ html[data-private-management="true"] .public-catalog-header + .minimum-banner,
   font-weight: 800;
 }
 
+.login-error.login-success {
+  border-color: #b8d8c0;
+  background: #effaf2;
+  color: #176b32;
+}
+
+.login-help {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.login-link-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.login-link-button:hover,
+.login-link-button:focus-visible {
+  color: var(--ink);
+}
+
 .footer-lock {
   display: none !important;
 }

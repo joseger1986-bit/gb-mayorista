@@ -18,6 +18,7 @@ const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
+const PASSWORD_RECOVERY_REDIRECT_URL = "https://gb-mayorista.vercel.app/gestion?reset-password=1";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EGB Mayorista%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
@@ -255,6 +256,7 @@ let lightboxTitle = "";
 let lightboxDescription = "";
 let lightboxTouchStartX = 0;
 let catalogImageFallbacks = new Map();
+let passwordRecoveryActive = false;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -375,6 +377,19 @@ const els = {
   internalPassword: document.querySelector("#internalPassword"),
   internalLoginSubmit: document.querySelector("#internalLoginSubmit"),
   internalLoginError: document.querySelector("#internalLoginError"),
+  forgotPasswordButton: document.querySelector("#forgotPasswordButton"),
+  passwordRecoveryView: document.querySelector("#passwordRecoveryView"),
+  passwordRecoveryForm: document.querySelector("#passwordRecoveryForm"),
+  passwordRecoveryEmail: document.querySelector("#passwordRecoveryEmail"),
+  passwordRecoveryMessage: document.querySelector("#passwordRecoveryMessage"),
+  passwordRecoverySubmit: document.querySelector("#passwordRecoverySubmit"),
+  passwordRecoveryBack: document.querySelector("#passwordRecoveryBack"),
+  passwordResetView: document.querySelector("#passwordResetView"),
+  passwordResetForm: document.querySelector("#passwordResetForm"),
+  passwordResetNew: document.querySelector("#passwordResetNew"),
+  passwordResetConfirm: document.querySelector("#passwordResetConfirm"),
+  passwordResetMessage: document.querySelector("#passwordResetMessage"),
+  passwordResetSubmit: document.querySelector("#passwordResetSubmit"),
   chooseAdminRole: document.querySelector("#chooseAdminRole"),
   chooseEmployeeRole: document.querySelector("#chooseEmployeeRole"),
   adminKeyForm: document.querySelector("#adminKeyForm"),
@@ -417,6 +432,10 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 });
 
 els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
+els.forgotPasswordButton?.addEventListener("click", showPasswordRecoveryForm);
+els.passwordRecoveryForm?.addEventListener("submit", handlePasswordRecoveryRequest);
+els.passwordRecoveryBack?.addEventListener("click", () => showInternalLogin(false));
+els.passwordResetForm?.addEventListener("submit", handlePasswordResetSubmit);
 els.chooseEmployeeRole?.addEventListener("click", () => selectInternalProfile("employee"));
 els.chooseAdminRole?.addEventListener("click", showAdminKeyForm);
 els.adminKeyForm?.addEventListener("submit", handleAdminKeySubmit);
@@ -705,7 +724,7 @@ async function initializeApp() {
   restoreUiStateBeforeInitialView();
   renderAll();
   await initializeSupabaseAuth();
-  setView(getInitialView(), false, { skipHistory: true });
+  if (!passwordRecoveryActive) setView(getInitialView(), false, { skipHistory: true });
   restoreSavedScrollPosition();
   initializeAppHistory();
   document.documentElement.dataset.gbApp = "loaded";
@@ -754,7 +773,10 @@ async function initializeSupabaseAuth() {
   try {
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
-    if (data?.session?.user) unlockInternalSession(data.session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
+    if (data?.session?.user) {
+      unlockInternalSession(data.session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
+      if (isPasswordRecoveryReturn()) showPasswordResetForm();
+    }
     else lockInternalSession();
   } catch (error) {
     console.error("GB Mayorista Supabase Auth session:", error);
@@ -763,6 +785,11 @@ async function initializeSupabaseAuth() {
   }
 
   client.auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY") {
+      unlockInternalSession(session, "");
+      showPasswordResetForm();
+      return;
+    }
     if (session?.user) {
       unlockInternalSession(session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
       if (isPrivateManagementRoute()) {
@@ -6972,6 +6999,8 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.add("hidden");
+  els.passwordResetView?.classList.add("hidden");
   els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked));
   els.adminNavManagement?.classList.toggle("active", isManagementView);
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
@@ -7157,12 +7186,18 @@ function isPrivateManagementRoute() {
   return normalizeRoutePath(window.location.pathname) === PRIVATE_MANAGEMENT_PATH;
 }
 
+function isPasswordRecoveryReturn() {
+  const query = new URLSearchParams(window.location.search || "");
+  return query.get("reset-password") === "1" || String(window.location.hash || "").includes("type=recovery");
+}
+
 function normalizeRoutePath(pathname) {
   const normalized = `/${String(pathname || "").replace(/^\/+|\/+$/g, "")}`;
   return normalized === "/" ? "/" : normalized.toLowerCase();
 }
 
 function showInternalRoleChoice() {
+  passwordRecoveryActive = false;
   if (!internalAuthenticated) {
     showInternalLogin(false);
     return;
@@ -7179,6 +7214,8 @@ function showInternalRoleChoice() {
   els.topbar?.classList.add("hidden");
   els.siteFooter?.classList.add("hidden");
   els.internalLoginView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.add("hidden");
+  els.passwordResetView?.classList.add("hidden");
   els.internalRoleView?.classList.remove("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
@@ -7276,7 +7313,8 @@ function clearAdminOnlyState() {
   if (els.reportGrid) els.reportGrid.innerHTML = "";
 }
 
-function showInternalLogin(showError = false, message = "") {
+function showInternalLogin(showError = false, message = "", isSuccess = false) {
+  passwordRecoveryActive = false;
   lockInternalSession();
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
@@ -7296,12 +7334,156 @@ function showInternalLogin(showError = false, message = "") {
   els.reportsView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
   els.internalRoleView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.add("hidden");
+  els.passwordResetView?.classList.add("hidden");
   els.internalLoginView?.classList.remove("hidden");
   if (els.internalLoginError) {
     if (message) els.internalLoginError.textContent = message;
     els.internalLoginError.classList.toggle("hidden", !showError);
+    els.internalLoginError.classList.toggle("login-success", Boolean(showError && isSuccess));
   }
   window.setTimeout(() => els.internalEmail?.focus(), 0);
+}
+
+function setLoginMessage(element, message = "", isError = false) {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle("hidden", !message);
+  element.classList.toggle("login-success", Boolean(message && !isError));
+}
+
+function showPasswordRecoveryForm() {
+  passwordRecoveryActive = false;
+  currentView = "gestion-login";
+  document.body.classList.add("private-management-mode");
+  document.documentElement.dataset.privateManagement = "true";
+  document.body.classList.remove("admin-catalog-preview");
+  els.topbar?.classList.add("hidden");
+  els.siteFooter?.classList.add("hidden");
+  els.adminNav?.classList.add("hidden");
+  els.backToManagement?.classList.add("hidden");
+  els.catalogView?.classList.add("hidden");
+  els.managementShell?.classList.add("hidden");
+  els.adminView?.classList.add("hidden");
+  els.stockView?.classList.add("hidden");
+  els.importView?.classList.add("hidden");
+  els.ordersView?.classList.add("hidden");
+  els.clientsView?.classList.add("hidden");
+  els.reportsView?.classList.add("hidden");
+  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  els.internalLoginView?.classList.add("hidden");
+  els.internalRoleView?.classList.add("hidden");
+  els.passwordResetView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.remove("hidden");
+  if (els.passwordRecoveryEmail && !els.passwordRecoveryEmail.value) {
+    els.passwordRecoveryEmail.value = String(els.internalEmail?.value || "").trim();
+  }
+  setLoginMessage(els.passwordRecoveryMessage);
+  window.setTimeout(() => els.passwordRecoveryEmail?.focus(), 0);
+}
+
+function showPasswordResetForm() {
+  passwordRecoveryActive = true;
+  currentView = "gestion-login";
+  document.body.classList.add("private-management-mode");
+  document.documentElement.dataset.privateManagement = "true";
+  document.body.classList.remove("admin-catalog-preview");
+  els.topbar?.classList.add("hidden");
+  els.siteFooter?.classList.add("hidden");
+  els.adminNav?.classList.add("hidden");
+  els.backToManagement?.classList.add("hidden");
+  els.catalogView?.classList.add("hidden");
+  els.managementShell?.classList.add("hidden");
+  els.adminView?.classList.add("hidden");
+  els.stockView?.classList.add("hidden");
+  els.importView?.classList.add("hidden");
+  els.ordersView?.classList.add("hidden");
+  els.clientsView?.classList.add("hidden");
+  els.reportsView?.classList.add("hidden");
+  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  els.internalLoginView?.classList.add("hidden");
+  els.internalRoleView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.add("hidden");
+  els.passwordResetView?.classList.remove("hidden");
+  if (els.passwordResetNew) els.passwordResetNew.value = "";
+  if (els.passwordResetConfirm) els.passwordResetConfirm.value = "";
+  setLoginMessage(els.passwordResetMessage);
+  window.setTimeout(() => els.passwordResetNew?.focus(), 0);
+}
+
+async function handlePasswordRecoveryRequest(event) {
+  event.preventDefault();
+  const client = getSupabaseAuthClient();
+  const email = String(els.passwordRecoveryEmail?.value || "").trim();
+  if (!client) {
+    setLoginMessage(els.passwordRecoveryMessage, "Supabase Auth no está disponible.", true);
+    return;
+  }
+  if (!email) {
+    setLoginMessage(els.passwordRecoveryMessage, "Ingresá tu email.", true);
+    return;
+  }
+  if (els.passwordRecoverySubmit) {
+    els.passwordRecoverySubmit.disabled = true;
+    els.passwordRecoverySubmit.textContent = "Enviando...";
+  }
+  try {
+    const { error } = await withSupabaseTimeout(
+      client.auth.resetPasswordForEmail(email, { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL }),
+      "No se pudo enviar el correo de recuperación a tiempo."
+    );
+    if (error) throw error;
+    setLoginMessage(els.passwordRecoveryMessage, "Si el correo existe, se envió el enlace para restablecer la contraseña.", false);
+  } catch (error) {
+    console.error("GB Mayorista password recovery:", error);
+    setLoginMessage(els.passwordRecoveryMessage, error.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.", true);
+  } finally {
+    if (els.passwordRecoverySubmit) {
+      els.passwordRecoverySubmit.disabled = false;
+      els.passwordRecoverySubmit.textContent = "Enviar enlace";
+    }
+  }
+}
+
+async function handlePasswordResetSubmit(event) {
+  event.preventDefault();
+  const client = getSupabaseAuthClient();
+  const password = String(els.passwordResetNew?.value || "");
+  const confirmPassword = String(els.passwordResetConfirm?.value || "");
+  if (!client) {
+    setLoginMessage(els.passwordResetMessage, "Supabase Auth no está disponible.", true);
+    return;
+  }
+  if (password.length < 6) {
+    setLoginMessage(els.passwordResetMessage, "La contraseña debe tener al menos 6 caracteres.", true);
+    return;
+  }
+  if (password !== confirmPassword) {
+    setLoginMessage(els.passwordResetMessage, "Las contraseñas no coinciden.", true);
+    return;
+  }
+  if (els.passwordResetSubmit) {
+    els.passwordResetSubmit.disabled = true;
+    els.passwordResetSubmit.textContent = "Guardando...";
+  }
+  try {
+    const { error } = await withSupabaseTimeout(
+      client.auth.updateUser({ password }),
+      "No se pudo actualizar la contraseña a tiempo."
+    );
+    if (error) throw error;
+    await client.auth.signOut();
+    lockInternalSession();
+    showInternalLogin(true, "Contraseña actualizada. Iniciá sesión nuevamente.", true);
+  } catch (error) {
+    console.error("GB Mayorista password reset:", error);
+    setLoginMessage(els.passwordResetMessage, error.message || "No se pudo actualizar la contraseña. Intentá nuevamente.", true);
+  } finally {
+    if (els.passwordResetSubmit) {
+      els.passwordResetSubmit.disabled = false;
+      els.passwordResetSubmit.textContent = "Guardar contraseña";
+    }
+  }
 }
 
 async function handleInternalLogin(event) {
