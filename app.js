@@ -5790,7 +5790,7 @@ function buildOrderPrintDocument(order) {
   }));
   return {
     title: getOrderDocumentTitle(order),
-    record: formatRecordNumber(order),
+    record: formatOrderDocumentNumber(order),
     date: formatDocumentDateTime(order.createdAt),
     customer: getOrderCustomerName(order),
     phone: order.customerPhone || "Sin teléfono",
@@ -5886,7 +5886,12 @@ function formatDocumentDateTime(value) {
 }
 
 function getOrderDocumentTitle(order) {
-  return "Consulta";
+  return formatOrderDocumentNumber(order);
+}
+
+function formatOrderDocumentNumber(order) {
+  const number = Math.max(1, Number(order?.number) || 1);
+  return `Pedido #${String(number).padStart(4, "0")}`;
 }
 
 function printOrder(id) {
@@ -6314,7 +6319,16 @@ function getWinAnsiByte(char) {
 
 function buildPdfFilename(prefix, order) {
   const number = String(Math.max(1, Number(order?.number) || 1)).padStart(4, "0");
-  return `${prefix}-Consulta-${number}.pdf`;
+  const customer = formatPdfCustomerFilenameSegment(getOrderCustomerName(order));
+  return `Pedido-${number}-${customer}.pdf`;
+}
+
+function formatPdfCustomerFilenameSegment(value) {
+  return String(value || "Cliente")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "Cliente";
 }
 
 function slugifyFilename(value) {
