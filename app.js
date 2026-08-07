@@ -316,6 +316,7 @@ const els = {
   adminCategorySummary: document.querySelector("#adminCategorySummary"),
   downloadTemplate: document.querySelector("#downloadTemplate"),
   adminProducts: document.querySelector("#adminProducts"),
+  archivedProducts: document.querySelector("#archivedProducts"),
   stockProducts: document.querySelector("#stockProducts"),
   resetProducts: document.querySelector("#resetProducts"),
   addSampleOrder: document.querySelector("#addSampleOrder"),
@@ -1000,7 +1001,7 @@ async function loadCatalogFromSupabase() {
 
   return {
     categories: mapSupabaseCategoriesToLocal(categoryRows || []),
-    products: mapSupabaseProductsToLocal(productRows || []).filter((product) => product.active !== false)
+    products: mapSupabaseProductsToLocal(productRows || [])
   };
 }
 
@@ -1544,6 +1545,23 @@ function getProductOrderDependencyCount(productId) {
     ));
     return count + (hasProduct ? 1 : 0);
   }, 0);
+}
+
+async function archiveProductInSupabase(product) {
+  if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede archivar productos.");
+  product.active = false;
+  product.showInCatalog = false;
+  const result = await syncSingleProductToSupabase(product, "archive-product");
+  if (!result?.ok) throw new Error(result?.message || "No se pudo archivar el producto en Supabase.");
+  return result;
+}
+
+async function restoreProductInSupabase(product) {
+  if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede restaurar productos.");
+  product.active = true;
+  const result = await syncSingleProductToSupabase(product, "restore-product");
+  if (!result?.ok) throw new Error(result?.message || "No se pudo restaurar el producto en Supabase.");
+  return result;
 }
 async function deleteExplicitlyRemovedProductsFromSupabase(client) {
   const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
@@ -2344,6 +2362,7 @@ function renderAdmin() {
   const query = normalizeProductSearchText(els.adminSearchInput?.value || "");
   const queryWords = query ? query.split(" ").filter(Boolean) : [];
   const orderedProducts = sortAdminProducts(getOrderedProducts().filter((product) => {
+    if (product.active === false) return false;
     const matchesCategory = product.category === currentAdminCategory;
     const searchableText = normalizeProductSearchText([
       product.name,
@@ -2361,6 +2380,7 @@ function renderAdmin() {
   }
 
   if (!orderedProducts.length) {
+    renderAdminArchivedProducts();
     els.adminProducts.innerHTML = `
       <tr>
         <td colspan="${adminColumnCount}">
@@ -2434,6 +2454,7 @@ function renderAdmin() {
   els.adminProducts.querySelectorAll("[data-edit-product]").forEach((button) => {
     button.addEventListener("click", () => openEditProductModal(button.dataset.editProduct));
   });
+  renderAdminArchivedProducts();
 }
 
 function getAdminOrderProducts(category) {
@@ -2962,27 +2983,114 @@ async function deleteEditingProduct() {
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
   const dependencyCount = getProductOrderDependencyCount(product.id);
-  if (dependencyCount > 0) {
-    showToast(`No se puede eliminar: aparece en ${dependencyCount} consulta(s)/pedido(s). Usá "Mostrar en catálogo: No".`);
-    return;
-  }
+  const hasDependencies = dependencyCount > 0;
 
   await requestDeleteConfirmation({
-    title: "¿Eliminar definitivamente este producto?",
+    title: hasDependencies ? "¿Archivar este producto?" : "¿Eliminar definitivamente este producto?",
+    text: hasDependencies
+      ? `"${getProductDisplayName(product)}" aparece en ${dependencyCount} consulta(s)/pedido(s). No se eliminará físicamente: se moverá a Productos archivados para conservar el historial.`
+      : `Vas a eliminar definitivamente "${getProductDisplayName(product)}". Esta acción no se puede deshacer.`,
+    confirmText: hasDependencies ? "Archivar producto" : "Eliminar definitivamente",
+    loadingText: hasDependencies ? "Archivando..." : "Eliminando...",
+    action: async () => {
+      const scrollTop = getAdminTableScrollTop();
+      if (hasDependencies) {
+        await archiveProductInSupabase(product);
+        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+      } else {
+        await ensureProductDeletedFromSupabase(product.id, getProductDisplayName(product));
+        await removeProductImagesFromStorage(product);
+        products = products.filter((item) => item.id !== product.id);
+        supabaseCatalogPendingDeletedProductIds.delete(product.id);
+        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+      }
+      closeEditProductModal({ skipUnsavedCheck: true });
+      await refreshCatalogFromSupabase(hasDependencies ? "after-archive-product" : "after-delete-product", { silent: true });
+      renderAll();
+      restoreAdminTableScroll(scrollTop);
+      showToast(hasDependencies ? "Producto archivado correctamente" : "Producto eliminado correctamente", "success");
+    }
+  });
+}
+
+function renderAdminArchivedProducts() {
+  if (!els.archivedProducts) return;
+  const panel = els.archivedProducts.closest(".archived-products-panel");
+  const isAdmin = canAccess("admin");
+  panel?.classList.toggle("hidden", !isAdmin);
+  if (!isAdmin) {
+    els.archivedProducts.innerHTML = "";
+    return;
+  }
+  const archived = getOrderedProducts().filter((product) => product.active === false);
+  if (!archived.length) {
+    els.archivedProducts.innerHTML = `<div class="empty-state compact">No hay productos archivados.</div>`;
+    return;
+  }
+  els.archivedProducts.innerHTML = archived.map((product) => {
+    const dependencyCount = getProductOrderDependencyCount(product.id);
+    return `
+      <article class="archived-product-row">
+        <div class="archived-product-thumb">
+          ${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span>Sin foto</span>`}
+        </div>
+        <div class="archived-product-info">
+          <strong>${escapeHtml(getProductDisplayName(product))}</strong>
+          <span>${escapeHtml(getProductOptionName(product) || "Sin talle")} · ${escapeHtml(product.category || "Sin categoría")}</span>
+          <small>${dependencyCount ? `${dependencyCount} consulta(s)/pedido(s) asociado(s)` : "Sin referencias históricas detectadas"}</small>
+        </div>
+        <div class="archived-product-actions">
+          <button class="secondary-button small-button" type="button" data-restore-archived-product="${escapeHtml(product.id)}">Restaurar producto</button>
+          <button class="danger-button small-button" type="button" data-delete-archived-product="${escapeHtml(product.id)}" ${dependencyCount ? "disabled title=\"No se puede eliminar definitivamente porque conserva historial\"" : ""}>Eliminar definitivamente</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.archivedProducts.querySelectorAll("[data-restore-archived-product]").forEach((button) => {
+    button.addEventListener("click", () => restoreArchivedProduct(button.dataset.restoreArchivedProduct));
+  });
+  els.archivedProducts.querySelectorAll("[data-delete-archived-product]").forEach((button) => {
+    button.addEventListener("click", () => deleteArchivedProductPermanently(button.dataset.deleteArchivedProduct));
+  });
+}
+
+async function restoreArchivedProduct(productId) {
+  if (!canAccess("admin")) return;
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  try {
+    await restoreProductInSupabase(product);
+    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    await refreshCatalogFromSupabase("after-restore-product", { silent: true });
+    renderAll();
+    showToast("Producto restaurado correctamente", "success");
+  } catch (error) {
+    console.error("No se pudo restaurar producto", error);
+    showToast(error.message || "No se pudo restaurar el producto");
+  }
+}
+
+async function deleteArchivedProductPermanently(productId) {
+  if (!canAccess("admin")) return;
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  const dependencyCount = getProductOrderDependencyCount(product.id);
+  if (dependencyCount > 0) {
+    showToast(`No se puede eliminar definitivamente: aparece en ${dependencyCount} consulta(s)/pedido(s).`);
+    return;
+  }
+  await requestDeleteConfirmation({
+    title: "¿Eliminar definitivamente este producto archivado?",
     text: `Vas a eliminar definitivamente "${getProductDisplayName(product)}". Esta acción no se puede deshacer.`,
     confirmText: "Eliminar definitivamente",
     loadingText: "Eliminando...",
     action: async () => {
-      const scrollTop = getAdminTableScrollTop();
       await ensureProductDeletedFromSupabase(product.id, getProductDisplayName(product));
       await removeProductImagesFromStorage(product);
       products = products.filter((item) => item.id !== product.id);
-      supabaseCatalogPendingDeletedProductIds.delete(product.id);
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      closeEditProductModal({ skipUnsavedCheck: true });
-      await refreshCatalogFromSupabase("after-delete-product", { silent: true });
+      await refreshCatalogFromSupabase("after-delete-archived-product", { silent: true });
       renderAll();
-      restoreAdminTableScroll(scrollTop);
       showToast("Producto eliminado correctamente", "success");
     }
   });
@@ -3270,7 +3378,7 @@ function renderAdminCategories() {
   const categoryNames = getVisibleCategories();
   if (!categoryNames.includes(currentAdminCategory)) currentAdminCategory = categoryNames[0] || "";
   els.adminCategoryFilters.innerHTML = categoryNames.map((category) => {
-    const count = products.filter((product) => product.category === category).length;
+    const count = products.filter((product) => product.active !== false && product.category === category).length;
     return `<button class="${category === currentAdminCategory ? "active" : ""}" type="button" data-admin-category="${escapeHtml(category)}">${escapeHtml(category)} <span>(${count})</span></button>`;
   }).join("");
 
@@ -3576,7 +3684,7 @@ function getBrandFromProductName(name) {
 function renderCategoryManager() {
   if (!els.categoryManagerList) return;
   els.categoryManagerList.innerHTML = categories.map((category) => {
-    const count = products.filter((product) => product.category === category.name).length;
+    const count = products.filter((product) => product.active !== false && product.category === category.name).length;
     return `
       <div class="category-manager-row">
         <div>
@@ -3728,7 +3836,9 @@ function renderVariantSummary(product) {
 
 function renderStock() {
   if (!els.stockProducts) return;
-  const stockRows = getOrderedProducts().flatMap((product) => getProductStockRows(product));
+  const stockRows = getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .flatMap((product) => getProductStockRows(product));
   els.stockProducts.innerHTML = stockRows.map(({ product, variant }) => `
     <tr class="${product.active ? "" : "is-hidden-product"}">
       <td data-label="Producto"><strong>${escapeHtml(getProductArticleName(product))}</strong></td>
