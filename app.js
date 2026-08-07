@@ -190,6 +190,7 @@ let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
 let adminProductSort = { field: "sortOrder", direction: "asc" };
 let savingOrderProductId = "";
+let adminDragState = null;
 let currentView = "catalogo";
 let previewOrderId = "";
 let previewMode = "budget";
@@ -1466,6 +1467,7 @@ function formatSupabaseOperationError(error, fallback = "La operación en Supaba
 }
 
 async function ensureProductDeletedFromSupabase(productId, productName = "producto") {
+  if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede eliminar productos.");
   const client = getSupabaseCatalogClient();
   if (!client) throw new Error("Supabase no está disponible. No se eliminó el producto.");
   const id = String(productId || "").trim();
@@ -1498,6 +1500,50 @@ async function ensureProductDeletedFromSupabase(productId, productName = "produc
   }
 
   return true;
+}
+
+function getProductImageStoragePath(image) {
+  const value = String(image || "").trim();
+  if (!value || value === DEFAULT_PRODUCT_IMAGE || value.startsWith("data:") || value.startsWith("blob:")) return "";
+  const bucket = "product-images";
+  try {
+    const parsed = new URL(value);
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const markerIndex = parsed.pathname.indexOf(marker);
+    if (markerIndex >= 0) return decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  } catch (_) {
+    // Puede venir guardado como ruta relativa del bucket.
+  }
+  const clean = value.replace(/^\/+/, "");
+  if (clean.startsWith(`${bucket}/`)) return clean.slice(bucket.length + 1);
+  if (clean.startsWith("products/")) return clean;
+  return "";
+}
+
+async function removeProductImagesFromStorage(product) {
+  const client = getSupabaseCatalogClient();
+  if (!client) return;
+  const paths = [...new Set(getStoredProductImages(product).map(getProductImageStoragePath).filter(Boolean))];
+  if (!paths.length) return;
+  const { error } = await client.storage.from("product-images").remove(paths);
+  if (error) {
+    console.warn("GB Mayorista storage image delete:", error);
+    showToast("Producto eliminado. No se pudieron limpiar algunas fotos de Storage.");
+  }
+}
+
+function getProductOrderDependencyCount(productId) {
+  const id = String(productId || "");
+  if (!id) return 0;
+  return orders.reduce((count, order) => {
+    const hasProduct = (order.items || []).some((item) => (
+      String(item.id || "") === id
+      || String(item.productId || "") === id
+      || String(item.internalProductId || "") === id
+      || String(item.catalogProductId || "") === id
+    ));
+    return count + (hasProduct ? 1 : 0);
+  }, 0);
 }
 async function deleteExplicitlyRemovedProductsFromSupabase(client) {
   const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
@@ -2277,7 +2323,7 @@ function renderAdmin() {
   const isAdmin = canAccess("admin");
   const canManageProducts = hasPermission("manageProducts") || isAdmin;
   const canEditSaleData = hasPermission("editSaleData") || isAdmin;
-  const adminColumnCount = 7 + (isAdmin ? 1 : 0) + (canManageProducts ? 2 : 0);
+  const adminColumnCount = 7 + (isAdmin ? 1 : 0) + (canManageProducts ? 1 : 0);
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
@@ -2289,7 +2335,6 @@ function renderAdmin() {
       <th>${renderSortHeader("price", "Venta")}</th>
       <th>${renderSortHeader("stock", "Stock")}</th>
       <th>Catálogo</th>
-      ${canManageProducts ? "<th>Orden</th>" : ""}
       ${canManageProducts ? "<th>Editar</th>" : ""}
     `;
     adminHead.querySelectorAll("[data-sort-products]").forEach((button) => {
@@ -2327,7 +2372,7 @@ function renderAdmin() {
   }
 
   els.adminProducts.innerHTML = orderedProducts.map((product, index) => `
-    <tr class="${getAdminProductRowClass(product)}" data-admin-product-row="${escapeHtml(product.id)}">
+    <tr class="${getAdminProductRowClass(product)} admin-draggable-product" data-admin-product-row="${escapeHtml(product.id)}" data-admin-drag-product="${escapeHtml(product.id)}" data-admin-drag-category="${escapeHtml(product.category)}">
       <td class="mobile-product-card" colspan="${adminColumnCount}">
         <div class="mobile-product-row">
           <div class="mobile-product-thumb">
@@ -2340,7 +2385,6 @@ function renderAdmin() {
           </div>
           ${canManageProducts ? `
             <div class="mobile-product-actions">
-              ${renderAdminOrderButtons(product, index, orderedProducts.length, "mobile")}
               <button class="edit-product-button mobile-edit-product" type="button" data-edit-product="${product.id}" aria-label="Editar producto">Editar</button>
             </div>
           ` : ""}
@@ -2356,7 +2400,6 @@ function renderAdmin() {
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
       <td data-label="Catálogo" class="product-catalog-cell"><span class="catalog-status ${product.showInCatalog !== false ? "is-visible" : "is-hidden"}">${product.showInCatalog !== false ? "Sí" : "No"}</span></td>
-      ${canManageProducts ? `<td data-label="Orden" class="product-order-cell">${renderAdminOrderButtons(product, index, orderedProducts.length, "desktop")}</td>` : ""}
       ${canManageProducts ? `
         <td data-label="Editar" class="edit-column product-edit-cell">
           <button class="edit-product-button" type="button" data-edit-product="${product.id}" aria-label="Editar producto" title="Editar">Editar</button>
@@ -2386,31 +2429,13 @@ function renderAdmin() {
     input.addEventListener("blur", () => updateInlineProductField(input));
   });
 
-  els.adminProducts.querySelectorAll("[data-admin-order-move]").forEach((button) => {
-    button.addEventListener("click", () => moveAdminProductOrder(button.dataset.productId, button.dataset.adminOrderMove));
-  });
+  setupAdminProductDragAndDrop();
 
   els.adminProducts.querySelectorAll("[data-edit-product]").forEach((button) => {
     button.addEventListener("click", () => openEditProductModal(button.dataset.editProduct));
   });
 }
 
-function renderAdminOrderButtons(product, index, total, scope = "desktop") {
-  const categoryProducts = getAdminOrderProducts(product.category);
-  const categoryIndex = categoryProducts.findIndex((item) => item.id === product.id);
-  const isSaving = savingOrderProductId === product.id;
-  const isFirst = categoryIndex <= 0;
-  const isLast = categoryIndex < 0 || categoryIndex >= categoryProducts.length - 1;
-  const labelScope = scope === "mobile" ? " móvil" : "";
-  const upDisabled = isSaving || isFirst ? "disabled" : "";
-  const downDisabled = isSaving || isLast ? "disabled" : "";
-  return `
-    <div class="admin-order-buttons ${scope === "mobile" ? "mobile-order-buttons" : ""}" aria-label="Orden del producto">
-      <button class="admin-order-button" type="button" data-admin-order-move="up" data-product-id="${escapeHtml(product.id)}" ${upDisabled} aria-label="Subir producto${labelScope}">↑</button>
-      <button class="admin-order-button" type="button" data-admin-order-move="down" data-product-id="${escapeHtml(product.id)}" ${downDisabled} aria-label="Bajar producto${labelScope}">↓</button>
-    </div>
-  `;
-}
 function getAdminOrderProducts(category) {
   return getOrderedProducts()
     .filter((product) => product.active !== false)
@@ -2418,15 +2443,9 @@ function getAdminOrderProducts(category) {
 }
 
 function applyProductOrderToCategory(category, orderedCategoryProducts) {
-  const existingOrderValues = getOrderedProducts()
-    .filter((product) => product.active !== false)
-    .filter((product) => product.category === category)
-    .map((product, index) => Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : (index + 1) * 10)
-    .sort((a, b) => a - b);
-
   orderedCategoryProducts.forEach((orderedProduct, index) => {
     const product = products.find((item) => item.id === orderedProduct.id);
-    if (product) product.sortOrder = existingOrderValues[index] ?? (index + 1) * 10;
+    if (product) product.sortOrder = (index + 1) * 10;
   });
 }
 
@@ -2489,6 +2508,145 @@ async function moveAdminProductOrder(productId, direction) {
     restoreAdminTableScroll(scrollTop);
   }
 }
+
+function setupAdminProductDragAndDrop() {
+  if (!hasPermission("manageProducts") || !els.adminProducts) return;
+  els.adminProducts.querySelectorAll("[data-admin-drag-product]").forEach((row) => {
+    row.addEventListener("pointerdown", handleAdminProductDragStart);
+  });
+}
+
+function handleAdminProductDragStart(event) {
+  if (savingOrderProductId || !hasPermission("manageProducts")) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  if (event.target.closest("button, input, select, textarea, a, label, summary, details")) return;
+  if (String(els.adminSearchInput?.value || "").trim()) {
+    showToast("Para ordenar, limpiá primero la búsqueda y filtrá por categoría.");
+    return;
+  }
+  const row = event.currentTarget;
+  const productId = row.dataset.adminDragProduct;
+  const category = row.dataset.adminDragCategory;
+  if (!productId || !category) return;
+  const orderedRows = getVisibleAdminDragRows(category);
+  if (orderedRows.length < 2) return;
+
+  adminDragState = {
+    pointerId: event.pointerId,
+    productId,
+    category,
+    row,
+    startX: event.clientX,
+    startY: event.clientY,
+    active: false,
+    timer: window.setTimeout(() => activateAdminProductDrag(), event.pointerType === "touch" ? 180 : 80),
+    previousSortOrders: products.map((item) => ({ id: item.id, sortOrder: item.sortOrder })),
+    previousSort: { ...adminProductSort },
+    scrollTop: getAdminTableScrollTop()
+  };
+  row.setPointerCapture?.(event.pointerId);
+  row.addEventListener("pointermove", handleAdminProductDragMove);
+  row.addEventListener("pointerup", handleAdminProductDragEnd);
+  row.addEventListener("pointercancel", cancelAdminProductDrag);
+}
+
+function activateAdminProductDrag() {
+  if (!adminDragState || adminDragState.active) return;
+  adminDragState.active = true;
+  adminProductSort = { field: "sortOrder", direction: "asc" };
+  document.body.classList.add("admin-product-dragging-active");
+  adminDragState.row.classList.add("is-dragging");
+}
+
+function handleAdminProductDragMove(event) {
+  if (!adminDragState || event.pointerId !== adminDragState.pointerId) return;
+  const distance = Math.hypot(event.clientX - adminDragState.startX, event.clientY - adminDragState.startY);
+  if (!adminDragState.active && distance > 8) activateAdminProductDrag();
+  if (!adminDragState.active) return;
+  event.preventDefault();
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-admin-drag-product]");
+  if (!target || target === adminDragState.row || target.dataset.adminDragCategory !== adminDragState.category) return;
+  const targetRect = target.getBoundingClientRect();
+  const beforeTarget = event.clientY < targetRect.top + targetRect.height / 2;
+  const parent = target.parentElement;
+  if (!parent) return;
+  if (beforeTarget) parent.insertBefore(adminDragState.row, target);
+  else parent.insertBefore(adminDragState.row, target.nextSibling);
+}
+
+async function handleAdminProductDragEnd(event) {
+  if (!adminDragState || event.pointerId !== adminDragState.pointerId) return;
+  const state = adminDragState;
+  cleanupAdminProductDragListeners(event);
+  window.clearTimeout(state.timer);
+  if (!state.active) {
+    adminDragState = null;
+    return;
+  }
+
+  const orderedIds = getVisibleAdminDragRows(state.category).map((row) => row.dataset.adminDragProduct).filter(Boolean);
+  const orderedProducts = orderedIds.map((id) => products.find((product) => product.id === id)).filter(Boolean);
+  if (!orderedProducts.length) {
+    cancelAdminProductDrag();
+    return;
+  }
+
+  savingOrderProductId = state.productId;
+  applyProductOrderToCategory(state.category, orderedProducts);
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  renderCatalog();
+  renderAdmin();
+  restoreAdminTableScroll(state.scrollTop);
+
+  try {
+    await persistProductSortOrder(getAdminOrderProducts(state.category));
+    showToast("Orden guardado", "success");
+  } catch (error) {
+    state.previousSortOrders.forEach((snapshot) => {
+      const productToRestore = products.find((item) => item.id === snapshot.id);
+      if (productToRestore) productToRestore.sortOrder = snapshot.sortOrder;
+    });
+    adminProductSort = state.previousSort;
+    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    console.error("No se pudo guardar el orden", error);
+    showToast(error.message || "No se pudo guardar el orden");
+  } finally {
+    savingOrderProductId = "";
+    adminDragState = null;
+    document.body.classList.remove("admin-product-dragging-active");
+    renderCatalog();
+    renderAdmin();
+    restoreAdminTableScroll(state.scrollTop);
+  }
+}
+
+function cancelAdminProductDrag(event) {
+  if (!adminDragState) return;
+  const state = adminDragState;
+  cleanupAdminProductDragListeners(event);
+  window.clearTimeout(state.timer);
+  state.row.classList.remove("is-dragging");
+  document.body.classList.remove("admin-product-dragging-active");
+  adminDragState = null;
+  renderAdmin();
+  restoreAdminTableScroll(state.scrollTop);
+}
+
+function cleanupAdminProductDragListeners(event) {
+  if (!adminDragState) return;
+  const row = adminDragState.row;
+  if (event?.pointerId !== undefined) row.releasePointerCapture?.(event.pointerId);
+  row.removeEventListener("pointermove", handleAdminProductDragMove);
+  row.removeEventListener("pointerup", handleAdminProductDragEnd);
+  row.removeEventListener("pointercancel", cancelAdminProductDrag);
+  row.classList.remove("is-dragging");
+}
+
+function getVisibleAdminDragRows(category) {
+  return [...(els.adminProducts?.querySelectorAll("[data-admin-drag-product]") || [])]
+    .filter((row) => row.dataset.adminDragCategory === category);
+}
+
 function updateProductCatalogVisibility(productId, showInCatalog) {
   if (!hasPermission("editSaleData") && !canAccess("admin")) return;
   const product = products.find((item) => item.id === productId);
@@ -2669,6 +2827,11 @@ function openEditProductModal(productId) {
   if (els.editProductVariants) els.editProductVariants.value = product.variants || "";
   window.setTimeout(() => { editProductInitialState = getEditProductFormState(); }, 0);
   els.editProductCostWrap?.classList.toggle("hidden", !canAccess("admin"));
+  els.deleteProductButton?.classList.toggle("hidden", !canAccess("admin"));
+  if (els.deleteProductButton) {
+    els.deleteProductButton.disabled = !canAccess("admin");
+    els.deleteProductButton.title = canAccess("admin") ? "Eliminar producto" : "";
+  }
   els.editProductOverlay.classList.remove("hidden");
   els.editProductOverlay.setAttribute("aria-hidden", "false");
   pushEditProductHistoryState();
@@ -2795,7 +2958,34 @@ function duplicateEditingProduct() {
 }
 
 async function deleteEditingProduct() {
-  showToast("Eliminar producto queda pendiente hasta implementar borrado seguro con autenticacion.");
+  if (!canAccess("admin") || !editingProductId) return;
+  const product = products.find((item) => item.id === editingProductId);
+  if (!product) return;
+  const dependencyCount = getProductOrderDependencyCount(product.id);
+  if (dependencyCount > 0) {
+    showToast(`No se puede eliminar: aparece en ${dependencyCount} consulta(s)/pedido(s). Usá "Mostrar en catálogo: No".`);
+    return;
+  }
+
+  await requestDeleteConfirmation({
+    title: "¿Eliminar definitivamente este producto?",
+    text: `Vas a eliminar definitivamente "${getProductDisplayName(product)}". Esta acción no se puede deshacer.`,
+    confirmText: "Eliminar definitivamente",
+    loadingText: "Eliminando...",
+    action: async () => {
+      const scrollTop = getAdminTableScrollTop();
+      await ensureProductDeletedFromSupabase(product.id, getProductDisplayName(product));
+      await removeProductImagesFromStorage(product);
+      products = products.filter((item) => item.id !== product.id);
+      supabaseCatalogPendingDeletedProductIds.delete(product.id);
+      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+      closeEditProductModal({ skipUnsavedCheck: true });
+      await refreshCatalogFromSupabase("after-delete-product", { silent: true });
+      renderAll();
+      restoreAdminTableScroll(scrollTop);
+      showToast("Producto eliminado correctamente", "success");
+    }
+  });
 }
 
 function validateProductForm(form) {

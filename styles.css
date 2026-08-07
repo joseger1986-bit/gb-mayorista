@@ -11256,35 +11256,26 @@ body.cart-is-open {
 }
 
 /* Orden integrado en la lista normal de Gestión */
-.product-order-cell {
-  min-width: 92px;
-  text-align: center;
+.admin-draggable-product {
+  cursor: grab;
+  touch-action: pan-y;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
 }
 
-.admin-order-buttons {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  justify-content: center;
+.admin-draggable-product:active {
+  cursor: grabbing;
 }
 
-.admin-order-button {
-  width: 38px;
-  min-width: 38px;
-  height: 34px;
-  min-height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff8d6;
-  color: var(--text);
-  font-size: 1.05rem;
-  font-weight: 950;
-  cursor: pointer;
+.admin-draggable-product.is-dragging {
+  opacity: 0.86;
+  transform: scale(1.01);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+  position: relative;
+  z-index: 4;
 }
 
-.admin-order-button:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
+.admin-product-dragging-active {
+  user-select: none;
 }
 
 @media (min-width: 901px) {
@@ -11321,20 +11312,6 @@ body.cart-is-open {
     display: grid;
     gap: 6px;
     justify-items: stretch;
-  }
-
-  #adminView .mobile-order-buttons {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px;
-  }
-
-  #adminView .mobile-order-buttons .admin-order-button {
-    width: 42px;
-    min-width: 42px;
-    height: 38px;
-    min-height: 38px;
-    border-radius: 9px;
   }
 }
 /* Encabezado público negro y dorado */
