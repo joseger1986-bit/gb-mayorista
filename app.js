@@ -36,6 +36,14 @@ const defaultProductCategories = [
   "Blanquería"
 ];
 
+const catalogCategoryOrder = [
+  ["medias"],
+  ["ropa interior hombre"],
+  ["ropa interior dama"],
+  ["ropa interior nino"],
+  ["blanqueria", "blanquer a"]
+];
+
 const statuses = [
   "En revisión",
   "Pagado"
@@ -1978,6 +1986,7 @@ function getCatalogProducts() {
           name: info.name,
           brand: product.brand || "GB Mayorista",
           category: product.category,
+          sortOrder: Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : Number.MAX_SAFE_INTEGER,
           description: product.description || "",
           image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
           images: productImages,
@@ -1988,6 +1997,8 @@ function getCatalogProducts() {
       }
       const group = groups.get(key);
       if (!group.description && product.description) group.description = product.description;
+      const productSortOrder = Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : Number.MAX_SAFE_INTEGER;
+      group.sortOrder = Math.min(group.sortOrder, productSortOrder);
       group.images = mergeProductImages(group.images, productImages);
       group.image = group.images[0] || DEFAULT_PRODUCT_IMAGE;
       const variantsToAdd = customVariants.length
@@ -2039,7 +2050,22 @@ function getCatalogProducts() {
       variants,
       price: variants[0]?.price || 0
     };
-  });
+  }).sort(compareCatalogGroups);
+}
+
+function compareCatalogGroups(a, b) {
+  const categoryDiff = getCatalogCategoryRank(a.category) - getCatalogCategoryRank(b.category);
+  if (categoryDiff !== 0) return categoryDiff;
+  const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+  const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+  if (left !== right) return left - right;
+  return String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" });
+}
+
+function getCatalogCategoryRank(category) {
+  const normalizedCategory = normalizeProductSearchText(category);
+  const index = catalogCategoryOrder.findIndex((aliases) => aliases.includes(normalizedCategory));
+  return index === -1 ? catalogCategoryOrder.length : index;
 }
 
 function getCatalogGroupInfo(product) {
