@@ -310,6 +310,9 @@ const els = {
   adminSearchInput: document.querySelector("#adminSearchInput"),
   adminCategoryFilters: document.querySelector("#adminCategoryFilters"),
   manageCategoriesButton: document.querySelector("#manageCategoriesButton"),
+  viewArchivedProductsButton: document.querySelector("#viewArchivedProductsButton"),
+  archivedProductsOverlay: document.querySelector("#archivedProductsOverlay"),
+  archivedProductsClose: document.querySelector("#archivedProductsClose"),
   categoryManager: document.querySelector("#categoryManager"),
   closeCategoryManager: document.querySelector("#closeCategoryManager"),
   newCategoryName: document.querySelector("#newCategoryName"),
@@ -481,6 +484,11 @@ els.manageCategoriesButton?.addEventListener("click", () => {
   els.categoryManager?.setAttribute("aria-hidden", "false");
   window.setTimeout(() => els.newCategoryName?.focus(), 0);
 });
+els.viewArchivedProductsButton?.addEventListener("click", openArchivedProductsPanel);
+els.archivedProductsClose?.addEventListener("click", closeArchivedProductsPanel);
+els.archivedProductsOverlay?.addEventListener("click", (event) => {
+  if (event.target === els.archivedProductsOverlay) closeArchivedProductsPanel();
+});
 els.closeCategoryManager?.addEventListener("click", () => {
   els.categoryManager?.classList.add("hidden");
   els.categoryManager?.setAttribute("aria-hidden", "true");
@@ -642,6 +650,10 @@ els.imageLightbox?.addEventListener("touchend", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isConfirmDialogOpen()) {
     closeConfirmDialog(false);
+    return;
+  }
+  if (event.key === "Escape" && els.archivedProductsOverlay && !els.archivedProductsOverlay.classList.contains("hidden")) {
+    closeArchivedProductsPanel();
     return;
   }
   if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
@@ -2383,7 +2395,6 @@ function renderAdmin() {
   }
 
   if (!orderedProducts.length) {
-    renderAdminArchivedProducts();
     els.adminProducts.innerHTML = `
       <tr>
         <td colspan="${adminColumnCount}">
@@ -2457,7 +2468,6 @@ function renderAdmin() {
   els.adminProducts.querySelectorAll("[data-edit-product]").forEach((button) => {
     button.addEventListener("click", () => openEditProductModal(button.dataset.editProduct));
   });
-  renderAdminArchivedProducts();
 }
 
 function getAdminOrderProducts(category) {
@@ -2996,9 +3006,7 @@ async function deleteEditingProduct() {
 
 function renderAdminArchivedProducts() {
   if (!els.archivedProducts) return;
-  const panel = els.archivedProducts.closest(".archived-products-panel");
   const isAdmin = canAccess("admin");
-  panel?.classList.toggle("hidden", !isAdmin);
   if (!isAdmin) {
     els.archivedProducts.innerHTML = "";
     return;
@@ -3035,6 +3043,19 @@ function renderAdminArchivedProducts() {
   });
 }
 
+function openArchivedProductsPanel() {
+  if (!canAccess("admin")) return;
+  renderAdminArchivedProducts();
+  els.archivedProductsOverlay?.classList.remove("hidden");
+  els.archivedProductsOverlay?.setAttribute("aria-hidden", "false");
+  document.querySelector(".more-product-actions[open]")?.removeAttribute("open");
+}
+
+function closeArchivedProductsPanel() {
+  els.archivedProductsOverlay?.classList.add("hidden");
+  els.archivedProductsOverlay?.setAttribute("aria-hidden", "true");
+}
+
 async function restoreArchivedProduct(productId) {
   if (!canAccess("admin")) return;
   const product = products.find((item) => item.id === productId);
@@ -3044,6 +3065,7 @@ async function restoreArchivedProduct(productId) {
     localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     await refreshCatalogFromSupabase("after-restore-product", { silent: true });
     renderAll();
+    renderAdminArchivedProducts();
     showToast("Producto restaurado correctamente", "success");
   } catch (error) {
     console.error("No se pudo restaurar producto", error);
@@ -3072,6 +3094,7 @@ async function deleteArchivedProductPermanently(productId) {
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
       await refreshCatalogFromSupabase("after-delete-archived-product", { silent: true });
       renderAll();
+      renderAdminArchivedProducts();
       showToast("Producto eliminado correctamente", "success");
     }
   });
