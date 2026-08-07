@@ -11256,28 +11256,25 @@ body.cart-is-open {
 }
 
 /* Orden integrado en la lista normal de Gestión */
-.admin-draggable-product {
-  cursor: grab;
-  touch-action: pan-y;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+.admin-selectable-product {
+  cursor: pointer;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
-.admin-draggable-product:active {
-  cursor: grabbing;
+.admin-selectable-product.is-order-selected {
+  background: #fff3bf;
+  box-shadow: inset 4px 0 0 #c9a24a, 0 8px 22px rgba(0, 0, 0, 0.12);
 }
 
-.admin-draggable-product.is-dragging {
-  opacity: 0.86;
-  transform: scale(1.01);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
-  position: relative;
-  z-index: 4;
+.admin-selectable-product.order-swap-flash {
+  animation: admin-order-swap-flash 0.48s ease;
 }
 
-.admin-product-dragging-active {
-  user-select: none;
+@keyframes admin-order-swap-flash {
+  0% { transform: scale(1); background-color: #fff3bf; }
+  45% { transform: scale(1.015); background-color: #ffe08a; }
+  100% { transform: scale(1); background-color: transparent; }
 }
-
 .archived-products-panel {
   margin-top: 16px;
   padding: 14px;

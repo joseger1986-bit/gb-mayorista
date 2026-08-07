@@ -190,7 +190,10 @@ let currentCategory = "Todas";
 let currentAdminCategory = products.find((product) => product.active !== false)?.category || getVisibleCategories()[0] || defaultProductCategories[0];
 let adminProductSort = { field: "sortOrder", direction: "asc" };
 let savingOrderProductId = "";
-let adminDragState = null;
+let selectedOrderProductId = "";
+let selectedOrderProductCategory = "";
+let adminOrderTouchState = null;
+let suppressNextOrderClick = { productId: "", until: 0 };
 let currentView = "catalogo";
 let previewOrderId = "";
 let previewMode = "budget";
@@ -2392,7 +2395,7 @@ function renderAdmin() {
   }
 
   els.adminProducts.innerHTML = orderedProducts.map((product, index) => `
-    <tr class="${getAdminProductRowClass(product)} admin-draggable-product" data-admin-product-row="${escapeHtml(product.id)}" data-admin-drag-product="${escapeHtml(product.id)}" data-admin-drag-category="${escapeHtml(product.category)}">
+    <tr class="${getAdminProductRowClass(product)} admin-selectable-product ${selectedOrderProductId === product.id ? "is-order-selected" : ""}" data-admin-product-row="${escapeHtml(product.id)}" data-admin-order-product="${escapeHtml(product.id)}" data-admin-order-category="${escapeHtml(product.category)}">
       <td class="mobile-product-card" colspan="${adminColumnCount}">
         <div class="mobile-product-row">
           <div class="mobile-product-thumb">
@@ -2449,7 +2452,7 @@ function renderAdmin() {
     input.addEventListener("blur", () => updateInlineProductField(input));
   });
 
-  setupAdminProductDragAndDrop();
+  setupAdminProductSelectionOrder();
 
   els.adminProducts.querySelectorAll("[data-edit-product]").forEach((button) => {
     button.addEventListener("click", () => openEditProductModal(button.dataset.editProduct));
@@ -2486,28 +2489,135 @@ async function persistProductSortOrder(orderedProducts) {
   }
 }
 
-async function moveAdminProductOrder(productId, direction) {
+function setupAdminProductSelectionOrder() {
+  if (!hasPermission("manageProducts") || !els.adminProducts) return;
+  els.adminProducts.querySelectorAll("[data-admin-order-product]").forEach((row) => {
+    row.addEventListener("click", handleAdminProductOrderClick);
+    row.addEventListener("pointerdown", handleAdminProductOrderPointerDown);
+    row.addEventListener("pointermove", handleAdminProductOrderPointerMove);
+    row.addEventListener("pointerup", clearAdminOrderTouchTimer);
+    row.addEventListener("pointercancel", clearAdminOrderTouchTimer);
+    row.addEventListener("pointerleave", clearAdminOrderTouchTimer);
+  });
+}
+
+function handleAdminProductOrderPointerDown(event) {
+  if (event.pointerType !== "touch" || savingOrderProductId || !hasPermission("manageProducts")) return;
+  if (event.target.closest("button, input, select, textarea, a, label, summary, details")) return;
+  const row = event.currentTarget;
+  const productId = row.dataset.adminOrderProduct;
+  const category = row.dataset.adminOrderCategory;
+  if (!productId || !category) return;
+  clearAdminOrderTouchTimer();
+  adminOrderTouchState = {
+    productId,
+    category,
+    startX: event.clientX,
+    startY: event.clientY,
+    timer: window.setTimeout(() => {
+      selectAdminOrderProduct(productId, category, { fromTouch: true });
+      suppressNextOrderClick = { productId, until: Date.now() + 700 };
+      adminOrderTouchState = null;
+    }, 950)
+  };
+}
+
+function handleAdminProductOrderPointerMove(event) {
+  if (!adminOrderTouchState) return;
+  const distance = Math.hypot(event.clientX - adminOrderTouchState.startX, event.clientY - adminOrderTouchState.startY);
+  if (distance > 12) clearAdminOrderTouchTimer();
+}
+
+function clearAdminOrderTouchTimer(event) {
+  if (!adminOrderTouchState) return;
+  if (event && event.type === "pointerleave") {
+    const distance = Math.hypot((event.clientX || 0) - adminOrderTouchState.startX, (event.clientY || 0) - adminOrderTouchState.startY);
+    if (distance < 12) return;
+  }
+  window.clearTimeout(adminOrderTouchState.timer);
+  adminOrderTouchState = null;
+}
+
+function handleAdminProductOrderClick(event) {
+  if (savingOrderProductId || !hasPermission("manageProducts")) return;
+  if (event.target.closest("button, input, select, textarea, a, label, summary, details")) return;
+  const row = event.currentTarget;
+  const productId = row.dataset.adminOrderProduct;
+  const category = row.dataset.adminOrderCategory;
+  if (!productId || !category) return;
+  if (suppressNextOrderClick.productId === productId && Date.now() < suppressNextOrderClick.until) {
+    suppressNextOrderClick = { productId: "", until: 0 };
+    return;
+  }
+  if (event.pointerType === "touch" && selectedOrderProductId !== productId) {
+    handleAdminOrderSecondSelection(productId, category);
+    return;
+  }
+  if (event.pointerType === "touch") return;
+  handleAdminOrderSecondSelection(productId, category);
+}
+
+function handleAdminOrderSecondSelection(productId, category) {
+  if (String(els.adminSearchInput?.value || "").trim()) {
+    showToast("Para ordenar, limpiá primero la búsqueda y filtrá por categoría.");
+    return;
+  }
+  if (!selectedOrderProductId) {
+    selectAdminOrderProduct(productId, category);
+    return;
+  }
+  if (selectedOrderProductId === productId) {
+    clearAdminOrderSelection();
+    showToast("Selección cancelada");
+    return;
+  }
+  if (selectedOrderProductCategory !== category) {
+    showToast("Solo podés intercambiar productos dentro de la misma categoría.");
+    clearAdminOrderSelection();
+    return;
+  }
+  swapAdminProductOrder(selectedOrderProductId, productId, category);
+}
+
+function selectAdminOrderProduct(productId, category) {
+  if (selectedOrderProductId === productId) {
+    clearAdminOrderSelection();
+    showToast("Selección cancelada");
+    return;
+  }
+  selectedOrderProductId = productId;
+  selectedOrderProductCategory = category;
+  renderAdmin();
+  showToast("Producto seleccionado. Tocá otro producto para intercambiarlo.");
+}
+
+function clearAdminOrderSelection() {
+  selectedOrderProductId = "";
+  selectedOrderProductCategory = "";
+  renderAdmin();
+}
+
+async function swapAdminProductOrder(firstProductId, secondProductId, category) {
   if (!hasPermission("manageProducts") || savingOrderProductId) return;
-  const product = products.find((item) => item.id === productId);
-  if (!product) return;
-  const category = product.category;
   const ordered = getAdminOrderProducts(category);
-  const currentIndex = ordered.findIndex((item) => item.id === productId);
-  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+  const firstIndex = ordered.findIndex((product) => product.id === firstProductId);
+  const secondIndex = ordered.findIndex((product) => product.id === secondProductId);
+  if (firstIndex < 0 || secondIndex < 0 || firstIndex === secondIndex) return;
 
   const scrollTop = getAdminTableScrollTop();
   const previousSortOrders = products.map((item) => ({ id: item.id, sortOrder: item.sortOrder }));
   const previousSort = { ...adminProductSort };
-  savingOrderProductId = productId;
+  savingOrderProductId = `${firstProductId}:${secondProductId}`;
   adminProductSort = { field: "sortOrder", direction: "asc" };
+  selectedOrderProductId = "";
+  selectedOrderProductCategory = "";
 
-  const [item] = ordered.splice(currentIndex, 1);
-  ordered.splice(nextIndex, 0, item);
+  [ordered[firstIndex], ordered[secondIndex]] = [ordered[secondIndex], ordered[firstIndex]];
   applyProductOrderToCategory(category, ordered);
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
   renderCatalog();
   renderAdmin();
+  markSwappedAdminRows([firstProductId, secondProductId]);
   restoreAdminTableScroll(scrollTop);
 
   try {
@@ -2530,144 +2640,15 @@ async function moveAdminProductOrder(productId, direction) {
   }
 }
 
-function setupAdminProductDragAndDrop() {
-  if (!hasPermission("manageProducts") || !els.adminProducts) return;
-  els.adminProducts.querySelectorAll("[data-admin-drag-product]").forEach((row) => {
-    row.addEventListener("pointerdown", handleAdminProductDragStart);
+function markSwappedAdminRows(productIds) {
+  window.requestAnimationFrame(() => {
+    productIds.forEach((id) => {
+      const row = els.adminProducts?.querySelector(`[data-admin-order-product="${CSS.escape(id)}"]`);
+      row?.classList.add("order-swap-flash");
+      window.setTimeout(() => row?.classList.remove("order-swap-flash"), 520);
+    });
   });
 }
-
-function handleAdminProductDragStart(event) {
-  if (savingOrderProductId || !hasPermission("manageProducts")) return;
-  if (event.button !== undefined && event.button !== 0) return;
-  if (event.target.closest("button, input, select, textarea, a, label, summary, details")) return;
-  if (String(els.adminSearchInput?.value || "").trim()) {
-    showToast("Para ordenar, limpiá primero la búsqueda y filtrá por categoría.");
-    return;
-  }
-  const row = event.currentTarget;
-  const productId = row.dataset.adminDragProduct;
-  const category = row.dataset.adminDragCategory;
-  if (!productId || !category) return;
-  const orderedRows = getVisibleAdminDragRows(category);
-  if (orderedRows.length < 2) return;
-
-  adminDragState = {
-    pointerId: event.pointerId,
-    productId,
-    category,
-    row,
-    startX: event.clientX,
-    startY: event.clientY,
-    active: false,
-    timer: window.setTimeout(() => activateAdminProductDrag(), event.pointerType === "touch" ? 180 : 80),
-    previousSortOrders: products.map((item) => ({ id: item.id, sortOrder: item.sortOrder })),
-    previousSort: { ...adminProductSort },
-    scrollTop: getAdminTableScrollTop()
-  };
-  row.setPointerCapture?.(event.pointerId);
-  row.addEventListener("pointermove", handleAdminProductDragMove);
-  row.addEventListener("pointerup", handleAdminProductDragEnd);
-  row.addEventListener("pointercancel", cancelAdminProductDrag);
-}
-
-function activateAdminProductDrag() {
-  if (!adminDragState || adminDragState.active) return;
-  adminDragState.active = true;
-  adminProductSort = { field: "sortOrder", direction: "asc" };
-  document.body.classList.add("admin-product-dragging-active");
-  adminDragState.row.classList.add("is-dragging");
-}
-
-function handleAdminProductDragMove(event) {
-  if (!adminDragState || event.pointerId !== adminDragState.pointerId) return;
-  const distance = Math.hypot(event.clientX - adminDragState.startX, event.clientY - adminDragState.startY);
-  if (!adminDragState.active && distance > 8) activateAdminProductDrag();
-  if (!adminDragState.active) return;
-  event.preventDefault();
-  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-admin-drag-product]");
-  if (!target || target === adminDragState.row || target.dataset.adminDragCategory !== adminDragState.category) return;
-  const targetRect = target.getBoundingClientRect();
-  const beforeTarget = event.clientY < targetRect.top + targetRect.height / 2;
-  const parent = target.parentElement;
-  if (!parent) return;
-  if (beforeTarget) parent.insertBefore(adminDragState.row, target);
-  else parent.insertBefore(adminDragState.row, target.nextSibling);
-}
-
-async function handleAdminProductDragEnd(event) {
-  if (!adminDragState || event.pointerId !== adminDragState.pointerId) return;
-  const state = adminDragState;
-  cleanupAdminProductDragListeners(event);
-  window.clearTimeout(state.timer);
-  if (!state.active) {
-    adminDragState = null;
-    return;
-  }
-
-  const orderedIds = getVisibleAdminDragRows(state.category).map((row) => row.dataset.adminDragProduct).filter(Boolean);
-  const orderedProducts = orderedIds.map((id) => products.find((product) => product.id === id)).filter(Boolean);
-  if (!orderedProducts.length) {
-    cancelAdminProductDrag();
-    return;
-  }
-
-  savingOrderProductId = state.productId;
-  applyProductOrderToCategory(state.category, orderedProducts);
-  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-  renderCatalog();
-  renderAdmin();
-  restoreAdminTableScroll(state.scrollTop);
-
-  try {
-    await persistProductSortOrder(getAdminOrderProducts(state.category));
-    showToast("Orden guardado", "success");
-  } catch (error) {
-    state.previousSortOrders.forEach((snapshot) => {
-      const productToRestore = products.find((item) => item.id === snapshot.id);
-      if (productToRestore) productToRestore.sortOrder = snapshot.sortOrder;
-    });
-    adminProductSort = state.previousSort;
-    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-    console.error("No se pudo guardar el orden", error);
-    showToast(error.message || "No se pudo guardar el orden");
-  } finally {
-    savingOrderProductId = "";
-    adminDragState = null;
-    document.body.classList.remove("admin-product-dragging-active");
-    renderCatalog();
-    renderAdmin();
-    restoreAdminTableScroll(state.scrollTop);
-  }
-}
-
-function cancelAdminProductDrag(event) {
-  if (!adminDragState) return;
-  const state = adminDragState;
-  cleanupAdminProductDragListeners(event);
-  window.clearTimeout(state.timer);
-  state.row.classList.remove("is-dragging");
-  document.body.classList.remove("admin-product-dragging-active");
-  adminDragState = null;
-  renderAdmin();
-  restoreAdminTableScroll(state.scrollTop);
-}
-
-function cleanupAdminProductDragListeners(event) {
-  if (!adminDragState) return;
-  const row = adminDragState.row;
-  if (event?.pointerId !== undefined) row.releasePointerCapture?.(event.pointerId);
-  row.removeEventListener("pointermove", handleAdminProductDragMove);
-  row.removeEventListener("pointerup", handleAdminProductDragEnd);
-  row.removeEventListener("pointercancel", cancelAdminProductDrag);
-  row.classList.remove("is-dragging");
-}
-
-function getVisibleAdminDragRows(category) {
-  return [...(els.adminProducts?.querySelectorAll("[data-admin-drag-product]") || [])]
-    .filter((row) => row.dataset.adminDragCategory === category);
-}
-
 function updateProductCatalogVisibility(productId, showInCatalog) {
   if (!hasPermission("editSaleData") && !canAccess("admin")) return;
   const product = products.find((item) => item.id === productId);
