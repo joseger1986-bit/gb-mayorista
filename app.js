@@ -7894,6 +7894,7 @@ function applyRoleVisibility() {
   document.querySelectorAll("[data-import-export-only]").forEach((element) => {
     element.classList.toggle("hidden", !hasPermission("importExport"));
   });
+  if (!canAccess("admin")) closeArchivedProductsPanel();
 }
 
 function canAccess(role) {
