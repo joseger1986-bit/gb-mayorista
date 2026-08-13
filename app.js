@@ -1929,7 +1929,7 @@ function renderCatalog() {
         ${renderCatalogVariantControl(group)}
         ${renderCatalogGroupPrice(group)}
         <div class="quantity-row quantity-stepper-row">
-          <label for="qty-${group.id}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
+          <label for="qty-${group.id}" data-catalog-quantity-label="${escapeHtml(group.id)}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
           <div class="quantity-stepper" data-stepper="${group.id}">
             <button class="quantity-stepper-button" type="button" data-qty-decrease="${group.id}" aria-label="Restar cantidad">−</button>
             <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="${escapeHtml(getCatalogQuantityLabel(group))} para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
@@ -1944,7 +1944,11 @@ function renderCatalog() {
   els.productGrid.querySelectorAll("[data-open-gallery]").forEach((button) => {
     button.addEventListener("click", () => {
       const group = catalogProducts.find((item) => item.id === button.dataset.openGallery);
-      if (group) openImageLightbox(group.images || [group.image], { title: group.name, description: group.description || "" });
+      if (group) {
+        const selectedVariant = getSelectedCatalogVariant(group.id, catalogProducts);
+        const images = selectedVariant?.images?.length ? selectedVariant.images : group.images || [group.image];
+        openImageLightbox(images, { title: group.name, description: group.description || "" });
+      }
     });
   });
 
@@ -2039,7 +2043,10 @@ function getCatalogProducts() {
           saleType: variant.saleType || product.saleType,
           packQuantity: variant.packQuantity || product.packQuantity,
           presentation: getProductPresentation(product),
-          stock: getProductTotalStock(product)
+          stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
+          stock: getProductTotalStock(product),
+          image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
+          images: productImages
         }))
         : [{
         id: product.id,
@@ -2050,7 +2057,10 @@ function getCatalogProducts() {
         saleType: product.saleType,
         packQuantity: product.packQuantity,
         presentation: getProductPresentation(product),
-        stock: getProductTotalStock(product)
+        stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
+        stock: getProductTotalStock(product),
+        image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
+        images: productImages
       }];
       group.variants.push(...variantsToAdd);
       group.minimum = Math.min(group.minimum || product.minimum || 1, product.minimum || 1);
@@ -2099,10 +2109,21 @@ function getCatalogCategoryRank(category) {
 function getCatalogGroupInfo(product) {
   const baseName = getProductBaseName(product);
   const optionName = getProductOptionName(product);
-  const priceKey = Math.max(0, Number(product.price) || 0);
-  const presentationKey = normalizeProductSearchText(getProductPresentation(product));
+  const productKey = optionName
+    ? [
+      normalizeProductSearchText(product.category),
+      normalizeProductSearchText(product.brand || "GB Mayorista"),
+      normalizeProductSearchText(baseName)
+    ].join("-")
+    : [
+      normalizeProductSearchText(product.category),
+      normalizeProductSearchText(product.brand || "GB Mayorista"),
+      normalizeProductSearchText(baseName),
+      normalizeProductSearchText(getProductPresentation(product)),
+      product.id
+    ].join("-");
   return {
-    key: `${normalizeProductSearchText(baseName)}-${priceKey}-${presentationKey}`,
+    key: productKey,
     name: baseName,
     variantLabel: optionName
   };
@@ -2237,20 +2258,38 @@ function hasCatalogVariantChoices(group) {
 function updateCatalogCardSelection(groupId, catalogProducts) {
   const group = catalogProducts.find((item) => item.id === groupId);
   if (!group) return;
-  const select = document.querySelector(`#variant-${CSS.escape(groupId)}`);
   const quantityInput = document.querySelector(`#qty-${CSS.escape(groupId)}`);
   const needsVariant = hasCatalogVariantChoices(group);
-  const selectedVariant = group.variants.find((item) => item.id === select?.value) || null;
+  const selectedVariant = getSelectedCatalogVariant(groupId, catalogProducts);
   const displayVariant = selectedVariant || group.variants[0] || null;
   const variant = selectedVariant || (!needsVariant ? displayVariant : null);
-  const quantity = getCatalogQuantityValue(groupId, group.minimum || 1);
   const price = Number(displayVariant?.price) || 0;
   const priceEl = document.querySelector(`[data-catalog-price="${CSS.escape(groupId)}"]`);
   const saleDetailEl = document.querySelector(`[data-catalog-sale-detail="${CSS.escape(groupId)}"]`);
   const addButton = document.querySelector(`[data-add-catalog="${CSS.escape(groupId)}"]`);
+  const imageEl = document.querySelector(`[data-catalog-image="${CSS.escape(groupId)}"]`);
+  const quantityLabelEl = document.querySelector(`[data-catalog-quantity-label="${CSS.escape(groupId)}"]`);
   if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price) : "";
   if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant) : "";
+  if (displayVariant?.images?.length) catalogImageFallbacks.set(groupId, displayVariant.images);
+  else catalogImageFallbacks.set(groupId, mergeProductImages(group.images || [], group.image ? [group.image] : []));
+  if (imageEl) {
+    const nextImage = displayVariant?.image || group.image || DEFAULT_PRODUCT_IMAGE;
+    imageEl.dataset.imageIndex = "0";
+    imageEl.dataset.catalogImage = groupId;
+    if (imageEl.getAttribute("src") !== nextImage) imageEl.src = nextImage;
+  }
+  const quantityLabel = displayVariant ? getQuantityLabelForPresentation(displayVariant.presentation) : getCatalogQuantityLabel(group);
+  if (quantityLabelEl) quantityLabelEl.textContent = quantityLabel;
+  if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${quantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
+}
+
+function getSelectedCatalogVariant(groupId, catalogProducts) {
+  const group = catalogProducts.find((item) => item.id === groupId);
+  if (!group) return null;
+  const select = document.querySelector(`#variant-${CSS.escape(groupId)}`);
+  return group.variants.find((item) => item.id === select?.value) || null;
 }
 
 function formatCatalogPrice(price) {
@@ -5358,7 +5397,7 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
       name: getCartProductNameFromCatalog(group, variant),
       brand: group.brand,
       category: group.category,
-      image: group.image,
+      image: variant.image || group.image,
       variantLabel: variant.label,
       price: variant.price,
       saleType: variant.saleType,
