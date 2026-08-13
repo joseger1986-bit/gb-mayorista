@@ -8839,6 +8839,50 @@ body.cart-is-open {
   font-weight: 950;
 }
 
+.orders-row-number {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  line-height: 1.1;
+}
+
+.order-origin-badge,
+.order-origin-inline {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  background: #f8fafc;
+  color: #374151;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.order-origin-badge {
+  padding: 2px 6px;
+}
+
+.order-origin-inline {
+  margin-top: 4px;
+  padding: 3px 8px;
+}
+
+.order-origin-web {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.order-origin-local {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .orders-row-date,
 .orders-row-client,
 .orders-row-location {

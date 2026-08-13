@@ -4106,7 +4106,7 @@ function renderOrdersToolbar() {
   if (!filters.includes(orderListFilter)) orderListFilter = "Hoy";
   return `
     <div class="orders-workbar">
-      <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva consulta</button>
+      <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva venta local</button>
       <label class="search-box orders-search-box">
         Buscar consulta
         <input type="search" value="${escapeHtml(orderListSearch)}" placeholder="Número, cliente, teléfono o localidad" data-orders-search>
@@ -4134,7 +4134,8 @@ function getOrderSearchText(order) {
     getOrderCustomerName(order),
     order.customerPhone,
     order.customerLocation,
-    order.status
+    order.status,
+    getOrderOriginLabel(order)
   ].join(" "));
 }
 
@@ -4180,7 +4181,10 @@ function renderOrderListRow(order) {
   const openButton = `<button class="primary-button small-button" type="button" data-open-order="${order.id}">Abrir</button>`;
   return `
     <article class="orders-compact-row order-status-${getStatusKey(normalizeConsultationStatus(order.status))} order-row-consultation" role="row">
-      <strong class="orders-row-number" role="cell">${escapeHtml(formatRecordNumber(order))}</strong>
+      <strong class="orders-row-number" role="cell">
+        <span>${escapeHtml(formatRecordNumber(order))}</span>
+        <small class="order-origin-badge order-origin-${getOrderOrigin(order)}">${escapeHtml(getOrderOriginLabel(order))}</small>
+      </strong>
       <span class="orders-row-date" role="cell">${escapeHtml(formatCompactDateTime(order.createdAt || order.updatedAt))}</span>
       <span class="orders-row-client" role="cell" data-location="${escapeHtml(order.customerLocation || "Sin localidad")}">${escapeHtml(getOrderCustomerName(order))}</span>
       <span class="orders-row-location" role="cell">${escapeHtml(order.customerLocation || "Sin localidad")}</span>
@@ -4243,6 +4247,7 @@ function renderInternalOrderCard(order, options = {}) {
         <div>
           <h3>${escapeHtml(formatRecordNumber(order))}</h3>
           <span>Fecha: ${escapeHtml(formatDateTime(order.createdAt))}</span>
+          <span class="order-origin-inline order-origin-${getOrderOrigin(order)}">${escapeHtml(getOrderOriginLabel(order))}</span>
         </div>
         <span class="status-pill status-${getStatusKey(normalizeConsultationStatus(order.status))}">${escapeHtml(normalizeConsultationStatus(order.status))}</span>
         <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Volver</button>
@@ -4500,7 +4505,8 @@ function getOrderFocusClass(order) {
 }
 function createManualConsultation() {
   if (!hasPermission("orders")) return;
-  const draft = makeConsultation({ name: "", phone: "", location: "" }, "Consulta cargada manualmente.");
+  const draft = makeConsultation({ name: "", phone: "", location: "" }, "Venta local cargada manualmente.");
+  draft.origin = "local";
   draft.manualDraft = true;
   draft.customer = "";
   draft.customerName = "";
@@ -5238,7 +5244,7 @@ function renderCart() {
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
   els.minimumStatus.textContent = minimumReached
     ? "✓ Compra mínima alcanzada"
-    : `Te faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima`;
+    : `Te faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima online`;
   clearCartError();
 
   if (!items.length) {
@@ -5282,7 +5288,7 @@ function renderCart() {
     const latestCustomer = getCustomerData();
     if (!minimumReached) {
       event.preventDefault();
-      showToast(`Faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima`);
+      showToast(`La compra mínima online es de ${formatMoney(WHOLESALE_MINIMUM)}. Faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)}.`);
       return;
     }
     if (!latestCustomer.isComplete) {
@@ -8156,6 +8162,7 @@ function makeBudgetFromItems(items, customer, status = "En revisión", notes = "
     transport: "",
     shippingCost: 0,
     paymentMethod: "Transferencia",
+    origin: "local",
     discountType: "fixed",
     discountValue: 0,
     discountAmount: 0,
@@ -8176,6 +8183,7 @@ function makeBudgetFromItems(items, customer, status = "En revisión", notes = "
 function makeBudgetFromCatalogItems(items, customer, notes = "") {
   const order = makeBudgetFromItems([], customer, "En revisión", notes);
   order.type = "consultation";
+  order.origin = "web";
   order.items = items.map((item) => {
     const internalProduct = products.find((product) => product.id === (item.internalProductId || item.id));
     return {
@@ -8208,6 +8216,7 @@ function makeConsultation(customer, notes = "") {
     customerName: customerData.name,
     customerPhone: customerData.phone || "",
     customerLocation: customerData.location || "",
+    origin: "local",
     status: "En revisión",
     notes,
     stockApplied: false,
@@ -8232,6 +8241,18 @@ function formatConsultationNumber(order) {
 function formatRecordNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
   return `Consulta #${String(number).padStart(4, "0")}`;
+}
+
+function normalizeOrderOrigin(value) {
+  return String(value || "").trim().toLowerCase() === "local" ? "local" : "web";
+}
+
+function getOrderOrigin(order) {
+  return normalizeOrderOrigin(order?.origin || order?.origen);
+}
+
+function getOrderOriginLabel(order) {
+  return getOrderOrigin(order) === "local" ? "Venta local" : "Consulta web";
 }
 
 function recalculateBudget(order) {
@@ -8375,6 +8396,7 @@ function normalizeBudgets(budgetList) {
       ...order,
       type: recordType,
       number: Number(order.number) || nextNumber++,
+      origin: normalizeOrderOrigin(order.origin || order.origen),
       status: statuses.includes(status) ? status : "En revisión",
       customerName: order.customerName || order.customer || "Cliente WhatsApp",
       customerPhone: order.customerPhone || "",
