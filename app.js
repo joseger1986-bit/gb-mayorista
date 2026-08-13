@@ -532,7 +532,8 @@ els.productForm.addEventListener("submit", async (event) => {
   const form = new FormData(event.currentTarget);
   const presentation = String(form.get("presentation") || "").trim();
   const saleType = getSaleTypeFromPresentation(presentation);
-  const price = Math.max(0, parseMoneyInput(form.get("price")));
+  const price = getPresentationTotalFromEnteredUnit(form.get("price"), presentation);
+  const cost = getPresentationTotalFromEnteredUnit(form.get("cost"), presentation);
   const productId = crypto.randomUUID();
   const optionName = normalizeProductOptionLabel(form.get("option") || "");
   const baseName = stripProductOptionFromName(String(form.get("name") || "").trim(), optionName);
@@ -556,7 +557,7 @@ els.productForm.addEventListener("submit", async (event) => {
     variantStock: {},
     stock: Math.max(0, Number(form.get("stock")) || 0),
     minimum: 1,
-    cost: parseMoneyInput(form.get("cost")),
+    cost,
     active: true,
     showInCatalog: form.get("showInCatalog") !== "no",
     sortOrder: getNextSortOrder()
@@ -2769,8 +2770,8 @@ function updateInlineProductField(input) {
   const scrollTop = getAdminTableScrollTop();
 
   if (field === "price") {
-    product.price = Math.max(0, Math.round(parseMoneyInput(input.value)));
-    input.value = formatInputMoney(product.price);
+    product.price = getPresentationTotalFromEnteredUnit(input.value, getProductPresentation(product));
+    input.value = formatInputMoney(getPresentationUnitInputFromTotal(product.price, getProductPresentation(product)));
   }
 
   if (field === "presentation") {
@@ -2853,9 +2854,10 @@ function openEditProductModal(productId) {
   if (els.editProductTitle) els.editProductTitle.textContent = `Editar: ${getProductBaseName(product)}`;
   if (els.editProductName) els.editProductName.value = getProductBaseName(product);
   if (els.editProductOption) els.editProductOption.value = getProductOptionName(product);
-  if (els.editProductPrice) els.editProductPrice.value = formatInputMoney(product.price);
-  if (els.editProductCost) els.editProductCost.value = formatInputMoney(product.cost);
-  if (els.editProductPresentation) els.editProductPresentation.value = getProductPresentation(product);
+  const presentation = getProductPresentation(product);
+  setPresentationMoneyInputValue(els.editProductPrice, product.price, presentation);
+  setPresentationMoneyInputValue(els.editProductCost, product.cost, presentation);
+  if (els.editProductPresentation) els.editProductPresentation.value = presentation;
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductStock) els.editProductStock.value = String(Math.max(0, Number(product.stock) || 0));
@@ -3232,7 +3234,6 @@ async function saveEditedProduct(event) {
     optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
     brand: product.brand || "",
     category: normalizeCategory(String(els.editProductCategory?.value || product.category).trim()),
-    price: Math.max(0, Math.round(parseMoneyInput(els.editProductPrice?.value))),
     presentation: String(els.editProductPresentation?.value || "").trim(),
     description: String(els.editProductDescription?.value || "").trim(),
     stock: Math.max(0, Math.round(Number(els.editProductStock?.value) || 0)),
@@ -3241,7 +3242,8 @@ async function saveEditedProduct(event) {
   };
   nextProduct.baseName = stripProductOptionFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName);
   nextProduct.name = nextProduct.baseName;
-  if (canAccess("admin")) nextProduct.cost = Math.max(0, Math.round(parseMoneyInput(els.editProductCost?.value)));
+  nextProduct.price = getPresentationTotalFromMoneyInput(els.editProductPrice, nextProduct.presentation);
+  if (canAccess("admin")) nextProduct.cost = getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation);
   nextProduct.saleType = getSaleTypeFromPresentation(nextProduct.presentation);
   nextProduct.packQuantity = getPackQuantityFromPresentation(nextProduct.presentation);
 
@@ -3522,6 +3524,7 @@ function getProductPresentation(product) {
   const packMatch = name.match(/\bpack\s*x\s*(\d+)\b/i);
   const packQuantity = packMatch ? Number(packMatch[1]) : Number(product.packQuantity) || 1;
   if (product.saleType === "pack" || packMatch) {
+    if (packQuantity > 1 && packQuantity % 12 !== 0) return `Pack x ${packQuantity}`;
     const dozens = packQuantity % 12 === 0 ? packQuantity / 12 : 1;
     return `${dozens} ${dozens === 1 ? "Docena" : "Docenas"}`;
   }
@@ -3532,6 +3535,48 @@ function getProductPresentation(product) {
 function getSaleTypeFromPresentation(presentation) {
   const text = String(presentation || "").trim();
   return /docena|pack/i.test(text) ? "pack" : "unit";
+}
+
+function getPackUnitPricingMultiplier(presentation) {
+  const text = String(presentation || "").trim();
+  if (/docena/i.test(text)) return 1;
+  const packMatch = text.match(/pack\s*x\s*(\d+)/i);
+  const amount = Math.max(1, Number(packMatch?.[1]) || 1);
+  return amount > 1 ? amount : 1;
+}
+
+function getPresentationTotalFromEnteredUnit(value, presentation) {
+  return Math.max(0, Math.round(parseMoneyInput(value) * getPackUnitPricingMultiplier(presentation)));
+}
+
+function getPresentationTotalFromNumericUnit(value, presentation) {
+  return Math.max(0, Math.round((Number(value) || 0) * getPackUnitPricingMultiplier(presentation)));
+}
+
+function getPresentationUnitInputFromTotal(value, presentation) {
+  const total = Math.max(0, Number(value) || 0);
+  const multiplier = getPackUnitPricingMultiplier(presentation);
+  return multiplier > 1 ? Math.round(total / multiplier) : total;
+}
+
+function setPresentationMoneyInputValue(input, totalValue, presentation) {
+  if (!input) return;
+  const unitValue = getPresentationUnitInputFromTotal(totalValue, presentation);
+  input.value = formatInputMoney(unitValue);
+  input.dataset.presentation = presentation;
+  input.dataset.unitValue = String(unitValue);
+  input.dataset.totalValue = String(Math.max(0, Math.round(Number(totalValue) || 0)));
+}
+
+function getPresentationTotalFromMoneyInput(input, presentation) {
+  if (
+    input
+    && input.dataset.presentation === presentation
+    && String(parseMoneyInput(input.value)) === String(input.dataset.unitValue || "")
+  ) {
+    return Math.max(0, Math.round(Number(input.dataset.totalValue) || 0));
+  }
+  return getPresentationTotalFromEnteredUnit(input?.value, presentation);
 }
 
 function formatProductStock(product, stock = getProductTotalStock(product)) {
@@ -8394,8 +8439,9 @@ function buildImportedProducts(rows) {
     const identity = getProductIdentityFromName(rawName, rawOption);
     const name = identity.baseName;
     const category = String(row[categoryIndex] || "").trim();
-    const price = parseImportNumber(row[priceIndex]);
     const presentation = String(row[presentationIndex] || "").trim() || "1 Docena";
+    const price = getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation);
+    const cost = getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation);
     if (!name || !category || price <= 0) return null;
 
     return {
@@ -8415,7 +8461,7 @@ function buildImportedProducts(rows) {
       variantStock: {},
       stock: Math.max(0, parseImportNumber(row[stockIndex])),
       minimum: 1,
-      cost: Math.max(0, parseImportNumber(row[costIndex])),
+      cost,
       active: true,
       showInCatalog: parseImportCatalogVisibility(row[showInCatalogIndex], true),
       sortOrder: nextSortOrder++

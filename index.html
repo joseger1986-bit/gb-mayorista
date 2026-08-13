@@ -261,7 +261,7 @@
               <div class="form-grid">
                 <label>
                   Presentación
-                  <input name="presentation" type="text">
+                  <input name="presentation" type="text" list="presentationOptions">
                 </label>
                 <label data-admin-only>
                   Precio de costo
@@ -549,7 +549,7 @@
           </label>
           <label>
             Presentación
-            <input id="editProductPresentation" name="presentation" type="text">
+            <input id="editProductPresentation" name="presentation" type="text" list="presentationOptions">
           </label>
           <label id="editProductCostWrap">
             Precio de costo
@@ -615,6 +615,13 @@
       </section>
           </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <datalist id="presentationOptions">
+      <option value="Docena"></option>
+      <option value="Pack x 3"></option>
+      <option value="Pack x 4"></option>
+      <option value="Pack x 5"></option>
+      <option value="Pack x 6"></option>
+    </datalist>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/supabase_config.js?v=private-gestion-1"></script>
     <script src="/supabase_client.js?v=private-gestion-1"></script>
@@ -626,6 +633,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=delete-confirm-54"></script>
+    <script src="/app.js?v=pack-pricing-1"></script>
   </body>
 </html>
