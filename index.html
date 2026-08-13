@@ -275,6 +275,13 @@
                   Stock inicial
                   <input name="stock" type="number" min="0" step="1" value="0">
                 </label>
+                <label>
+                  Unidad de stock
+                  <select name="stockUnit">
+                    <option value="unidades">Unidades</option>
+                    <option value="docenas">Docenas</option>
+                  </select>
+                </label>
           </div>
             </fieldset>
             <input id="productVariants" name="variants" type="hidden">
@@ -562,6 +569,13 @@
           <div class="edit-product-stock-block full-field">
             <span class="edit-section-title">Stock</span>
             <p class="context-line" id="editProductStockCurrent">Stock actual: 0</p>
+            <label class="stock-unit-field">
+              Unidad de stock
+              <select id="editProductStockUnitSelect" name="stockUnit">
+                <option value="unidades">Unidades</option>
+                <option value="docenas">Docenas</option>
+              </select>
+            </label>
             <div class="edit-product-stock-control">
               <button class="secondary-button small-button" id="editProductStockDecrease" type="button" aria-label="Disminuir stock">−</button>
               <label>
@@ -633,6 +647,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=pack-pricing-1"></script>
+    <script src="/app.js?v=stock-unit-1"></script>
   </body>
 </html>

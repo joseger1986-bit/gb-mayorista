@@ -262,6 +262,7 @@ var supabaseCatalogPendingDeletedProductIds = new Set();
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
+var supabaseProductStockUnitSupported = false;
 let lightboxImages = [];
 let lightboxIndex = 0;
 let lightboxTitle = "";
@@ -376,6 +377,7 @@ const els = {
   replaceEditProductPhoto: document.querySelector("#replaceEditProductPhoto"),
   removeEditProductPhoto: document.querySelector("#removeEditProductPhoto"),
   editProductStock: document.querySelector("#editProductStock"),
+  editProductStockUnitSelect: document.querySelector("#editProductStockUnitSelect"),
   editProductStockCurrent: document.querySelector("#editProductStockCurrent"),
   editProductStockQuantityLabel: document.querySelector("#editProductStockQuantityLabel"),
   editProductStockUnit: document.querySelector("#editProductStockUnit"),
@@ -534,6 +536,7 @@ els.productForm.addEventListener("submit", async (event) => {
   const saleType = getSaleTypeFromPresentation(presentation);
   const price = getPresentationTotalFromEnteredUnit(form.get("price"), presentation);
   const cost = getPresentationTotalFromEnteredUnit(form.get("cost"), presentation);
+  const stockUnit = normalizeStockUnit(form.get("stockUnit"));
   const productId = crypto.randomUUID();
   const optionName = normalizeProductOptionLabel(form.get("option") || "");
   const baseName = stripProductOptionFromName(String(form.get("name") || "").trim(), optionName);
@@ -556,6 +559,7 @@ els.productForm.addEventListener("submit", async (event) => {
     variants: String(form.get("variants") || "").trim(),
     variantStock: {},
     stock: Math.max(0, Number(form.get("stock")) || 0),
+    stockUnit,
     minimum: 1,
     cost,
     active: true,
@@ -624,6 +628,11 @@ els.removeEditProductPhoto?.addEventListener("click", confirmRemoveAllEditProduc
 els.editProductStockDecrease?.addEventListener("click", () => stepEditProductStock(-1));
 els.editProductStockIncrease?.addEventListener("click", () => stepEditProductStock(1));
 els.editProductStock?.addEventListener("input", normalizeEditProductStockInput);
+els.editProductStockUnitSelect?.addEventListener("change", () => {
+  const product = products.find((item) => item.id === editingProductId);
+  if (!product) return;
+  updateEditProductStockLabels({ ...product, stockUnit: els.editProductStockUnitSelect.value });
+});
 els.editProductForm?.addEventListener("submit", saveEditedProduct);
 setupProductDetailsMenus();
 els.duplicateProductButton?.addEventListener("click", duplicateEditingProduct);
@@ -1008,6 +1017,7 @@ async function loadCatalogFromSupabase() {
   supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
   supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
   supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
+  supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
 
   const { data: categoryRows, error: categoryError } = await client
     .from("categories")
@@ -1197,6 +1207,18 @@ async function detectSupabaseProductGallerySupport(client) {
   }
 }
 
+async function detectSupabaseProductStockUnitSupport(client) {
+  try {
+    const { error } = await client
+      .from("products")
+      .select("stock_unit")
+      .limit(1);
+    return !error;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function syncCatalogToSupabase(reason = "manual") {
   const client = getSupabaseCatalogClient();
   if (!client || supabaseCatalogSyncRunning) {
@@ -1214,6 +1236,7 @@ async function syncCatalogToSupabase(reason = "manual") {
   });
 
   try {
+    supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
     const categoryRows = categories.map((category, index) => ({
       name: String(category.name || "").trim(),
       active: category.active !== false,
@@ -1258,6 +1281,7 @@ async function syncCatalogToSupabase(reason = "manual") {
       if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
       if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
       if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
+      if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
       if (supabaseProductOptionSupported) {
         row.base_name = getProductBaseName(product);
         row.option_name = getProductOptionName(product);
@@ -1412,6 +1436,7 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
   if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
   if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
   if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
+  if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
   if (supabaseProductOptionSupported) {
     row.base_name = getProductBaseName(product);
     row.option_name = getProductOptionName(product);
@@ -1429,6 +1454,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
       supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
       supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
+      supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
       const categoryId = await getSupabaseCategoryIdForProduct(client, product);
       const sortOrder = Math.max(1, products.findIndex((item) => String(item.id) === String(product.id)) + 1);
       const row = buildSupabaseProductRow(product, categoryId, sortOrder);
@@ -1681,6 +1707,7 @@ function mapSupabaseProductsToLocal(rows) {
       packQuantity: getPackQuantityFromPresentation(presentation),
       cost: Math.max(0, Number(row.cost_price) || 0),
       stock: Math.max(0, Number(row.stock) || 0),
+      stockUnit: normalizeStockUnit(row.stock_unit || inferDefaultStockUnitFromPresentation(presentation)),
       minimum: 1,
       image: productImages[0] || DEFAULT_PRODUCT_IMAGE,
       images: productImages,
@@ -2861,6 +2888,7 @@ function openEditProductModal(productId) {
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductStock) els.editProductStock.value = String(Math.max(0, Number(product.stock) || 0));
+  if (els.editProductStockUnitSelect) els.editProductStockUnitSelect.value = normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
   updateEditProductStockLabels(product);
   loadEditProductPhotos(product);
   renderEditProductImageGallery(product);
@@ -2985,6 +3013,7 @@ function duplicateEditingProduct() {
     name: `${getProductBaseName(product)} copia`,
     images: getStoredProductImages(product),
     stock: 0,
+    stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
     variantStock: {},
     active: true,
     sortOrder: getNextSortOrder()
@@ -3237,6 +3266,7 @@ async function saveEditedProduct(event) {
     presentation: String(els.editProductPresentation?.value || "").trim(),
     description: String(els.editProductDescription?.value || "").trim(),
     stock: Math.max(0, Math.round(Number(els.editProductStock?.value) || 0)),
+    stockUnit: normalizeStockUnit(els.editProductStockUnitSelect?.value || product.stockUnit),
     variants: String(els.editProductVariants?.value || "").trim(),
     showInCatalog: els.editProductCatalog?.value !== "no"
   };
@@ -3306,7 +3336,7 @@ function openStockModal(productId) {
     els.stockModalCurrent.textContent = `Stock actual: ${formatProductStock(product)}`;
   }
   if (els.stockModalQuantityLabel) {
-    els.stockModalQuantityLabel.textContent = getQuantityLabelForPresentation(getProductPresentation(product));
+    els.stockModalQuantityLabel.textContent = `Cantidad de ${getStockUnitLabelFromUnit(product.stockUnit, 2)}`;
   }
   els.stockModalForm.reset();
   const addMode = els.stockModalForm.querySelector('input[name="stockMode"][value="add"]');
@@ -3537,6 +3567,23 @@ function getSaleTypeFromPresentation(presentation) {
   return /docena|pack/i.test(text) ? "pack" : "unit";
 }
 
+function normalizeStockUnit(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (/docena/.test(text)) return "docenas";
+  return "unidades";
+}
+
+function inferDefaultStockUnitFromPresentation(presentation) {
+  return /docena/i.test(String(presentation || "")) ? "docenas" : "unidades";
+}
+
+function getStockUnitLabelFromUnit(stockUnit, quantity = 0) {
+  const unit = normalizeStockUnit(stockUnit);
+  const amount = Math.max(0, Number(quantity) || 0);
+  if (unit === "docenas") return amount === 1 ? "docena" : "docenas";
+  return amount === 1 ? "unidad" : "unidades";
+}
+
 function getPackUnitPricingMultiplier(presentation) {
   const text = String(presentation || "").trim();
   if (/docena/i.test(text)) return 1;
@@ -3586,14 +3633,7 @@ function formatProductStock(product, stock = getProductTotalStock(product)) {
 }
 
 function getStockUnitLabel(product, quantity = 0) {
-  const presentation = String(getProductPresentation(product) || "").trim();
-  const lower = presentation.toLowerCase();
-  const pack = lower.match(/pack\s*x\s*(\d+)/i);
-  if (pack) return `${quantity === 1 ? "pack" : "packs"} x${pack[1]}`;
-  if (lower.includes("docena")) return quantity === 1 ? "docena" : "docenas";
-  if (lower.includes("unidad")) return quantity === 1 ? "unidad" : "unidades";
-  if (!presentation) return quantity === 1 ? "unidad" : "unidades";
-  return quantity === 1 ? lower : lower.endsWith("s") ? lower : `${lower}s`;
+  return getStockUnitLabelFromUnit(product?.stockUnit || inferDefaultStockUnitFromPresentation(getProductPresentation(product)), quantity);
 }
 
 function isLody742Product(product) {
@@ -3730,6 +3770,7 @@ function ensureRequestedProductCatalog() {
       variants: "",
       variantStock: {},
       stock: 0,
+      stockUnit: inferDefaultStockUnitFromPresentation(presentation),
       minimum: 1,
       cost: 0,
       active: true,
@@ -5700,7 +5741,7 @@ function updateEditProductStockLabels(product) {
   const stock = Math.max(0, Number(product?.stock) || 0);
   if (els.editProductStockCurrent) els.editProductStockCurrent.textContent = `Stock actual: ${formatProductStock(product, stock)}`;
   if (els.editProductStockUnit) els.editProductStockUnit.textContent = getStockUnitLabel(product, stock);
-  if (els.editProductStockQuantityLabel) els.editProductStockQuantityLabel.textContent = getQuantityLabelForPresentation(getProductPresentation(product));
+  if (els.editProductStockQuantityLabel) els.editProductStockQuantityLabel.textContent = `Cantidad de ${getStockUnitLabelFromUnit(product?.stockUnit, 2)}`;
 }
 
 function getEditProductFormState() {
@@ -5714,6 +5755,7 @@ function getEditProductFormState() {
     presentation: els.editProductPresentation?.value || "",
     cost: els.editProductCost?.value || "",
     price: els.editProductPrice?.value || "",
+    stockUnit: els.editProductStockUnitSelect?.value || "",
     stock: els.editProductStock?.value || "",
     catalog: els.editProductCatalog?.value || "",
     imageCount: getStoredProductImages(product).length,
@@ -6926,6 +6968,7 @@ function addBudgetItem(orderId, productId, quantity) {
       price: product.price,
       saleType: product.saleType,
       packQuantity: product.packQuantity,
+      stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
       cost: product.cost || 0,
       variant: getProductOptionName(product),
       quantity: Math.max(1, Math.round(quantity || 1))
@@ -6987,9 +7030,9 @@ function applyBudgetStock(order, direction) {
   order.items.forEach((item) => {
     const product = products.find((entry) => entry.id === item.id);
     if (!product) return;
-    const variantName = item.variant || "Base / sin variante";
+    const variantName = String(product.variants || "").trim() ? item.variant || "Base / sin variante" : "Base / sin variante";
     const previousStock = getProductStock(product, variantName);
-    const delta = direction * item.quantity;
+    const delta = direction * getStockConsumptionForOrderItem(item, product);
     const nextStock = Math.max(0, previousStock + delta);
     setProductVariantStock(product, variantName, nextStock);
     if (direction < 0) {
@@ -6999,6 +7042,13 @@ function applyBudgetStock(order, direction) {
       });
     }
   });
+}
+
+function getStockConsumptionForOrderItem(item, product) {
+  const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
+  const stockUnit = normalizeStockUnit(product?.stockUnit || item?.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item)));
+  if (stockUnit === "docenas") return quantity;
+  return quantity * getPackQuantityFromPresentation(getBudgetItemPresentation(item));
 }
 
 function applyPendingPaidStockDiscounts() {
@@ -8088,6 +8138,7 @@ function makeBudgetFromItems(items, customer, status = "En revisión", notes = "
     price: product.price,
     saleType: product.saleType,
     packQuantity: product.packQuantity,
+    stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
     cost: product.cost || 0,
     variant: getProductOptionName(product),
     quantity
@@ -8134,6 +8185,7 @@ function makeBudgetFromCatalogItems(items, customer, notes = "") {
       price: Math.max(0, Number(item.price) || Number(internalProduct?.price) || 0),
       saleType: internalProduct?.saleType || item.saleType || "pack",
       packQuantity: internalProduct?.packQuantity || item.packQuantity || 12,
+      stockUnit: normalizeStockUnit(internalProduct?.stockUnit || item.stockUnit || inferDefaultStockUnitFromPresentation(internalProduct?.presentation || item.presentation)),
       cost: Number(internalProduct?.cost) || 0,
       variant: item.variantLabel || "",
       catalogProduct: item.name || "",
@@ -8250,6 +8302,7 @@ function makeDefinitiveProduct(product, index = 0) {
     variants: "",
     variantStock: {},
     stock: 0,
+    stockUnit: inferDefaultStockUnitFromPresentation(presentation),
     minimum: 1,
     cost: 0,
     active: true,
@@ -8286,6 +8339,7 @@ function normalizeProducts(productList) {
       saleType: product.saleType || getSaleTypeFromPresentation(presentation),
       packQuantity: Math.max(1, Number(product.packQuantity) || getPackQuantityFromPresentation(presentation)),
       stock: Math.max(0, Number(product.stock) || 0),
+      stockUnit: normalizeStockUnit(product.stockUnit || product.stock_unit || inferDefaultStockUnitFromPresentation(presentation)),
       cost: Number.isFinite(Number(product.cost)) ? Number(product.cost) : 0,
       image: productImages[0] || "",
       images: productImages,
@@ -8339,14 +8393,19 @@ function normalizeBudgets(budgetList) {
       catalogTotal: Math.max(0, Number(order.catalogTotal) || 0),
       stockApplied: Boolean(order.stockApplied),
       updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
-      items: (order.items || []).map((item) => ({
-        ...item,
-        brand: item.brand || "",
-        saleType: item.saleType === "pack" ? "pack" : "unit",
-        packQuantity: item.saleType === "pack" ? Math.max(1, Number(item.packQuantity) || 1) : 1,
-        variant: item.variant || "",
-        cost: Number.isFinite(item.cost) ? item.cost : 0
-      }))
+      items: (order.items || []).map((item) => {
+        const product = products.find((entry) => entry.id === item.id);
+        const presentation = getBudgetItemPresentation(item);
+        return {
+          ...item,
+          brand: item.brand || "",
+          saleType: item.saleType === "pack" ? "pack" : "unit",
+          packQuantity: item.saleType === "pack" ? Math.max(1, Number(item.packQuantity) || 1) : 1,
+          stockUnit: normalizeStockUnit(item.stockUnit || product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation)),
+          variant: item.variant || "",
+          cost: Number.isFinite(item.cost) ? item.cost : 0
+        };
+      })
     };
     recalculateBudget(normalized);
     return normalized;
@@ -8425,6 +8484,7 @@ function buildImportedProducts(rows) {
   const costIndex = headers.indexOf("precio costo");
   const priceIndex = headers.indexOf("precio venta");
   const presentationIndex = headers.indexOf("presentacion");
+  const stockUnitIndex = headers.indexOf("unidad de stock");
   const stockIndex = headers.indexOf("stock");
   const showInCatalogIndex = headers.indexOf("mostrar catalogo");
   let nextSortOrder = getNextSortOrder();
@@ -8460,6 +8520,9 @@ function buildImportedProducts(rows) {
       variants: "",
       variantStock: {},
       stock: Math.max(0, parseImportNumber(row[stockIndex])),
+      stockUnit: stockUnitIndex >= 0
+        ? normalizeStockUnit(row[stockUnitIndex])
+        : inferDefaultStockUnitFromPresentation(presentation),
       minimum: 1,
       cost,
       active: true,
@@ -8550,6 +8613,7 @@ function downloadImportTemplate() {
     "Precio venta",
     "Presentación",
     "Stock",
+    "Unidad de stock",
     "Mostrar catálogo"
   ];
   const example = [
@@ -8560,6 +8624,7 @@ function downloadImportTemplate() {
     "60000",
     "1 Docena",
     "24",
+    "Docenas",
     "Sí"
   ];
   const csv = [headers, example].map((row) => row.map(escapeCsv).join(";")).join("\n");
@@ -8582,6 +8647,7 @@ function exportProductsToExcel() {
     "Precio venta",
     "Presentación",
     "Stock",
+    "Unidad de stock",
     "Mostrar catálogo"
   ];
   const rows = getOrderedProducts().map((product) => [
@@ -8592,6 +8658,7 @@ function exportProductsToExcel() {
     product.price || 0,
     getProductPresentation(product),
     getProductTotalStock(product),
+    getStockUnitLabelFromUnit(product.stockUnit, 2),
     formatCatalogVisibility(product.showInCatalog)
   ]);
   const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(";")).join("\n");
@@ -8625,7 +8692,7 @@ function exportSalesToExcel() {
 
 function exportStockToExcel() {
   if (!hasPermission("importExport")) return;
-  const headers = ["Producto", "Categoría", "Precio costo", "Precio venta", "Presentación", "Stock", "Valor costo", "Valor venta", "Margen potencial"];
+  const headers = ["Producto", "Categoría", "Precio costo", "Precio venta", "Presentación", "Stock", "Unidad de stock", "Valor costo", "Valor venta", "Margen potencial"];
   const rows = getOrderedProducts().map((product) => {
     const stock = getProductTotalStock(product);
     const costValue = (Number(product.cost) || 0) * stock;
@@ -8637,6 +8704,7 @@ function exportStockToExcel() {
       product.price || 0,
       getProductPresentation(product),
       stock,
+      getStockUnitLabelFromUnit(product.stockUnit, 2),
       costValue,
       saleValue,
       saleValue - costValue
