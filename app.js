@@ -5562,6 +5562,23 @@ function getOrderedProducts() {
   });
 }
 
+function getProductsForProductExport() {
+  return [...products].sort((a, b) => {
+    const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
+    if (categoryDiff !== 0) return categoryDiff;
+    const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+    const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+    if (left !== right) return left - right;
+    return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+  });
+}
+
+function getExportCategoryRank(category) {
+  const normalized = normalizeProductSearchText(category);
+  const index = catalogCategoryOrder.findIndex((aliases) => aliases.some((alias) => normalizeProductSearchText(alias) === normalized));
+  return index >= 0 ? index : catalogCategoryOrder.length;
+}
+
 function getNextSortOrder() {
   return products.reduce((max, product) => Math.max(max, product.sortOrder || 0), 0) + 1;
 }
@@ -8711,7 +8728,7 @@ function exportProductsToExcel() {
     "Unidad de stock",
     `Mostrar cat${String.fromCharCode(225)}logo`
   ];
-  const rows = getOrderedProducts().map((product) => [
+  const rows = getProductsForProductExport().map((product) => [
     getProductBaseName(product),
     getProductOptionName(product),
     product.category,
