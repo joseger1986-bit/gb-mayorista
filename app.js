@@ -5707,7 +5707,7 @@ function getOrderedProducts() {
 }
 
 function getProductsForProductExport() {
-  return [...products].sort((a, b) => {
+  return products.filter((product) => product.active !== false).sort((a, b) => {
     const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
     if (categoryDiff !== 0) return categoryDiff;
     const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
