@@ -93,6 +93,7 @@ function addDefinitiveProduct(name, category, presentation = "1 Docena", descrip
     name: identity.baseName,
     baseName: identity.baseName,
     optionName: identity.optionName,
+    surtidoName: identity.surtidoName,
     category,
     presentation,
     description
@@ -170,7 +171,7 @@ addDefinitiveProduct("Juego de Sábanas París Cotton Touch 1½ Plaza", "Blanque
 addDefinitiveProduct("Juego de Sábanas París Cotton Touch 2½ Plazas", "Blanquería", "Pack x3", "Juego de sábanas París Cotton Touch.\nMedidas 2½ plazas: sábana plana 220 x 240 cm, sábana ajustable 140 x 190 cm y 2 fundas.\nSurtido de colores y diseños.");
 
 const sampleProducts = definitiveProductCatalog.map(makeDefinitiveProduct);
-const requestedProductCatalog = definitiveProductCatalog.map(({ name, baseName, optionName, category, presentation }) => [name, category, presentation, baseName, optionName]);
+const requestedProductCatalog = definitiveProductCatalog.map(({ name, baseName, optionName, surtidoName, category, presentation }) => [name, category, presentation, baseName, optionName, surtidoName]);
 
 const legacyProductRenames = {
   "Boxer Lody Talle 1 Pack x12": "Boxer Adulto Lody Art. 742 T1",
@@ -263,6 +264,7 @@ var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
 var supabaseProductStockUnitSupported = false;
+var supabaseProductAssortmentSupported = false;
 let lightboxImages = [];
 let lightboxIndex = 0;
 let lightboxTitle = "";
@@ -364,6 +366,7 @@ const els = {
   editProductTitle: document.querySelector("#editProductTitle"),
   editProductName: document.querySelector("#editProductName"),
   editProductOption: document.querySelector("#editProductOption"),
+  editProductAssortment: document.querySelector("#editProductAssortment"),
   editProductCategory: document.querySelector("#editProductCategory"),
   editProductPrice: document.querySelector("#editProductPrice"),
   editProductCostWrap: document.querySelector("#editProductCostWrap"),
@@ -538,8 +541,9 @@ els.productForm.addEventListener("submit", async (event) => {
   const cost = getPresentationTotalFromEnteredUnit(form.get("cost"), presentation);
   const stockUnit = normalizeStockUnit(form.get("stockUnit"));
   const productId = crypto.randomUUID();
-  const optionName = normalizeProductOptionLabel(form.get("option") || "");
-  const baseName = stripProductOptionFromName(String(form.get("name") || "").trim(), optionName);
+  const optionName = normalizeProductTalleValue(form.get("option") || "");
+  const surtidoName = normalizeProductSurtidoValue(form.get("assortment") || "");
+  const baseName = stripProductVariantFromName(String(form.get("name") || "").trim(), optionName, surtidoName);
   const selectedImages = await getImagesFromProductForm(form, productId);
   const primaryImage = selectedImages[0] || DEFAULT_PRODUCT_IMAGE;
   const product = {
@@ -549,6 +553,7 @@ els.productForm.addEventListener("submit", async (event) => {
     name: baseName,
     baseName,
     optionName,
+    surtidoName,
     brand: "",
     category: normalizeCategory(String(form.get("category")).trim()),
     presentation,
@@ -1018,6 +1023,7 @@ async function loadCatalogFromSupabase() {
   supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
   supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
   supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
+  supabaseProductAssortmentSupported = await detectSupabaseProductAssortmentSupport(client);
 
   const { data: categoryRows, error: categoryError } = await client
     .from("categories")
@@ -1219,6 +1225,18 @@ async function detectSupabaseProductStockUnitSupport(client) {
   }
 }
 
+async function detectSupabaseProductAssortmentSupport(client) {
+  try {
+    const { error } = await client
+      .from("products")
+      .select("assortment_name")
+      .limit(1);
+    return !error;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function syncCatalogToSupabase(reason = "manual") {
   const client = getSupabaseCatalogClient();
   if (!client || supabaseCatalogSyncRunning) {
@@ -1284,8 +1302,9 @@ async function syncCatalogToSupabase(reason = "manual") {
       if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
       if (supabaseProductOptionSupported) {
         row.base_name = getProductBaseName(product);
-        row.option_name = getProductOptionName(product);
+        row.option_name = supabaseProductAssortmentSupported ? getProductTalleValue(product) : getProductOptionName(product);
       }
+      if (supabaseProductAssortmentSupported) row.assortment_name = getProductSurtidoValue(product);
       return row;
     }).filter((product) => product.name);
 
@@ -1439,8 +1458,9 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
   if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
   if (supabaseProductOptionSupported) {
     row.base_name = getProductBaseName(product);
-    row.option_name = getProductOptionName(product);
+    row.option_name = supabaseProductAssortmentSupported ? getProductTalleValue(product) : getProductOptionName(product);
   }
+  if (supabaseProductAssortmentSupported) row.assortment_name = getProductSurtidoValue(product);
   return row;
 }
 
@@ -1455,6 +1475,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
       supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
       supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
+      supabaseProductAssortmentSupported = await detectSupabaseProductAssortmentSupport(client);
       const categoryId = await getSupabaseCategoryIdForProduct(client, product);
       const sortOrder = Math.max(1, products.findIndex((item) => String(item.id) === String(product.id)) + 1);
       const row = buildSupabaseProductRow(product, categoryId, sortOrder);
@@ -1689,7 +1710,7 @@ function mapSupabaseProductsToLocal(rows) {
       variantStock[variant.name] = Math.max(0, Number(variant.stock) || 0);
     });
     const presentation = row.presentation || "";
-    const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "");
+    const identity = getProductIdentityFromName(row.base_name || row.name || "", row.option_name || "", row.assortment_name || "");
     const galleryImages = Array.isArray(row.gallery_images) ? row.gallery_images.map(getCatalogImage).filter(Boolean) : [];
     const productImages = mergeProductImages(galleryImages, row.image_path);
 
@@ -1698,6 +1719,7 @@ function mapSupabaseProductsToLocal(rows) {
       name: identity.baseName,
       baseName: identity.baseName,
       optionName: identity.optionName,
+      surtidoName: identity.surtidoName,
       brand: row.brand || "",
       category: row.categories?.name || defaultProductCategories[0],
       presentation,
@@ -2132,8 +2154,10 @@ function getCatalogGroupInfo(product) {
 function getCatalogProductParts(name) {
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
   const patterns = [
-    /^(.*?)\s+(Talle\s+[\w½]+)$/i,
-    /^(.*?)\s+(Surtido\s+T\d+\s*-\s*\d+)$/i
+    /^(.*?)\s+(Talle\s+[\w½-]+)$/i,
+    /^(.*?)\s+(Surtido\s+T?\d+\s*-\s*\d+)$/i,
+    /^(.*?)\s+(\d+\s*-\s*\d+)$/i,
+    /^(.*?)\s+(\d+)$/i
   ];
   const match = patterns.map((pattern) => cleanName.match(pattern)).find(Boolean);
   if (!match || !match[1] || !match[2]) return null;
@@ -2170,7 +2194,7 @@ function getCatalogSizeRange(value, knownRanges = []) {
   const text = String(value || "").toUpperCase();
   const rangeMatch = text.match(/T?(\d+)-(\d+)/);
   if (rangeMatch) return makeCatalogRange(Number(rangeMatch[1]), Number(rangeMatch[2]));
-  const size = Number(text.match(/T(\d+)/)?.[1]) || 0;
+  const size = Number(text.match(/(?:TALLE\s*|T)?(\d+)/)?.[1]) || 0;
   const matchingRange = knownRanges.find((range) => size >= range.from && size <= range.to);
   if (matchingRange) return makeCatalogRange(matchingRange.from, matchingRange.to);
   return { key: "general", title: "VARIANTES" };
@@ -2189,11 +2213,11 @@ function getCatalogVariantLabel(value) {
   const rangeMatch = text.match(/T?(\d+)-(\d+)/i);
   if (rangeMatch) {
     return surtido
-      ? `Surtido T${rangeMatch[1]}-${rangeMatch[2]}`
-      : `Talles ${rangeMatch[1]} al ${rangeMatch[2]}`;
+      ? `Surtido ${rangeMatch[1]}-${rangeMatch[2]}`
+      : `${rangeMatch[1]}-${rangeMatch[2]}`;
   }
-  const sizeMatch = text.match(/T(\d+)/i);
-  if (sizeMatch) return `Talle ${sizeMatch[1]}`;
+  const sizeMatch = text.match(/(?:Talle\s*|T)?(\d+)/i);
+  if (sizeMatch) return sizeMatch[1];
   return surtido ? "Surtido" : text || "Variante";
 }
 
@@ -2449,13 +2473,14 @@ function renderAdmin() {
   const isAdmin = canAccess("admin");
   const canManageProducts = hasPermission("manageProducts") || isAdmin;
   const canEditSaleData = hasPermission("editSaleData") || isAdmin;
-  const adminColumnCount = 7 + (isAdmin ? 1 : 0) + (canManageProducts ? 1 : 0);
+  const adminColumnCount = 8 + (isAdmin ? 1 : 0) + (canManageProducts ? 1 : 0);
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
       <th>Foto</th>
       <th>${renderSortHeader("name", "Producto")}</th>
       <th>Talle</th>
+      <th>Surtido</th>
       <th>${renderSortHeader("category", "Categoría")}</th>
       ${isAdmin ? "<th>Costo</th>" : ""}
       <th>${renderSortHeader("price", "Venta")}</th>
@@ -2476,6 +2501,8 @@ function renderAdmin() {
       product.name,
       getProductBaseName(product),
       getProductOptionName(product),
+      getProductTalleValue(product),
+      getProductSurtidoValue(product),
       product.category,
       getProductPresentation(product)
     ].join(" "));
@@ -2507,7 +2534,7 @@ function renderAdmin() {
           </div>
           <div class="mobile-product-info">
             <strong>${escapeHtml(getProductBaseName(product))}</strong>
-            <span>${escapeHtml(getProductOptionName(product) || "Sin talle")}</span>
+            <span>${escapeHtml(formatProductVariantSummary(product))}</span>
             <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
           </div>
           ${canManageProducts ? `
@@ -2519,7 +2546,8 @@ function renderAdmin() {
       </td>
       <td data-label="Foto" class="product-photo-cell">${product.image && product.image !== DEFAULT_PRODUCT_IMAGE ? `<img class="product-thumb" src="${escapeHtml(getCatalogImage(product.image))}" alt="">` : `<span class="no-photo-pill">Sin foto</span>`}</td>
       <td data-label="Producto" class="product-name-cell"><strong>${escapeHtml(getProductBaseName(product))}</strong></td>
-      <td data-label="Talle" class="product-option-cell">${escapeHtml(getProductOptionName(product) || "-")}</td>
+      <td data-label="Talle" class="product-option-cell">${escapeHtml(getProductTalleValue(product) || "-")}</td>
+      <td data-label="Surtido" class="product-option-cell">${escapeHtml(getProductSurtidoValue(product) || "-")}</td>
       <td data-label="Categoría" class="product-category-cell">${escapeHtml(product.category)}</td>
       ${isAdmin ? `<td data-label="Costo" class="metric-cell price-column product-cost-cell">${formatMoney(product.cost || 0)}</td>` : ""}
       <td data-label="Venta" class="metric-cell price-column product-price-cell ${Number(product.price) > 0 ? "" : "missing-price"}">${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</td>
@@ -2919,7 +2947,8 @@ function openEditProductModal(productId) {
   fillEditCategoryOptions(product.category);
   if (els.editProductTitle) els.editProductTitle.textContent = `Editar: ${getProductBaseName(product)}`;
   if (els.editProductName) els.editProductName.value = getProductBaseName(product);
-  if (els.editProductOption) els.editProductOption.value = getProductOptionName(product);
+  if (els.editProductOption) els.editProductOption.value = getProductTalleValue(product);
+  if (els.editProductAssortment) els.editProductAssortment.value = getProductSurtidoValue(product);
   const presentation = getProductPresentation(product);
   setPresentationMoneyInputValue(els.editProductPrice, product.price, presentation);
   setPresentationMoneyInputValue(els.editProductCost, product.cost, presentation);
@@ -3121,7 +3150,7 @@ function renderAdminArchivedProducts() {
         </div>
         <div class="archived-product-info">
           <strong>${escapeHtml(getProductDisplayName(product))}</strong>
-          <span>${escapeHtml(getProductOptionName(product) || "Sin talle")} · ${escapeHtml(product.category || "Sin categoría")}</span>
+          <span>${escapeHtml(formatProductVariantSummary(product))} · ${escapeHtml(product.category || "Sin categoría")}</span>
           <small>${dependencyCount ? `${dependencyCount} consulta(s)/pedido(s) asociado(s)` : "Sin referencias históricas detectadas"}</small>
         </div>
         <div class="archived-product-actions">
@@ -3216,6 +3245,20 @@ function validateProductForm(form) {
     showToast("Revisá los campos obligatorios.");
     return false;
   }
+  const optionField = form.querySelector('[name="option"]');
+  const assortmentField = form.querySelector('[name="assortment"]');
+  if (!isValidVariantFieldValue(optionField?.value || "")) {
+    setProductFieldError(optionField, "Usá solo números o rango sin espacios. Ej: 1 o 4-6.");
+    optionField?.focus();
+    showToast("Revisá el formato del talle.");
+    return false;
+  }
+  if (!isValidSurtidoFieldValue(assortmentField?.value || "")) {
+    setProductFieldError(assortmentField, "Usá solo rango sin espacios. Ej: 1-4 o 5-6.");
+    assortmentField?.focus();
+    showToast("Revisá el formato del surtido.");
+    return false;
+  }
   return true;
 }
 
@@ -3299,7 +3342,8 @@ async function saveEditedProduct(event) {
   const originalProductSnapshot = JSON.parse(JSON.stringify(product));
   const nextProduct = {
     ...product,
-    optionName: normalizeProductOptionLabel(els.editProductOption?.value || ""),
+    optionName: normalizeProductTalleValue(els.editProductOption?.value || ""),
+    surtidoName: normalizeProductSurtidoValue(els.editProductAssortment?.value || ""),
     brand: product.brand || "",
     category: normalizeCategory(String(els.editProductCategory?.value || product.category).trim()),
     presentation: String(els.editProductPresentation?.value || "").trim(),
@@ -3309,7 +3353,7 @@ async function saveEditedProduct(event) {
     variants: String(els.editProductVariants?.value || "").trim(),
     showInCatalog: els.editProductCatalog?.value !== "no"
   };
-  nextProduct.baseName = stripProductOptionFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName);
+  nextProduct.baseName = stripProductVariantFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName, nextProduct.surtidoName);
   nextProduct.name = nextProduct.baseName;
   nextProduct.price = getPresentationTotalFromMoneyInput(els.editProductPrice, nextProduct.presentation);
   if (canAccess("admin")) nextProduct.cost = getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation);
@@ -3501,11 +3545,39 @@ function getProductDisplayName(product) {
 }
 
 function getProductBaseName(product) {
-  return stripProductOptionFromName(product?.baseName || product?.name || "", getProductOptionName(product));
+  return stripProductVariantFromName(product?.baseName || product?.name || "", getProductTalleValue(product), getProductSurtidoValue(product));
 }
 
 function getProductOptionName(product) {
-  return normalizeProductOptionLabel(product?.optionName || "");
+  return getProductVariantLabel(product);
+}
+
+function getProductTalleValue(product) {
+  const explicit = normalizeProductTalleValue(product?.talleName ?? product?.talle ?? product?.sizeName ?? "");
+  if (explicit) return explicit;
+  return parseProductVariantParts(product?.optionName || product?.option || "").talle;
+}
+
+function getProductSurtidoValue(product) {
+  const explicit = normalizeProductSurtidoValue(product?.surtidoName ?? product?.surtido ?? product?.assortmentName ?? product?.assortment_name ?? "");
+  if (explicit) return explicit;
+  return parseProductVariantParts(product?.optionName || product?.option || "").surtido;
+}
+
+function getProductVariantLabel(product) {
+  const talle = getProductTalleValue(product);
+  const surtido = getProductSurtidoValue(product);
+  if (surtido) return `Surtido ${surtido}`;
+  return talle;
+}
+
+function formatProductVariantSummary(product) {
+  const talle = getProductTalleValue(product);
+  const surtido = getProductSurtidoValue(product);
+  if (talle && surtido) return `Talle ${talle} · Surtido ${surtido}`;
+  if (talle) return `Talle ${talle}`;
+  if (surtido) return `Surtido ${surtido}`;
+  return "Sin talle";
 }
 
 function getProductArticleName(product) {
@@ -3514,33 +3586,57 @@ function getProductArticleName(product) {
 
 function buildProductArticleName(baseName, optionName = "") {
   const option = normalizeProductOptionLabel(optionName);
-  const base = stripProductOptionFromName(baseName, option);
+  const base = stripProductVariantFromName(baseName, option);
   if (!option) return base;
-  return `${base} ${option}`.trim();
+  return `${base} ${formatProductVariantForArticle(option)}`.trim();
+}
+
+function formatProductVariantForArticle(optionName) {
+  const parts = parseProductVariantParts(optionName);
+  if (parts.surtido) return `Surtido ${parts.surtido}`;
+  if (parts.talle) return `Talle ${parts.talle}`;
+  return String(optionName || "").trim();
 }
 
 function stripProductOptionFromName(name, optionName = "") {
-  const cleanName = String(name || "").trim().replace(/\s+/g, " ");
-  const cleanOption = normalizeProductOptionLabel(optionName);
-  if (!cleanName || !cleanOption) return cleanName;
-  const escaped = cleanOption.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return cleanName.replace(new RegExp(`\\s+${escaped}$`, "i"), "").trim();
+  return stripProductVariantFromName(name, optionName);
 }
 
-function getProductIdentityFromName(name, explicitOption = "") {
+function stripProductVariantFromName(name, optionName = "", surtidoName = "") {
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
-  const cleanOption = String(explicitOption || "").trim().replace(/\s+/g, " ");
-  if (cleanOption) {
-    const optionName = normalizeProductOptionLabel(cleanOption);
+  if (!cleanName) return cleanName;
+  const talleValue = normalizeProductTalleValue(optionName);
+  const surtidoValue = normalizeProductSurtidoValue(surtidoName) || parseProductVariantParts(optionName).surtido;
+  const labels = [
+    talleValue ? `Talle ${talleValue}` : "",
+    talleValue ? `T${talleValue}` : "",
+    surtidoValue ? `Surtido ${surtidoValue}` : "",
+    surtidoValue ? `Surtido T${surtidoValue}` : "",
+    surtidoValue ? `T${surtidoValue} Surtido` : ""
+  ].filter(Boolean);
+  return labels.reduce((current, label) => {
+    const escaped = String(label).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return current.replace(new RegExp(`\\s+${escaped}$`, "i"), "").trim();
+  }, cleanName);
+}
+
+function getProductIdentityFromName(name, explicitOption = "", explicitSurtido = "") {
+  const cleanName = String(name || "").trim().replace(/\s+/g, " ");
+  const cleanOption = String(explicitOption || "").trim();
+  const cleanSurtido = String(explicitSurtido || "").trim();
+  if (cleanOption || cleanSurtido) {
+    const parts = parseProductVariantParts(cleanOption, cleanSurtido);
     return {
-      baseName: stripProductOptionFromName(cleanName, optionName),
-      optionName
+      baseName: stripProductVariantFromName(cleanName, parts.talle, parts.surtido),
+      optionName: parts.talle,
+      surtidoName: parts.surtido
     };
   }
   const parts = inferProductIdentityFromLegacyName(cleanName);
   return {
     baseName: parts.baseName || cleanName,
-    optionName: normalizeProductOptionLabel(parts.optionName || "")
+    optionName: parts.optionName || "",
+    surtidoName: parts.surtidoName || ""
   };
 }
 
@@ -3548,6 +3644,7 @@ function inferProductIdentityFromLegacyName(name) {
   const cleanName = String(name || "").trim().replace(/\s+/g, " ");
   const patterns = [
     /^(.*?)\s+(Talle\s+[\w½]+)$/i,
+    /^(.*?)\s+(Talle\s+\d+\s*-\s*\d+)$/i,
     /^(.*?)\s+(T\d+)$/i,
     /^(.*?)\s+(Surtido\s+Talle\s*\d+\s*-\s*\d+)$/i,
     /^(.*?)\s+(Surtido\s+T\d+\s*-\s*\d+)$/i,
@@ -3555,23 +3652,64 @@ function inferProductIdentityFromLegacyName(name) {
   ];
   const match = patterns.map((pattern) => cleanName.match(pattern)).find(Boolean);
   if (!match || !match[1] || !match[2]) return { baseName: cleanName, optionName: "" };
+  const parts = parseProductVariantParts(match[2].trim());
   return {
     baseName: match[1].trim(),
-    optionName: match[2].trim()
+    optionName: parts.talle,
+    surtidoName: parts.surtido
   };
 }
 
 function normalizeProductOptionLabel(value) {
+  const parts = parseProductVariantParts(value);
+  if (parts.surtido) return `Surtido ${parts.surtido}`;
+  if (parts.talle) return parts.talle;
   const text = String(value || "").trim().replace(/\s+/g, " ");
   const compactTalle = text.match(/^T(\d+)$/i);
-  if (compactTalle) return `Talle ${compactTalle[1]}`;
+  if (compactTalle) return compactTalle[1];
   const rangeSurtido = text.match(/^T(\d+)\s*-\s*(\d+)\s*Surtido$/i);
-  if (rangeSurtido) return `Surtido T${rangeSurtido[1]}-${rangeSurtido[2]}`;
+  if (rangeSurtido) return `Surtido ${rangeSurtido[1]}-${rangeSurtido[2]}`;
   const surtidoTalleRange = text.match(/^Surtido\s+Talle\s*(\d+)\s*-\s*(\d+)$/i);
-  if (surtidoTalleRange) return `Surtido T${surtidoTalleRange[1]}-${surtidoTalleRange[2]}`;
+  if (surtidoTalleRange) return `Surtido ${surtidoTalleRange[1]}-${surtidoTalleRange[2]}`;
   const surtidoRange = text.match(/^Surtido\s+T(\d+)\s*-\s*(\d+)$/i);
-  if (surtidoRange) return `Surtido T${surtidoRange[1]}-${surtidoRange[2]}`;
+  if (surtidoRange) return `Surtido ${surtidoRange[1]}-${surtidoRange[2]}`;
   return text;
+}
+
+function parseProductVariantParts(optionValue = "", surtidoValue = "") {
+  const optionText = String(optionValue || "").trim();
+  const surtidoText = String(surtidoValue || "").trim();
+  const parsedSurtido = normalizeProductSurtidoValue(surtidoText) || (/surtido/i.test(optionText) ? normalizeProductSurtidoValue(optionText) : "");
+  const parsedTalle = parsedSurtido ? "" : normalizeProductTalleValue(optionText);
+  return {
+    talle: parsedTalle,
+    surtido: parsedSurtido
+  };
+}
+
+function normalizeProductTalleValue(value) {
+  let text = String(value || "").trim();
+  text = text.replace(/^Talle\s+/i, "").replace(/^T(?=\d)/i, "").replace(/\s*-\s*/g, "-").trim();
+  if (/^Surtido/i.test(text)) return "";
+  const match = text.match(/^(\d+(?:-\d+)?)$/);
+  return match ? match[1] : text;
+}
+
+function normalizeProductSurtidoValue(value) {
+  let text = String(value || "").trim();
+  text = text.replace(/^Surtido\s+/i, "").replace(/^Talle\s+/i, "").replace(/^T(?=\d)/i, "").replace(/\s*-\s*/g, "-").trim();
+  const match = text.match(/^(\d+-\d+)$/);
+  return match ? match[1] : "";
+}
+
+function isValidVariantFieldValue(value) {
+  const text = String(value || "").trim();
+  return !text || /^\d+(?:-\d+)?$/.test(text);
+}
+
+function isValidSurtidoFieldValue(value) {
+  const text = String(value || "").trim();
+  return !text || /^\d+-\d+$/.test(text);
 }
 
 function getProductPresentation(product) {
@@ -3747,6 +3885,7 @@ function ensureRequestedProductCatalog() {
     product.name = identity.baseName;
     product.baseName = identity.baseName;
     product.optionName = identity.optionName;
+    product.surtidoName = identity.surtidoName;
     product.category = requested?.[1] || "Ropa Interior Hombre";
     product.presentation = requested?.[2] || "1 Docena";
     product.saleType = "pack";
@@ -3756,7 +3895,7 @@ function ensureRequestedProductCatalog() {
   });
 
   let nextSortOrder = getNextSortOrder();
-  requestedProductCatalog.forEach(([name, category, presentation, baseName, optionName]) => {
+  requestedProductCatalog.forEach(([name, category, presentation, baseName, optionName, surtidoName]) => {
     const description = getDefinitiveProductDescription(name);
     const existing = products.find((product) => product.name.toLowerCase() === name.toLowerCase());
     if (existing) {
@@ -3766,6 +3905,10 @@ function ensureRequestedProductCatalog() {
       }
       if (existing.optionName !== optionName) {
         existing.optionName = optionName;
+        changed = true;
+      }
+      if ((existing.surtidoName || "") !== (surtidoName || "")) {
+        existing.surtidoName = surtidoName || "";
         changed = true;
       }
       if (existing.category !== category) {
@@ -3799,6 +3942,7 @@ function ensureRequestedProductCatalog() {
       name: baseName,
       baseName,
       optionName,
+      surtidoName: surtidoName || "",
       brand: getBrandFromProductName(name),
       category,
       presentation,
@@ -5812,6 +5956,7 @@ function getEditProductFormState() {
   return JSON.stringify({
     name: els.editProductName?.value || "",
     option: els.editProductOption?.value || "",
+    assortment: els.editProductAssortment?.value || "",
     category: els.editProductCategory?.value || "",
     description: els.editProductDescription?.value || "",
     presentation: els.editProductPresentation?.value || "",
@@ -6112,6 +6257,8 @@ function renderBudgetProductMatches(orderId, query) {
         product.name,
         product.baseName,
         product.optionName,
+        getProductTalleValue(product),
+        getProductSurtidoValue(product),
         product.brand,
         product.category,
         product.presentation,
@@ -6999,6 +7146,8 @@ function findInternalProductBySearch(value) {
     const haystack = normalizeProductSearchText([
       getProductBaseName(product),
       getProductOptionName(product),
+      getProductTalleValue(product),
+      getProductSurtidoValue(product),
       product.category,
       getProductPresentation(product)
     ].filter(Boolean).join(" "));
@@ -7358,7 +7507,7 @@ function formatCartPresentation(item) {
 function renderCartVariantLine(item) {
   const label = String(item?.variantLabel || "").trim();
   if (!shouldShowCartOptionLine(item)) return "";
-  return `<span>Talle: ${escapeHtml(label)}</span>`;
+  return `<span>${escapeHtml(/^Surtido\b/i.test(label) ? "Surtido" : "Talle")}: ${escapeHtml(label.replace(/^Surtido\s+/i, ""))}</span>`;
 }
 
 function shouldShowCartOptionLine(item) {
@@ -8369,6 +8518,7 @@ function makeDefinitiveProduct(product, index = 0) {
     name: identity.baseName,
     baseName: identity.baseName,
     optionName: identity.optionName,
+    surtidoName: identity.surtidoName,
     brand: getBrandFromProductName(name),
     category: product.category,
     presentation,
@@ -8397,8 +8547,9 @@ function normalizeProducts(productList) {
   return productList.map((product, index) => {
     const explicitBaseName = String(product.baseName || product.product || "").trim();
     const explicitOptionName = String(product.optionName || product.option || "").trim();
-    const identity = explicitOptionName
-      ? getProductIdentityFromName(explicitBaseName || product.name || "", explicitOptionName)
+    const explicitSurtidoName = String(product.surtidoName || product.surtido || product.assortmentName || product.assortment_name || "").trim();
+    const identity = explicitOptionName || explicitSurtidoName
+      ? getProductIdentityFromName(explicitBaseName || product.name || "", explicitOptionName, explicitSurtidoName)
       : getProductIdentityFromName(product.name || explicitBaseName || "");
     const presentation = product.presentation || getProductPresentation(product);
     const productImages = normalizeProductImages(product);
@@ -8407,6 +8558,7 @@ function normalizeProducts(productList) {
       name: identity.baseName,
       baseName: identity.baseName,
       optionName: identity.optionName,
+      surtidoName: identity.surtidoName || normalizeProductSurtidoValue(product.surtidoName || product.surtido || product.assortmentName || product.assortment_name),
       brand: product.brand || "",
       category: normalizeCategory(product.category),
       presentation,
@@ -8558,6 +8710,7 @@ function buildImportedProducts(rows) {
   const productIndex = headers.indexOf("producto");
   const optionIndex = headers.indexOf("talle");
   const legacyOptionIndex = headers.indexOf("opcion");
+  const assortmentIndex = headers.indexOf("surtido");
   const categoryIndex = headers.indexOf("categoria");
   const costIndex = headers.indexOf("precio costo");
   const priceIndex = headers.indexOf("precio venta");
@@ -8574,7 +8727,8 @@ function buildImportedProducts(rows) {
       : legacyOptionIndex >= 0
         ? String(row[legacyOptionIndex] || "").trim()
         : "";
-    const identity = getProductIdentityFromName(rawName, rawOption);
+    const rawSurtido = assortmentIndex >= 0 ? String(row[assortmentIndex] || "").trim() : "";
+    const identity = getProductIdentityFromName(rawName, rawOption, rawSurtido);
     const name = identity.baseName;
     const category = String(row[categoryIndex] || "").trim();
     const presentation = String(row[presentationIndex] || "").trim() || "1 Docena";
@@ -8588,6 +8742,7 @@ function buildImportedProducts(rows) {
       name,
       baseName: identity.baseName,
       optionName: identity.optionName,
+      surtidoName: identity.surtidoName,
       brand: "",
       category: normalizeCategory(category),
       presentation,
@@ -8686,6 +8841,7 @@ function downloadImportTemplate() {
   const headers = [
     "Producto",
     "Talle",
+    "Surtido",
     "Categoría",
     "Precio costo",
     "Precio venta",
@@ -8696,7 +8852,8 @@ function downloadImportTemplate() {
   ];
   const example = [
     "Boxer Adulto Lody Art. 742",
-    "Talle 1",
+    "1",
+    "",
     "Ropa Interior Hombre",
     "42000",
     "60000",
@@ -8720,6 +8877,7 @@ function exportProductsToExcel() {
   const headers = [
     "Producto",
     "Talle",
+    "Surtido",
     `Categor${String.fromCharCode(237)}a`,
     "Precio de costo",
     "Precio de venta",
@@ -8730,7 +8888,8 @@ function exportProductsToExcel() {
   ];
   const rows = getProductsForProductExport().map((product) => [
     getProductBaseName(product),
-    getProductOptionName(product),
+    getProductTalleValue(product),
+    getProductSurtidoValue(product),
     product.category,
     product.cost || 0,
     product.price || 0,
@@ -8740,8 +8899,8 @@ function exportProductsToExcel() {
     formatCatalogVisibility(product.showInCatalog)
   ]);
   downloadXlsxWorkbook(`productos-gb-mayorista-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
-    numericColumns: [4, 5, 7],
-    moneyColumns: [4, 5]
+    numericColumns: [5, 6, 8],
+    moneyColumns: [5, 6]
   });
   showToast("Productos exportados en Excel");
 }
