@@ -2386,7 +2386,7 @@ function getCatalogUnitPriceLabel(variant) {
     const unitPrice = Math.round((displayPrice || basePrice) / packAmount);
     return `Pagás por ${getStockUnitLabelFromUnit(stockUnit, 1)}: ${formatMoney(unitPrice)}`;
   }
-  if (/docena/i.test(presentation) && stockUnit !== "docenas") return `Pagás por unidad: ${formatMoney(Math.round(basePrice))}`;
+  if (/docena/i.test(presentation)) return `Pagás por unidad: ${formatMoney(Math.round((displayPrice || basePrice) / 12))}`;
   return "";
 }
 
