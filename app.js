@@ -3807,44 +3807,30 @@ function getStockUnitsPerSoldPresentation(presentation, stockUnit = "unidades") 
   return 1;
 }
 
-function getPackUnitPricingMultiplier(presentation) {
-  const text = String(presentation || "").trim();
-  if (/docena/i.test(text)) return 1;
-  return getPackAmountFromPresentation(text);
+
+function getPresentationTotalFromEnteredUnit(value) {
+  return Math.max(0, Math.round(parseMoneyInput(value)));
 }
 
-function getPresentationTotalFromEnteredUnit(value, presentation) {
-  return Math.max(0, Math.round(parseMoneyInput(value) * getPackUnitPricingMultiplier(presentation)));
+function getPresentationTotalFromNumericUnit(value) {
+  return Math.max(0, Math.round(Number(value) || 0));
 }
 
-function getPresentationTotalFromNumericUnit(value, presentation) {
-  return Math.max(0, Math.round((Number(value) || 0) * getPackUnitPricingMultiplier(presentation)));
-}
-
-function getPresentationUnitInputFromTotal(value, presentation) {
-  const total = Math.max(0, Number(value) || 0);
-  const multiplier = getPackUnitPricingMultiplier(presentation);
-  return multiplier > 1 ? Math.round(total / multiplier) : total;
+function getPresentationUnitInputFromTotal(value) {
+  return Math.max(0, Math.round(Number(value) || 0));
 }
 
 function setPresentationMoneyInputValue(input, totalValue, presentation) {
   if (!input) return;
-  const unitValue = getPresentationUnitInputFromTotal(totalValue, presentation);
+  const unitValue = getPresentationUnitInputFromTotal(totalValue);
   input.value = formatInputMoney(unitValue);
   input.dataset.presentation = presentation;
   input.dataset.unitValue = String(unitValue);
-  input.dataset.totalValue = String(Math.max(0, Math.round(Number(totalValue) || 0)));
+  input.dataset.totalValue = String(unitValue);
 }
 
-function getPresentationTotalFromMoneyInput(input, presentation) {
-  if (
-    input
-    && input.dataset.presentation === presentation
-    && String(parseMoneyInput(input.value)) === String(input.dataset.unitValue || "")
-  ) {
-    return Math.max(0, Math.round(Number(input.dataset.totalValue) || 0));
-  }
-  return getPresentationTotalFromEnteredUnit(input?.value, presentation);
+function getPresentationTotalFromMoneyInput(input) {
+  return getPresentationTotalFromEnteredUnit(input?.value);
 }
 
 function formatProductStock(product, stock = getProductTotalStock(product)) {
