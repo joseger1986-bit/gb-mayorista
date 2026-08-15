@@ -2061,7 +2061,8 @@ function getCatalogProducts() {
           productId: product.id,
           internalName: getProductArticleName(product),
           label: variant.name,
-          price: variant.price || product.price || 0,
+          basePrice: variant.price || product.price || 0,
+          price: getProductSalePriceForPresentation({ ...product, price: variant.price || product.price || 0 }),
           saleType: variant.saleType || product.saleType,
           packQuantity: variant.packQuantity || product.packQuantity,
           presentation: getProductPresentation(product),
@@ -2075,7 +2076,8 @@ function getCatalogProducts() {
         productId: product.id,
         internalName: getProductArticleName(product),
         label: info.variantLabel,
-        price: product.price || 0,
+        basePrice: product.price || 0,
+        price: getProductSalePriceForPresentation(product),
         saleType: product.saleType,
         packQuantity: product.packQuantity,
         presentation: getProductPresentation(product),
@@ -2354,7 +2356,7 @@ function renderCatalogSaleDetail(group, variant) {
 }
 
 function getCatalogSaleDetailHtml(variant) {
-  const presentation = getPresentationLabelForCatalog(variant?.presentation);
+  const presentation = getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
   const unitPrice = getCatalogUnitPriceLabel(variant);
   return [
     presentation ? `<span>${escapeHtml(presentation)}</span>` : "",
@@ -2362,22 +2364,30 @@ function getCatalogSaleDetailHtml(variant) {
   ].filter(Boolean).join("");
 }
 
-function getPresentationLabelForCatalog(presentation) {
+function getPresentationLabelForCatalog(presentation, stockUnit = "unidades") {
   const text = String(presentation || "").trim();
   if (!text) return "";
+  const packAmount = getPackAmountFromPresentation(text);
+  if (packAmount > 1) return `Pack x${packAmount} ${getStockUnitLabelFromUnit(stockUnit, packAmount)}`;
   if (/docena/i.test(text)) return "Venta por docena";
   if (/unidad/i.test(text)) return "Venta por unidad";
-  if (/pack/i.test(text)) return text;
+  if (/pack/i.test(text)) return `Pack x${packAmount || 1} ${getStockUnitLabelFromUnit(stockUnit, packAmount || 1)}`;
   return text;
 }
 
 function getCatalogUnitPriceLabel(variant) {
-  const price = Number(variant?.price) || 0;
+  const displayPrice = Number(variant?.price) || 0;
+  const basePrice = Number(variant?.basePrice ?? variant?.unitPrice ?? variant?.price) || 0;
   const presentation = String(variant?.presentation || "").trim();
-  if (!price || !presentation || /unidad/i.test(presentation)) return "";
-  const unitsPerPresentation = getPackQuantityFromPresentation(presentation);
-  if (!Number.isFinite(unitsPerPresentation) || unitsPerPresentation <= 1) return "";
-  return `Pagás por unidad: ${formatMoney(Math.round(price / unitsPerPresentation))}`;
+  const stockUnit = normalizeStockUnit(variant?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  if (!basePrice || !presentation) return "";
+  const packAmount = getPackAmountFromPresentation(presentation);
+  if (packAmount > 1) {
+    const unitPrice = Math.round((displayPrice || basePrice) / packAmount);
+    return `Pagás por ${getStockUnitLabelFromUnit(stockUnit, 1)}: ${formatMoney(unitPrice)}`;
+  }
+  if (/docena/i.test(presentation) && stockUnit !== "docenas") return `Pagás por unidad: ${formatMoney(Math.round(basePrice))}`;
+  return "";
 }
 
 function getPresentationQuantityType(presentation) {
@@ -2396,6 +2406,10 @@ function getQuantityLabelForPresentation(presentation) {
   return "Cantidad";
 }
 
+function getQuantityLabelForItem(item) {
+  return getQuantityLabelForPresentation(item?.presentation || formatCartPresentation(item));
+}
+
 function getQuantityNounForPresentation(presentation, quantity = 1) {
   const type = getPresentationQuantityType(presentation);
   const amount = Math.max(1, Number(quantity) || 1);
@@ -2411,6 +2425,24 @@ function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
 
 function getCatalogQuantityLabel(group) {
   return getQuantityLabelForPresentation(group?.variants?.[0]?.presentation || group?.presentation || "");
+}
+
+function getProductSalePriceForPresentation(product) {
+  const basePrice = Number(product?.price) || 0;
+  if (!basePrice) return 0;
+  return Math.round(basePrice * getPresentationPriceMultiplier(product));
+}
+
+function getProductCostForPresentation(product) {
+  const baseCost = Number(product?.cost) || 0;
+  if (!baseCost) return 0;
+  return Math.round(baseCost * getPresentationPriceMultiplier(product));
+}
+
+function getPresentationPriceMultiplier(product) {
+  const presentation = getProductPresentation(product);
+  const stockUnit = normalizeStockUnit(product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  return getStockUnitsPerSoldPresentation(presentation, stockUnit);
 }
 
 function hasCatalogPrice(price) {
@@ -3761,12 +3793,24 @@ function getStockUnitLabelFromUnit(stockUnit, quantity = 0) {
   return amount === 1 ? "unidad" : "unidades";
 }
 
+function getPackAmountFromPresentation(presentation) {
+  const match = String(presentation || "").match(/pack\s*x\s*(\d+)/i);
+  return Math.max(1, Number(match?.[1]) || 1);
+}
+
+function getStockUnitsPerSoldPresentation(presentation, stockUnit = "unidades") {
+  const text = String(presentation || "").trim();
+  const normalizedStockUnit = normalizeStockUnit(stockUnit);
+  const packAmount = getPackAmountFromPresentation(text);
+  if (/pack\s*x\s*\d+/i.test(text)) return packAmount;
+  if (/docena/i.test(text)) return normalizedStockUnit === "docenas" ? 1 : 12;
+  return 1;
+}
+
 function getPackUnitPricingMultiplier(presentation) {
   const text = String(presentation || "").trim();
   if (/docena/i.test(text)) return 1;
-  const packMatch = text.match(/pack\s*x\s*(\d+)/i);
-  const amount = Math.max(1, Number(packMatch?.[1]) || 1);
-  return amount > 1 ? amount : 1;
+  return getPackAmountFromPresentation(text);
 }
 
 function getPresentationTotalFromEnteredUnit(value, presentation) {
@@ -5544,9 +5588,11 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
       image: variant.image || group.image,
       variantLabel: variant.label,
       price: variant.price,
+      basePrice: variant.basePrice || variant.price,
       saleType: variant.saleType,
       packQuantity: variant.packQuantity,
       presentation: variant.presentation,
+      stockUnit: variant.stockUnit,
       quantity: cleanQuantity
     });
   }
@@ -6514,14 +6560,14 @@ function getDocumentItemName(item) {
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
-  return `${quantity} ${getDocumentPresentationLabel(presentation, quantity)}`.trim();
+  return `${quantity} ${getDocumentPresentationLabel(presentation, quantity, item?.stockUnit)}`.trim();
 }
 
-function getDocumentPresentationLabel(presentation, quantity = 1) {
+function getDocumentPresentationLabel(presentation, quantity = 1, stockUnit = "unidades") {
   const value = String(presentation || "").trim();
   const amount = Math.max(1, Number(quantity) || 1);
   const packMatch = value.match(/pack\s*x\s*(\d+)/i);
-  if (packMatch) return `${amount === 1 ? "pack" : "packs"} x${packMatch[1]}`;
+  if (packMatch) return `${amount === 1 ? "pack" : "packs"} x${packMatch[1]} ${getStockUnitLabelFromUnit(stockUnit, Number(packMatch[1]) || 1)}`;
   if (/docenas?|venta\s+por\s+docena/i.test(value)) return amount === 1 ? "docena" : "docenas";
   if (/unidad(es)?|venta\s+por\s+unidad/i.test(value)) return amount === 1 ? "unidad" : "unidades";
   return value || (amount === 1 ? "unidad" : "unidades");
@@ -7090,10 +7136,10 @@ function changeBudgetItemProduct(orderId, oldProductId, newProductId) {
   item.id = product.id;
   item.name = getProductBaseName(product);
   item.brand = product.brand;
-  item.price = product.price;
+  item.price = getProductSalePriceForPresentation(product);
   item.saleType = product.saleType;
   item.packQuantity = product.packQuantity;
-  item.cost = product.cost || 0;
+  item.cost = getProductCostForPresentation(product);
   item.variant = getProductOptionName(product);
   recalculateBudget(order);
   saveOrders();
@@ -7176,11 +7222,11 @@ function addBudgetItem(orderId, productId, quantity) {
       id: product.id,
       name: getProductBaseName(product),
       brand: product.brand,
-      price: product.price,
+      price: getProductSalePriceForPresentation(product),
       saleType: product.saleType,
       packQuantity: product.packQuantity,
       stockUnit: normalizeStockUnit(product.stockUnit || inferDefaultStockUnitFromPresentation(product.presentation)),
-      cost: product.cost || 0,
+      cost: getProductCostForPresentation(product),
       variant: getProductOptionName(product),
       quantity: Math.max(1, Math.round(quantity || 1))
     });
@@ -7257,9 +7303,9 @@ function applyBudgetStock(order, direction) {
 
 function getStockConsumptionForOrderItem(item, product) {
   const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
-  const stockUnit = normalizeStockUnit(product?.stockUnit || item?.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item)));
-  if (stockUnit === "docenas") return quantity;
-  return quantity * getPackQuantityFromPresentation(getBudgetItemPresentation(item));
+  const presentation = getBudgetItemPresentation(item);
+  const stockUnit = normalizeStockUnit(product?.stockUnit || item?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  return quantity * getStockUnitsPerSoldPresentation(presentation, stockUnit);
 }
 
 function applyPendingPaidStockDiscounts() {
@@ -7488,18 +7534,20 @@ function formatCartQuantity(item) {
 }
 
 function formatCartQuantityLine(item) {
-  return formatQuantityWithPresentationLabel(item?.presentation || formatCartPresentation(item), Math.max(1, Number(item?.quantity) || 1));
+  return `${getQuantityLabelForItem(item)}: ${Math.max(1, Number(item?.quantity) || 1)}`;
 }
 
 function formatCartPresentation(item) {
   const value = String(item?.presentation || "").trim();
-  if (/pack\s*x\s*\d+/i.test(value)) return value;
+  const stockUnit = normalizeStockUnit(item?.stockUnit || inferDefaultStockUnitFromPresentation(value));
+  const packAmount = getPackAmountFromPresentation(value);
+  if (/pack\s*x\s*\d+/i.test(value)) return `Pack x${packAmount} ${getStockUnitLabelFromUnit(stockUnit, packAmount)}`;
   if (/docenas?/i.test(value)) return "Docena";
   if (/unidades?/i.test(value)) return "Unidad";
   if (item?.saleType === "pack") {
     const packQuantity = Number(item?.packQuantity) || 0;
     if (packQuantity === 12) return "Docena";
-    if (packQuantity > 1) return `Pack x${packQuantity}`;
+    if (packQuantity > 1) return `Pack x${packQuantity} ${getStockUnitLabelFromUnit(stockUnit, packQuantity)}`;
   }
   return value || "Unidad";
 }
@@ -7524,7 +7572,11 @@ function isPresentationOnlyLabel(value) {
 
 function formatWhatsappQuantity(item) {
   const quantity = Math.max(1, Number(item?.quantity) || 1);
-  return `${quantity} ${getQuantityNounForPresentation(item?.presentation || formatCartPresentation(item), quantity)}`;
+  const presentation = item?.presentation || formatCartPresentation(item);
+  if (/pack\s*x\s*\d+/i.test(String(presentation || ""))) {
+    return `${quantity} ${getDocumentPresentationLabel(presentation, quantity, item?.stockUnit)}`;
+  }
+  return `${quantity} ${getQuantityNounForPresentation(presentation, quantity)}`;
 }
 
 function formatCartSubtotal(item) {
@@ -8395,11 +8447,11 @@ function makeBudgetFromCatalogItems(items, customer, notes = "") {
       id: internalProduct?.id || item.internalProductId || item.id,
       name: internalProduct?.name || item.internalProductName || item.name,
       brand: internalProduct?.brand || item.brand || "GB Mayorista",
-      price: Math.max(0, Number(item.price) || Number(internalProduct?.price) || 0),
+      price: Math.max(0, Number(item.price) || getProductSalePriceForPresentation(internalProduct) || Number(internalProduct?.price) || 0),
       saleType: internalProduct?.saleType || item.saleType || "pack",
       packQuantity: internalProduct?.packQuantity || item.packQuantity || 12,
       stockUnit: normalizeStockUnit(internalProduct?.stockUnit || item.stockUnit || inferDefaultStockUnitFromPresentation(internalProduct?.presentation || item.presentation)),
-      cost: Number(internalProduct?.cost) || 0,
+      cost: getProductCostForPresentation(internalProduct),
       variant: item.variantLabel || "",
       catalogProduct: item.name || "",
       quantity: Math.max(1, Math.round(Number(item.quantity) || 1))
@@ -8653,8 +8705,8 @@ function renderProductPrice(product) {
 
   return `
     <div class="pack-price">
-      <div class="pack-main-price">${formatMoney(product.price)}</div>
-      <div class="pack-unit-price">Pagás por unidad: ${formatMoney(product.price / product.packQuantity)}</div>
+      <div class="pack-main-price">${formatMoney(getProductSalePriceForPresentation(product))}</div>
+      <div class="pack-unit-price">Pagás por ${getStockUnitLabelFromUnit(product.stockUnit, 1)}: ${formatMoney(product.price)}</div>
     </div>
   `;
 }
