@@ -8304,6 +8304,10 @@ body.cart-is-open {
 }
 
 /* Gestion de productos compacta */
+#adminView > .section-head {
+  display: none !important;
+}
+
 #resetProducts {
   display: none !important;
 }
