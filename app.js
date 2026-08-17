@@ -12,6 +12,7 @@ const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
 const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
+const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
 const INTERNAL_ADMIN_PROFILE_TOKEN = Symbol("internal-admin-profile");
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
@@ -210,6 +211,7 @@ let currentPrintOrderId = "";
 let openOrderId = "";
 let orderListSearch = "";
 let orderListFilter = "Hoy";
+let ordersLastSeenNumber = loadOrdersLastSeenNumber();
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let budgetPreviewHistoryActive = false;
@@ -259,6 +261,8 @@ var supabaseCatalogReadyForWrites = false;
 var supabaseCatalogRemoteRefreshing = false;
 var supabaseCatalogRealtimeChannel = null;
 var supabaseCatalogRealtimeRefreshTimer = null;
+var supabaseOrdersRealtimeRefreshTimer = null;
+var supabaseOrdersPollingTimer = null;
 var supabaseCatalogPendingDeletedProductIds = new Set();
 var supabaseOrdersBootstrapped = false;
 var supabaseOrdersRemoteRefreshing = false;
@@ -703,6 +707,7 @@ document.addEventListener("keydown", (event) => {
 initializeApp();
 window.addEventListener("pagehide", () => {
   persistUiState({ scrollY: window.scrollY || 0 });
+  teardownSupabaseOrdersPolling();
   teardownSupabaseCatalogRealtime();
 });
 
@@ -801,6 +806,7 @@ function lockInternalSession() {
   internalAuthenticated = false;
   internalUnlocked = false;
   currentRole = "client";
+  teardownSupabaseOrdersPolling();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
   sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
   localStorage.setItem(STORAGE_ROLE, "client");
@@ -912,9 +918,59 @@ function saveOrders() {
   localStorage.setItem(STORAGE_ORDERS, JSON.stringify(orders.filter((order) => !order.manualDraft)));
 }
 
+function loadOrdersLastSeenNumber() {
+  return Math.max(0, Number(localStorage.getItem(STORAGE_ORDERS_LAST_SEEN_NUMBER)) || 0);
+}
+
+function saveOrdersLastSeenNumber(value) {
+  ordersLastSeenNumber = Math.max(0, Number(value) || 0);
+  localStorage.setItem(STORAGE_ORDERS_LAST_SEEN_NUMBER, String(ordersLastSeenNumber));
+}
+
+function getHighestOrderNumber() {
+  return orders.reduce((max, order) => {
+    if (order.manualDraft) return max;
+    return Math.max(max, Number(order.number) || 0);
+  }, 0);
+}
+
+function getUnseenOrdersCount() {
+  const lastSeen = Math.max(ordersLastSeenNumber, loadOrdersLastSeenNumber());
+  ordersLastSeenNumber = lastSeen;
+  return orders.reduce((count, order) => {
+    if (order.manualDraft) return count;
+    if (normalizeConsultationStatus(order.status) !== "En revisión") return count;
+    return Number(order.number) > lastSeen ? count + 1 : count;
+  }, 0);
+}
+
+function markOrdersNotificationsSeen() {
+  const highestNumber = getHighestOrderNumber();
+  if (highestNumber > ordersLastSeenNumber) saveOrdersLastSeenNumber(highestNumber);
+  updateOrdersAttentionBadge();
+}
+
 async function initializeSupabaseOrders() {
   if (!isPrivateManagementRoute() || !hasPermission("orders")) return;
+  setupSupabaseOrdersPolling();
   await refreshOrdersFromSupabase("initial", { silent: true });
+}
+
+function setupSupabaseOrdersPolling() {
+  if (supabaseOrdersPollingTimer || !isPrivateManagementRoute() || !internalUnlocked || !hasPermission("orders")) return;
+  supabaseOrdersPollingTimer = window.setInterval(() => {
+    if (!isPrivateManagementRoute() || !internalUnlocked || !hasPermission("orders")) {
+      teardownSupabaseOrdersPolling();
+      return;
+    }
+    if (document.visibilityState === "hidden") return;
+    refreshOrdersFromSupabase("orders-poll", { silent: true });
+  }, 30000);
+}
+
+function teardownSupabaseOrdersPolling() {
+  window.clearInterval(supabaseOrdersPollingTimer);
+  supabaseOrdersPollingTimer = null;
 }
 
 async function refreshOrdersFromSupabase(reason = "manual", options = {}) {
@@ -927,6 +983,7 @@ async function refreshOrdersFromSupabase(reason = "manual", options = {}) {
     supabaseOrdersBootstrapped = true;
     if (remoteOrders.length) {
       mergeRemoteOrders(remoteOrders);
+      if (currentView === "pedidos") markOrdersNotificationsSeen();
       syncClientsFromOrders();
       saveOrders();
       renderAll();
@@ -1292,11 +1349,27 @@ function setupSupabaseCatalogRealtime() {
     }, 250);
   };
 
+  const refreshOrdersFromEvent = (payload) => {
+    logSupabaseSyncDebug("orders-realtime-event", {
+      message: "Supabase Realtime aviso un cambio remoto en pedidos.",
+      table: payload?.table || "",
+      eventType: payload?.eventType || "",
+      id: payload?.new?.id || payload?.old?.id || payload?.new?.order_id || payload?.old?.order_id || ""
+    }, "info", { payload });
+    if (!isPrivateManagementRoute() || !hasPermission("orders")) return;
+    window.clearTimeout(supabaseOrdersRealtimeRefreshTimer);
+    supabaseOrdersRealtimeRefreshTimer = window.setTimeout(() => {
+      refreshOrdersFromSupabase("orders-realtime", { silent: true });
+    }, 350);
+  };
+
   supabaseCatalogRealtimeChannel = client
     .channel("gb-mayorista-gestion-catalogo")
     .on("postgres_changes", { event: "*", schema: "public", table: "products" }, refreshFromEvent)
     .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, refreshFromEvent)
     .on("postgres_changes", { event: "*", schema: "public", table: "product_variants" }, refreshFromEvent)
+    .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, refreshOrdersFromEvent)
+    .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, refreshOrdersFromEvent)
     .subscribe((status) => {
       document.documentElement.dataset.gbSupabaseRealtime = String(status || "").toLowerCase();
       logSupabaseSyncDebug(status === "SUBSCRIBED" ? "realtime-ok" : "realtime-status", {
@@ -1310,7 +1383,9 @@ function setupSupabaseCatalogRealtime() {
 
 function teardownSupabaseCatalogRealtime() {
   window.clearTimeout(supabaseCatalogRealtimeRefreshTimer);
+  window.clearTimeout(supabaseOrdersRealtimeRefreshTimer);
   supabaseCatalogRealtimeRefreshTimer = null;
+  supabaseOrdersRealtimeRefreshTimer = null;
   const client = getSupabaseCatalogClient();
   const channel = supabaseCatalogRealtimeChannel;
   supabaseCatalogRealtimeChannel = null;
@@ -4469,10 +4544,10 @@ function renderOrders() {
 function updateOrdersAttentionBadge() {
   const badge = els.ordersAttentionBadge;
   if (!badge) return;
-  const pendingCount = orders.filter((order) => normalizeConsultationStatus(order.status) === "En revisión").length;
-  badge.textContent = pendingCount > 99 ? "99+" : String(pendingCount);
-  badge.classList.toggle("hidden", pendingCount <= 0);
-  badge.setAttribute("aria-label", `${pendingCount} pedido${pendingCount === 1 ? "" : "s"} en revisión`);
+  const unseenCount = getUnseenOrdersCount();
+  badge.textContent = unseenCount > 99 ? "99+" : String(unseenCount);
+  badge.classList.toggle("hidden", unseenCount <= 0);
+  badge.setAttribute("aria-label", `${unseenCount} pedido${unseenCount === 1 ? "" : "s"} nuevo${unseenCount === 1 ? "" : "s"} sin ver`);
 }
 function renderOrdersToolbar() {
   const filters = ["Hoy", "Ayer", "En revisión", "Pagadas", "Todas"];
@@ -7918,6 +7993,10 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   applyRoleVisibility();
   if (isPrivateManagementRoute() && internalUnlocked) {
     setupSupabaseCatalogRealtime();
+    setupSupabaseOrdersPolling();
+  }
+  if (view === "pedidos") {
+    markOrdersNotificationsSeen();
   }
   renderRole();
   renderNav();

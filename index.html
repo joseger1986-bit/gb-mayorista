@@ -183,7 +183,7 @@
         </div>
         <div class="management-tabs" aria-label="Secciones de gestión interna">
           <button class="ghost-button" data-view="admin">Productos</button>
-          <button class="ghost-button management-tab-with-badge" data-view="pedidos">Pedidos<span class="orders-attention-badge hidden" id="ordersAttentionBadge" aria-label="Pedidos en revisión"></span></button>
+          <button class="ghost-button management-tab-with-badge" data-view="pedidos">Pedidos<span class="orders-attention-badge hidden" id="ordersAttentionBadge" aria-label="Pedidos nuevos sin ver"></span></button>
           <button class="ghost-button" data-view="clientes">Clientes</button>
           <button class="ghost-button" data-view="reportes" data-reports-only>Reportes</button>
           <button class="ghost-button" data-view="importacion" data-import-export-only>Importación Excel</button>
@@ -667,6 +667,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=orders-web-supabase-1"></script>
+    <script src="/app.js?v=orders-unseen-badge-1"></script>
   </body>
 </html>
