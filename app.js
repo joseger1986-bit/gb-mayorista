@@ -338,6 +338,7 @@ const els = {
   resetProducts: document.querySelector("#resetProducts"),
   addSampleOrder: document.querySelector("#addSampleOrder"),
   ordersList: document.querySelector("#ordersList"),
+  ordersAttentionBadge: document.querySelector("#ordersAttentionBadge"),
   clientsList: document.querySelector("#clientsList"),
   clientsSearch: document.querySelector("#clientsSearch"),
   clientsSort: document.querySelector("#clientsSort"),
@@ -4283,6 +4284,7 @@ function getProductTotalStock(product) {
 }
 
 function renderOrders() {
+  updateOrdersAttentionBadge();
   if (!orders.length) {
     els.ordersList.innerHTML = `${renderOrdersToolbar()}<div class="empty-state">Todavía no hay pedidos o consultas cargadas.</div>`;
     bindBudgetEditor();
@@ -4314,6 +4316,14 @@ function renderOrders() {
   bindBudgetEditor();
 }
 
+function updateOrdersAttentionBadge() {
+  const badge = els.ordersAttentionBadge;
+  if (!badge) return;
+  const pendingCount = orders.filter((order) => normalizeConsultationStatus(order.status) === "En revisión").length;
+  badge.textContent = pendingCount > 99 ? "99+" : String(pendingCount);
+  badge.classList.toggle("hidden", pendingCount <= 0);
+  badge.setAttribute("aria-label", `${pendingCount} pedido${pendingCount === 1 ? "" : "s"} en revisión`);
+}
 function renderOrdersToolbar() {
   const filters = ["Hoy", "Ayer", "En revisión", "Pagadas", "Todas"];
   if (!filters.includes(orderListFilter)) orderListFilter = "Hoy";

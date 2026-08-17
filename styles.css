@@ -12446,3 +12446,56 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
     height: 23px;
   }
 }
+/* Ajustes visuales Pedidos: nombres completos y badge */
+.management-tab-with-badge {
+  position: relative;
+}
+
+.orders-attention-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #d71920;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+}
+
+.order-product-line,
+.order-product-mobile-main {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+}
+
+@media (min-width: 921px) {
+  .compact-budget-items .order-product-read-row {
+    align-items: start;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 920px) {
+  .order-product-mobile-main {
+    display: block !important;
+    -webkit-line-clamp: unset !important;
+    line-clamp: unset !important;
+  }
+
+  .compact-budget-items .order-product-read-row {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+}
