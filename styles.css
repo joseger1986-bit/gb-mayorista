@@ -12295,3 +12295,40 @@ body:not(.private-management-mode) #floatingCartCount {
     font-size: 0.64rem !important;
   }
 }
+/* Header Punto X Mayor: logo oficial en alta resolucion */
+.topbar.public-catalog-header {
+  background: #000 !important;
+  padding: 6px 8px !important;
+}
+
+.public-brand-shell,
+.public-catalog-brand.brand {
+  background: #000 !important;
+}
+
+.public-catalog-brand.brand .public-brand-logo {
+  display: block !important;
+  inline-size: min(760px, 58vw) !important;
+  width: min(760px, 58vw) !important;
+  max-inline-size: calc(100vw - 20px) !important;
+  max-width: calc(100vw - 20px) !important;
+  max-height: 230px !important;
+  height: auto !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  background: #000 !important;
+}
+
+@media (max-width: 900px) {
+  .topbar.public-catalog-header {
+    padding: 5px 6px !important;
+  }
+
+  .public-catalog-brand.brand .public-brand-logo {
+    inline-size: min(390px, calc(100vw - 14px)) !important;
+    width: min(390px, calc(100vw - 14px)) !important;
+    max-inline-size: calc(100vw - 14px) !important;
+    max-width: calc(100vw - 14px) !important;
+    max-height: none !important;
+  }
+}
