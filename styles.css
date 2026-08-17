@@ -12361,6 +12361,7 @@ body:not(.private-management-mode) #floatingCartCount {
     transform: translate(-50%, -50%) scale(1.04) !important;
   }
 }
+
 /* Footer publico y jerarquia de presentacion */
 body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-child {
   color: #0b0b0b !important;
@@ -12425,6 +12426,21 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
 .public-footer-instagram { color: #e4408f; }
 .public-footer-facebook { color: #1877f2; }
 
+.public-footer-address {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 0;
+  color: #f6f2e8;
+  font-style: normal;
+  font-size: 0.86rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.public-footer-address span:first-child {
+  color: #c9a24a;
+}
+
 @media (max-width: 640px) {
   .public-catalog-footer {
     gap: 12px;
@@ -12444,6 +12460,10 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   .public-footer-social-link svg {
     width: 23px;
     height: 23px;
+  }
+
+  .public-footer-address {
+    font-size: 0.8rem;
   }
 }
 /* Ajustes visuales Pedidos: nombres completos y badge */
@@ -12497,5 +12517,19 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   .compact-budget-items .order-product-read-row {
     height: auto !important;
     min-height: 0 !important;
+  }
+}
+
+@media (min-width: 901px) {
+  body:not(.private-management-mode) .topbar.public-catalog-header {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+
+  body:not(.private-management-mode) .public-brand-shell,
+  body:not(.private-management-mode) .public-catalog-brand.brand {
+    width: min(60vw, 820px) !important;
+    max-width: min(60vw, 820px) !important;
   }
 }
