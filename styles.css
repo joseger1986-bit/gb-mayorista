@@ -12364,7 +12364,7 @@ body:not(.private-management-mode) #floatingCartCount {
 /* Footer publico y jerarquia de presentacion */
 body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-child {
   color: #0b0b0b !important;
-  font-size: 0.93rem !important;
+  font-size: 0.82rem !important;
   font-weight: 950 !important;
 }
 
