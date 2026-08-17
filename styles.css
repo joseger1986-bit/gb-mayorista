@@ -12357,3 +12357,88 @@ body:not(.private-management-mode) #floatingCartCount {
     transform: translate(-50%, -50%) scale(1.04) !important;
   }
 }
+/* Footer publico y jerarquia de presentacion */
+body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-child {
+  color: #0b0b0b !important;
+  font-size: 0.93rem !important;
+  font-weight: 950 !important;
+}
+
+.public-catalog-footer {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  margin: 28px 0 0;
+  padding: 28px 16px 32px;
+  background: #000;
+  color: #fff;
+  text-align: center;
+  border-top: 2px solid #c9a24a;
+}
+
+.public-catalog-footer p {
+  margin: 0;
+  color: #f6f2e8;
+  font-size: 0.94rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+}
+
+.public-footer-social-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.public-footer-social-link {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(201, 162, 74, 0.68);
+  border-radius: 999px;
+  background: #fff;
+  color: #0b0b0b;
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.public-footer-social-link:hover,
+.public-footer-social-link:focus-visible {
+  transform: translateY(-1px);
+  border-color: #f1cf73;
+  outline: none;
+}
+
+.public-footer-social-link svg {
+  width: 24px;
+  height: 24px;
+}
+
+.public-footer-whatsapp { color: #25d366; }
+.public-footer-instagram { color: #e4408f; }
+.public-footer-facebook { color: #1877f2; }
+
+@media (max-width: 640px) {
+  .public-catalog-footer {
+    gap: 12px;
+    margin-top: 22px;
+    padding: 24px 12px 28px;
+  }
+
+  .public-catalog-footer p {
+    font-size: 0.86rem;
+  }
+
+  .public-footer-social-link {
+    width: 42px;
+    height: 42px;
+  }
+
+  .public-footer-social-link svg {
+    width: 23px;
+    height: 23px;
+  }
+}
