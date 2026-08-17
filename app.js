@@ -260,6 +260,8 @@ var supabaseCatalogRemoteRefreshing = false;
 var supabaseCatalogRealtimeChannel = null;
 var supabaseCatalogRealtimeRefreshTimer = null;
 var supabaseCatalogPendingDeletedProductIds = new Set();
+var supabaseOrdersBootstrapped = false;
+var supabaseOrdersRemoteRefreshing = false;
 var supabaseProductDescriptionSupported = false;
 var supabaseProductOptionSupported = false;
 var supabaseProductGallerySupported = false;
@@ -770,6 +772,7 @@ async function initializeApp() {
   initializeAppHistory();
   document.documentElement.dataset.gbApp = "loaded";
   initializeSupabaseCatalog();
+  initializeSupabaseOrders();
 }
 
 function getSupabaseAuthClient() {
@@ -907,6 +910,153 @@ function saveCart() {
 
 function saveOrders() {
   localStorage.setItem(STORAGE_ORDERS, JSON.stringify(orders.filter((order) => !order.manualDraft)));
+}
+
+async function initializeSupabaseOrders() {
+  if (!isPrivateManagementRoute() || !hasPermission("orders")) return;
+  await refreshOrdersFromSupabase("initial", { silent: true });
+}
+
+async function refreshOrdersFromSupabase(reason = "manual", options = {}) {
+  if (!isPrivateManagementRoute() || !hasPermission("orders")) return { ok: false, message: "Pedidos remotos disponibles solo en Gestión." };
+  const client = getSupabaseCatalogClient();
+  if (!client || supabaseOrdersRemoteRefreshing) return { ok: false, message: "Sin cliente Supabase para pedidos." };
+  supabaseOrdersRemoteRefreshing = true;
+  try {
+    const remoteOrders = await withSupabaseTimeout(loadOrdersFromSupabase(), "No se pudieron leer los pedidos de Supabase a tiempo.");
+    supabaseOrdersBootstrapped = true;
+    if (remoteOrders.length) {
+      mergeRemoteOrders(remoteOrders);
+      syncClientsFromOrders();
+      saveOrders();
+      renderAll();
+    }
+    return { ok: true, orders: remoteOrders.length, reason };
+  } catch (error) {
+    console.error("Punto X Mayor Supabase orders read:", error);
+    if (!options.silent) showToast(error.message || "No se pudieron actualizar los pedidos.");
+    return { ok: false, message: error.message || "No se pudieron leer los pedidos." };
+  } finally {
+    supabaseOrdersRemoteRefreshing = false;
+  }
+}
+
+async function loadOrdersFromSupabase() {
+  const client = getSupabaseCatalogClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("orders")
+    .select("*, order_items(*)")
+    .order("order_number", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapSupabaseOrderToLocal).filter(Boolean);
+}
+
+function mergeRemoteOrders(remoteOrders) {
+  const remoteById = new Map(remoteOrders.map((order) => [String(order.remoteId || order.id), order]));
+  const localOnly = orders.filter((order) => {
+    if (order.manualDraft) return true;
+    const remoteId = String(order.remoteId || order.id || "");
+    return !remoteById.has(remoteId);
+  });
+  orders = normalizeBudgets([...remoteOrders, ...localOnly]);
+}
+
+function mapSupabaseOrderToLocal(row) {
+  if (!row) return null;
+  const mapped = {
+    id: String(row.id || crypto.randomUUID()),
+    remoteId: String(row.id || ""),
+    type: "consultation",
+    number: Number(row.order_number) || 0,
+    customer: row.customer_name || "",
+    customerName: row.customer_name || "",
+    customerPhone: row.customer_phone || "",
+    customerLocation: row.customer_location || "",
+    deliveryType: row.delivery_type || "Retira en local",
+    deliveryNotes: row.delivery_notes || "",
+    paymentMethod: row.payment_method || "Transferencia",
+    origin: row.origin || "web",
+    discountType: row.discount_type || "fixed",
+    discountValue: Number(row.discount_value) || 0,
+    discountAmount: Number(row.discount_amount) || 0,
+    status: normalizeConsultationStatus(row.status || "En revisión"),
+    notes: row.notes || "",
+    stockApplied: Boolean(row.stock_applied),
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+    items: (row.order_items || row.items || []).map(mapSupabaseOrderItemToLocal),
+    subtotal: Number(row.subtotal) || 0,
+    total: Number(row.total) || 0,
+    profit: 0
+  };
+  recalculateBudget(mapped);
+  return mapped;
+}
+
+function mapSupabaseOrderItemToLocal(row) {
+  return {
+    id: String(row.product_id || row.id || crypto.randomUUID()),
+    name: row.product_name || "Producto",
+    brand: "Punto X Mayor",
+    price: Number(row.unit_price) || 0,
+    saleType: "pack",
+    packQuantity: getPackQuantityFromPresentation(row.presentation) || 1,
+    stockUnit: normalizeStockUnit(row.stock_unit || inferDefaultStockUnitFromPresentation(row.presentation)),
+    cost: Number(row.unit_cost) || 0,
+    variant: row.variant_name || "",
+    catalogProduct: row.product_name || "",
+    presentation: row.presentation || "",
+    quantity: Math.max(1, Math.round(Number(row.quantity) || 1))
+  };
+}
+
+async function saveOrderToSupabase(order) {
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error("No se pudo conectar con Supabase para registrar el pedido.");
+  if (typeof client.rpc !== "function") throw new Error("Supabase RPC no está disponible para registrar pedidos.");
+  recalculateBudget(order);
+  const payload = {
+    customer_name: order.customerName || order.customer || "",
+    customer_phone: order.customerPhone || "",
+    customer_location: order.customerLocation || "",
+    status: normalizeConsultationStatus(order.status || "En revisión"),
+    subtotal: Number(order.subtotal) || 0,
+    total: Number(order.total) || 0,
+    discount_type: order.discountType || "fixed",
+    discount_value: Number(order.discountValue) || 0,
+    discount_amount: Number(order.discountAmount) || 0,
+    payment_method: order.paymentMethod || "Transferencia",
+    delivery_notes: order.deliveryNotes || "",
+    origin: order.origin || "web",
+    stock_applied: Boolean(order.stockApplied),
+    updated_at: new Date().toISOString()
+  };
+  const itemRows = order.items.map((item) => ({
+    product_id: item.id,
+    product_name: item.name || "Producto",
+    variant_name: item.variant || "",
+    presentation: getBudgetItemPresentation(item),
+    stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
+    quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    unit_price: Number(item.price) || 0,
+    unit_cost: Number(item.cost) || 0,
+    subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
+  }));
+  const { data, error } = await client.rpc("create_web_order", {
+    order_payload: payload,
+    item_payload: itemRows
+  });
+  if (error) throw new Error(`No se pudo guardar el pedido en Supabase: ${error.message || error.code || "error desconocido"}`);
+  const savedOrder = data?.order || data?.pedido || data;
+  const savedItems = data?.items || data?.order_items || itemRows;
+  if (!savedOrder?.id) throw new Error("Supabase no devolvió el ID del pedido creado.");
+  if (!Number(savedOrder.order_number)) {
+    throw new Error("Supabase creó el pedido, pero no devolvió un número correlativo. Revisar default/sequence de orders.order_number.");
+  }
+  const remoteOrder = mapSupabaseOrderToLocal({ ...savedOrder, order_items: savedItems });
+  if (!remoteOrder) throw new Error("No se pudo reconstruir el pedido guardado.");
+  return remoteOrder;
 }
 
 function saveStockHistory() {
@@ -5507,7 +5657,7 @@ function renderCart() {
   const customer = getCustomerData();
   els.whatsappLink.href = minimumReached && customer.isComplete ? buildWhatsappUrl(items, totalPrice, customer) : "#";
   els.whatsappLink.classList.toggle("disabled", !minimumReached);
-  els.whatsappLink.onclick = (event) => {
+  els.whatsappLink.onclick = async (event) => {
     const latestCustomer = getCustomerData();
     if (!minimumReached) {
       event.preventDefault();
@@ -5520,16 +5670,28 @@ function renderCart() {
       return;
     }
     event.preventDefault();
-    const consultation = saveCatalogConsultation(items, totalPrice, latestCustomer);
-    const whatsappUrl = buildWhatsappUrl(items, totalPrice, latestCustomer, formatConsultationNumber(consultation));
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
-    cart = [];
-    saveCart();
-    clearCustomerFields();
-    closeCart();
-    setView("catalogo");
-    renderAll();
-    showToast("Pedido registrado correctamente");
+    if (els.whatsappLink.dataset.saving === "true") return;
+    els.whatsappLink.dataset.saving = "true";
+    els.whatsappLink.classList.add("disabled");
+    try {
+      const consultation = await saveCatalogConsultation(items, totalPrice, latestCustomer);
+      const whatsappUrl = buildWhatsappUrl(items, totalPrice, latestCustomer, formatConsultationNumber(consultation));
+      window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+      cart = [];
+      saveCart();
+      clearCustomerFields();
+      closeCart();
+      setView("catalogo");
+      renderAll();
+      showToast("Pedido registrado correctamente");
+    } catch (error) {
+      console.error("Punto X Mayor web order save:", error);
+      showCartError(error.message || "No se pudo registrar el pedido. Intentá nuevamente.");
+      showToast("No se pudo registrar el pedido. No se abrió WhatsApp.");
+    } finally {
+      delete els.whatsappLink.dataset.saving;
+      renderCart();
+    }
   };
 }
 
@@ -5618,13 +5780,16 @@ function addToCart(product, quantity) {
   showToast("Producto agregado al carrito");
 }
 
-function saveCatalogConsultation(items, totalPrice, customer) {
+async function saveCatalogConsultation(items, totalPrice, customer) {
   const order = makeBudgetFromCatalogItems(items, customer, "Consulta enviada desde el catálogo por WhatsApp.");
   order.catalogTotal = totalPrice;
-  orders.unshift(order);
+  const savedOrder = await withSupabaseTimeout(saveOrderToSupabase(order), "Supabase tardó demasiado en registrar el pedido.");
+  orders = orders.filter((item) => String(item.remoteId || item.id) !== String(savedOrder.remoteId || savedOrder.id));
+  orders.unshift(savedOrder);
   syncClientsFromOrders();
   saveOrders();
-  return order;
+  renderAll();
+  return savedOrder;
 }
 
 function updateProductField(id, field, value) {
@@ -7978,6 +8143,7 @@ function selectInternalProfile(profile, adminToken = null) {
   els.internalRoleView?.classList.add("hidden");
   renderAll();
   setView(getSavedInitialManagementView(), true, { replace: true });
+  refreshOrdersFromSupabase("profile-selected", { silent: true });
   restoreSavedScrollPosition();
 }
 
