@@ -750,7 +750,7 @@ async function runConfirmDialogAction() {
     confirmDialogBusy = false;
     closeConfirmDialog(true);
   } catch (error) {
-    console.error("GB Mayorista delete confirmation action:", error);
+    console.error("Punto X Mayor delete confirmation action:", error);
     showToast(error.message || "No se pudo eliminar. Intentá nuevamente.");
     confirmDialogBusy = false;
     if (els.confirmModalAccept) {
@@ -820,7 +820,7 @@ async function initializeSupabaseAuth() {
     }
     else lockInternalSession();
   } catch (error) {
-    console.error("GB Mayorista Supabase Auth session:", error);
+    console.error("Punto X Mayor Supabase Auth session:", error);
     lockInternalSession();
     if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
   }
@@ -1013,7 +1013,7 @@ async function initializeSupabaseCatalog() {
       message: error.message || "No se pudo conectar con Supabase. La app sigue usando localStorage.",
       hint: "Si aparece un error de RLS o JWT, falta iniciar sesion o habilitar policies para esta etapa."
     });
-    console.warn("GB Mayorista Supabase catalog init:", error);
+    console.warn("Punto X Mayor Supabase catalog init:", error);
   }
 }
 
@@ -1104,7 +1104,7 @@ async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
       code: error.code || null,
       hint: error.hint || error.details || "Revisar conexion, RLS o Realtime."
     });
-    console.warn("GB Mayorista Supabase catalog refresh:", error);
+    console.warn("Punto X Mayor Supabase catalog refresh:", error);
     logSupabaseSyncDebug("read-error", {
       reason,
       message: error.message || "No se pudo actualizar desde Supabase.",
@@ -1395,7 +1395,7 @@ async function syncCatalogToSupabase(reason = "manual") {
       code: error.code || null,
       hint: error.hint || error.details || "Revisar RLS/policies si la tabla remota queda vacia."
     });
-    console.warn("GB Mayorista Supabase catalog sync:", error);
+    console.warn("Punto X Mayor Supabase catalog sync:", error);
     logSupabaseSyncDebug("save-error", {
       reason,
       message: error.message || "No se pudo sincronizar con Supabase.",
@@ -1600,7 +1600,7 @@ async function removeProductImagesFromStorage(product) {
   if (!paths.length) return;
   const { error } = await client.storage.from("product-images").remove(paths);
   if (error) {
-    console.warn("GB Mayorista storage image delete:", error);
+    console.warn("Punto X Mayor storage image delete:", error);
     showToast("Producto eliminado. No se pudieron limpiar algunas fotos de Storage.");
   }
 }
@@ -1803,14 +1803,14 @@ async function uploadProductImageToSupabase(productId, file) {
       scope: "images"
     });
     uploadProductImageToSupabase.lastError = error;
-    console.warn("GB Mayorista Supabase image upload:", error);
+    console.warn("Punto X Mayor Supabase image upload:", error);
     return "";
   }
 }
 
 async function uploadProductImageForEditOrFail(productId, file) {
   if (!(file instanceof File) || !file.size) return "";
-  console.info("GB Mayorista image upload start", { productId, name: file.name, size: file.size, type: file.type });
+  console.info("Punto X Mayor image upload start", { productId, name: file.name, size: file.size, type: file.type });
   const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   if (file.type && !supportedTypes.includes(file.type)) {
     throw new Error("Formato de imagen no admitido. Usá JPG, PNG, WebP o GIF.");
@@ -1822,7 +1822,7 @@ async function uploadProductImageForEditOrFail(productId, file) {
   );
   if (!imageUrl) throw new Error(formatUploadErrorMessage(uploadProductImageToSupabase.lastError));
   const cacheSafeUrl = `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
-  console.info("GB Mayorista image upload ok", { productId, imageUrl: cacheSafeUrl });
+  console.info("Punto X Mayor image upload ok", { productId, imageUrl: cacheSafeUrl });
   return cacheSafeUrl;
 }
 function getImageFileExtension(file) {
@@ -2039,7 +2039,7 @@ function getCatalogProducts() {
         groups.set(key, {
           id: key,
           name: info.name,
-          brand: product.brand || "GB Mayorista",
+          brand: product.brand || "Punto X Mayor",
           category: product.category,
           sortOrder: Number.isFinite(Number(product.sortOrder)) ? Number(product.sortOrder) : Number.MAX_SAFE_INTEGER,
           description: product.description || "",
@@ -2137,12 +2137,12 @@ function getCatalogGroupInfo(product) {
   const productKey = optionName
     ? [
       normalizeProductSearchText(product.category),
-      normalizeProductSearchText(product.brand || "GB Mayorista"),
+      normalizeProductSearchText(product.brand || "Punto X Mayor"),
       normalizeProductSearchText(baseName)
     ].join("-")
     : [
       normalizeProductSearchText(product.category),
-      normalizeProductSearchText(product.brand || "GB Mayorista"),
+      normalizeProductSearchText(product.brand || "Punto X Mayor"),
       normalizeProductSearchText(baseName),
       normalizeProductSearchText(getProductPresentation(product)),
       product.id
@@ -3324,7 +3324,7 @@ async function previewEditProductImage() {
     editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((item) => item.id === editingProductId));
   } catch (error) {
-    console.error("GB Mayorista edit product image preview:", error);
+    console.error("Punto X Mayor edit product image preview:", error);
     showToast(error.message || "No se pudo cargar la imagen");
   }
 }
@@ -3356,7 +3356,7 @@ async function replaceEditProductPhotoItem(index, file) {
     editProductPhotosExpanded = true;
     renderEditProductImageGallery(products.find((product) => product.id === editingProductId));
   } catch (error) {
-    console.error("GB Mayorista replace product image preview:", error);
+    console.error("Punto X Mayor replace product image preview:", error);
     showToast(error.message || "No se pudo cargar la imagen");
   }
 }
@@ -3433,7 +3433,7 @@ async function saveEditedProduct(event) {
       Object.assign(product, originalProductSnapshot);
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     }
-    console.error("GB Mayorista edit product save:", error);
+    console.error("Punto X Mayor edit product save:", error);
     showToast(error.message || "No se pudo guardar el producto. Intentá nuevamente.");
   } finally {
     setEditProductSavingState(false);
@@ -4008,7 +4008,7 @@ function getPackQuantityFromPresentation(presentation) {
 
 function getBrandFromProductName(name) {
   const knownBrands = ["Lody", "XY", "Maxton", "Uomo", "Dufour", "Capicúa"];
-  return knownBrands.find((brand) => name.toLowerCase().includes(brand.toLowerCase())) || "GB Mayorista";
+  return knownBrands.find((brand) => name.toLowerCase().includes(brand.toLowerCase())) || "Punto X Mayor";
 }
 
 function renderCategoryManager() {
@@ -5338,7 +5338,7 @@ function exportClientsToExcel() {
   const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `clientes-gb-mayorista-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `clientes-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
   URL.revokeObjectURL(link.href);
   showToast("Clientes exportados para Excel");
@@ -6487,9 +6487,12 @@ function buildOrderPrintDocument(order) {
     title: getOrderDocumentTitle(order),
     record: formatOrderDocumentNumber(order),
     date: formatDocumentDateTime(order.createdAt),
+    status: normalizeConsultationStatus(order.status),
     customer: getOrderCustomerName(order),
     phone: order.customerPhone || "Sin teléfono",
     location: order.customerLocation || "Sin localidad",
+    paymentMethod: order.paymentMethod || "Transferencia",
+    deliveryType: getDeliveryLabel(order),
     subtotal: order.subtotal || 0,
     discount: formatDiscountSummary(order),
     total: order.total || 0,
@@ -6503,7 +6506,6 @@ function buildOrderDocumentHtml(order) {
     <tr>
       <td class="doc-qty">${escapeHtml(item.quantityLabel)}</td>
       <td class="doc-product">${escapeHtml(item.product)}</td>
-      <td class="doc-money">${formatMoney(item.price)}</td>
       <td class="doc-money">${formatMoney(item.subtotal)}</td>
     </tr>
   `).join("");
@@ -6516,18 +6518,29 @@ function buildOrderDocumentHtml(order) {
       <body>
         <div class="document-shell compact-document-shell">
           <header class="compact-document-header">
-            <div class="document-logo compact-document-logo">GB<br><span>Mayorista</span></div>
+            <div class="compact-document-brand">
+              <h1>PUNTO X MAYOR</h1>
+              <p>Av. de Mayo 187</p>
+              <p>Pergamino</p>
+              <p>Provincia de Buenos Aires</p>
+            </div>
             <div class="compact-document-title">
-              <h1>${escapeHtml(document.title)}</h1>
-              <p>${escapeHtml(document.record)} | ${escapeHtml(document.date)} | ${escapeHtml(document.customer)} | ${escapeHtml(document.phone)} | ${escapeHtml(document.location)}</p>
+              <strong>${escapeHtml(document.record)}</strong>
+              <span>Fecha: ${escapeHtml(document.date)}</span>
+              <span>Estado: ${escapeHtml(document.status)}</span>
             </div>
           </header>
+          <section class="compact-document-client">
+            <h2>Datos del cliente</h2>
+            <p><strong>Nombre:</strong> ${escapeHtml(document.customer)}</p>
+            <p><strong>Teléfono:</strong> ${escapeHtml(document.phone)}</p>
+            <p><strong>Localidad:</strong> ${escapeHtml(document.location)}</p>
+          </section>
           <table class="compact-document-table">
             <thead>
               <tr>
-                <th>Cantidad / presentación</th>
+                <th>Cantidad</th>
                 <th>Producto</th>
-                <th>Precio unitario</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
@@ -6536,7 +6549,10 @@ function buildOrderDocumentHtml(order) {
           <section class="compact-document-totals">
             <div><span>Subtotal</span><strong>${formatMoney(document.subtotal)}</strong></div>
             <div><span>Descuento</span><strong>${escapeHtml(document.discount)}</strong></div>
-            <div class="compact-document-final"><span>Total final</span><strong>${formatMoney(document.total)}</strong></div>
+            <div class="compact-document-final"><span>Total del pedido</span><strong>${formatMoney(document.total)}</strong></div>
+            <div><span>Forma de pago</span><strong>${escapeHtml(document.paymentMethod)}</strong></div>
+            <div><span>Forma de entrega</span><strong>${escapeHtml(document.deliveryType)}</strong></div>
+            <div><span>Estado</span><strong>${escapeHtml(document.status)}</strong></div>
           </section>
         </div>
       </body>
@@ -6699,14 +6715,14 @@ async function shareCurrentPdf() {
     try {
       await navigator.share({
         files: [file],
-        title: "Consulta GB Mayorista",
-        text: phone ? "Compartí el PDF por WhatsApp al cliente." : "Consulta GB Mayorista"
+        title: "PUNTO X MAYOR",
+        text: phone ? "Compartí el PDF por WhatsApp al cliente." : "PUNTO X MAYOR"
       });
       showToast("PDF compartido desde el celular", "success");
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
-      console.warn("GB Mayorista PDF share:", error);
+      console.warn("Punto X Mayor PDF share:", error);
     }
   }
 
@@ -6733,7 +6749,7 @@ function triggerPdfDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename || "Consulta-GB-Mayorista.pdf";
+  link.download = filename || "Consulta-Punto-X-Mayor.pdf";
   link.style.display = "none";
   document.body.appendChild(link);
   link.click();
@@ -6794,8 +6810,8 @@ function getPrintablePdfLines(container) {
 function createOrderDocumentPdf(document) {
   const pageWidth = 595;
   const pageHeight = 842;
-  const margin = 30;
-  const bottom = 34;
+  const margin = 34;
+  const bottom = 36;
   const fontId = 1;
   const boldFontId = 2;
   const pages = [];
@@ -6809,22 +6825,39 @@ function createOrderDocumentPdf(document) {
     commands.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
   };
   const renderPdfTableHeader = () => {
-    addText("Cantidad", margin, y, 8, true);
-    addText("Producto", margin + 82, y, 8, true);
-    addText("Precio unit.", pageWidth - 190, y, 8, true);
-    addText("Subtotal", pageWidth - 98, y, 8, true);
-    y -= 8;
+    addText("Cantidad", margin, y, 8.5, true);
+    addText("Producto", margin + 92, y, 8.5, true);
+    addText("Subtotal", pageWidth - 104, y, 8.5, true);
+    y -= 9;
     addLine(margin, y, pageWidth - margin, y, 0.5);
     y -= 13;
   };
   const renderPdfHeader = (firstPage = true) => {
-    addText("GB MAYORISTA", margin, y, 13, true);
-    addText(firstPage ? document.title : `${document.title} - continuación`, pageWidth - 150, y, 12, true);
-    y -= 16;
-    addText(truncatePdfText(`${document.record} | ${document.date} | ${document.customer} | ${document.phone} | ${document.location}`, 105), margin, y, 9, false);
+    addText("PUNTO X MAYOR", margin, y, 15, true);
+    y -= 13;
+    addText("Av. de Mayo 187", margin, y, 8.5, false);
+    y -= 10;
+    addText("Pergamino", margin, y, 8.5, false);
+    y -= 10;
+    addText("Provincia de Buenos Aires", margin, y, 8.5, false);
+
+    addText(firstPage ? document.record : `${document.record} - continuación`, pageWidth - 178, pageHeight - margin, 12, true);
+    addText(`Fecha: ${document.date}`, pageWidth - 178, pageHeight - margin - 14, 8.5, false);
+    addText(`Estado: ${document.status}`, pageWidth - 178, pageHeight - margin - 26, 8.5, false);
     y -= 10;
     addLine(margin, y, pageWidth - margin, y, 1);
     y -= 16;
+
+    if (firstPage) {
+      addText("Datos del cliente", margin, y, 9.5, true);
+      y -= 12;
+      addText(`Nombre: ${document.customer}`, margin, y, 8.8, false);
+      addText(`Teléfono: ${document.phone}`, margin + 220, y, 8.8, false);
+      y -= 12;
+      addText(`Localidad: ${document.location}`, margin, y, 8.8, false);
+      y -= 18;
+    }
+
     renderPdfTableHeader();
   };
   const newPage = () => {
@@ -6836,26 +6869,33 @@ function createOrderDocumentPdf(document) {
 
   renderPdfHeader(true);
   document.items.forEach((item) => {
-    if (y < bottom + 92) newPage();
-    addText(truncatePdfText(item.quantityLabel, 18), margin, y, 8.4, false);
-    addText(truncatePdfText(item.product, 52), margin + 82, y, 8.4, false);
-    addText(formatMoney(item.price), pageWidth - 190, y, 8.4, false);
-    addText(formatMoney(item.subtotal), pageWidth - 98, y, 8.4, true);
-    y -= 15;
+    const productLines = wrapPdfLine(item.product, 58);
+    const rowHeight = Math.max(16, productLines.length * 10 + 6);
+    if (y < bottom + rowHeight + 72) newPage();
+    addText(item.quantityLabel, margin, y, 8.4, false);
+    productLines.forEach((line, index) => addText(line, margin + 92, y - (index * 10), 8.4, false));
+    addText(formatMoney(item.subtotal), pageWidth - 104, y, 8.4, true);
+    y -= rowHeight;
   });
 
-  if (y < bottom + 72) newPage();
+  if (y < bottom + 104) newPage();
   y -= 4;
-  addLine(pageWidth - 230, y, pageWidth - margin, y, 0.8);
-  y -= 16;
-  addText("Subtotal", pageWidth - 230, y, 9, false);
-  addText(formatMoney(document.subtotal), pageWidth - 100, y, 9, true);
+  addLine(pageWidth - 250, y, pageWidth - margin, y, 0.8);
   y -= 15;
-  addText("Descuento", pageWidth - 230, y, 9, false);
-  addText(document.discount, pageWidth - 100, y, 9, true);
-  y -= 19;
-  addText("TOTAL FINAL", pageWidth - 230, y, 11, true);
-  addText(formatMoney(document.total), pageWidth - 100, y, 12, true);
+  addText("Subtotal", pageWidth - 250, y, 9, false);
+  addText(formatMoney(document.subtotal), pageWidth - 112, y, 9, true);
+  y -= 14;
+  addText("Descuento", pageWidth - 250, y, 9, false);
+  addText(document.discount, pageWidth - 112, y, 9, true);
+  y -= 18;
+  addText("TOTAL DEL PEDIDO", pageWidth - 250, y, 11, true);
+  addText(formatMoney(document.total), pageWidth - 112, y, 12, true);
+  y -= 18;
+  addText(`Forma de pago: ${document.paymentMethod}`, pageWidth - 250, y, 8.7, false);
+  y -= 12;
+  addText(`Forma de entrega: ${document.deliveryType}`, pageWidth - 250, y, 8.7, false);
+  y -= 12;
+  addText(`Estado: ${document.status}`, pageWidth - 250, y, 8.7, false);
   pages.push(commands);
 
   return buildPdfFromPages(pages, pageWidth, pageHeight);
@@ -7032,7 +7072,7 @@ function slugifyFilename(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .toLowerCase() || "gb-mayorista";
+    .toLowerCase() || "punto-x-mayor";
 }
 
 function extractPrintableBody(html) {
@@ -7049,27 +7089,31 @@ function decodeHtml(value) {
 function getPrintStyles() {
   return `
     <style>
-      body { font-family: Arial, sans-serif; padding: 18px; color: #111; background: #f6f6f2; }
+      @page { size: A4; margin: 14mm; }
+      body { font-family: Arial, sans-serif; padding: 18px; color: #111; background: #fff; }
       .document-shell { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #d8d8d0; border-radius: 8px; padding: 18px; }
-      .compact-document-header { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 2px solid #111; }
-      .compact-document-logo { width: 48px; height: 48px; border-radius: 7px; background: #111; color: #ffd21f; display: grid; place-items: center; text-align: center; font-size: 19px; font-weight: 900; line-height: 1; flex: 0 0 auto; }
-      .compact-document-logo span { font-size: 9px; color: #fff; }
-      .compact-document-title { min-width: 0; }
-      h1 { margin: 0 0 4px; font-size: 20px; text-transform: uppercase; }
-      p { margin: 0; font-size: 12px; color: #333; font-weight: 700; line-height: 1.35; }
+      .compact-document-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start; padding-bottom: 12px; border-bottom: 2px solid #c9a24a; }
+      .compact-document-brand h1 { margin: 0 0 5px; color: #111; font-size: 22px; line-height: 1; letter-spacing: 0.04em; }
+      .compact-document-brand p { margin: 0; color: #333; font-size: 11.5px; font-weight: 700; line-height: 1.35; }
+      .compact-document-title { display: grid; gap: 4px; justify-items: end; min-width: 180px; color: #222; font-size: 11px; font-weight: 800; text-align: right; }
+      .compact-document-title strong { color: #111; font-size: 15px; }
+      .compact-document-client { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; margin-top: 12px; padding: 9px 0 10px; border-bottom: 1px solid #deded8; }
+      .compact-document-client h2 { grid-column: 1 / -1; margin: 0; color: #111; font-size: 12px; text-transform: uppercase; }
+      .compact-document-client p { margin: 0; color: #333; font-size: 11.2px; line-height: 1.3; }
       table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
-      th, td { border-bottom: 1px solid #deded8; padding: 5px 6px; text-align: left; font-size: 11.5px; vertical-align: top; }
-      th { background: #fff1a6; color: #111; font-size: 10px; text-transform: uppercase; }
-      .doc-qty { width: 70px; white-space: nowrap; }
-      .doc-product { width: auto; line-height: 1.25; word-break: normal; overflow-wrap: anywhere; }
-      .doc-money { width: 92px; text-align: right; white-space: nowrap; }
-      .compact-document-totals { width: min(300px, 100%); margin: 14px 0 0 auto; display: grid; gap: 3px; }
+      th, td { border-bottom: 1px solid #deded8; padding: 6px 7px; text-align: left; font-size: 11.2px; vertical-align: top; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      th { background: #f2e4bd; color: #111; font-size: 10px; text-transform: uppercase; }
+      .doc-qty { width: 86px; white-space: normal; font-weight: 800; }
+      .doc-product { width: auto; line-height: 1.28; word-break: normal; overflow-wrap: anywhere; white-space: normal; }
+      .doc-money { width: 94px; text-align: right; white-space: nowrap; font-weight: 900; }
+      .compact-document-totals { width: min(330px, 100%); margin: 14px 0 0 auto; display: grid; gap: 3px; }
       .compact-document-totals div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-bottom: 1px solid #e4e4dc; font-size: 12px; }
       .compact-document-totals span { color: #333; font-weight: 800; }
-      .compact-document-final { border: 2px solid #111 !important; border-radius: 6px; padding: 7px 9px !important; background: #ffd21f; align-items: center; }
+      .compact-document-final { border: 2px solid #111 !important; border-radius: 6px; padding: 7px 9px !important; background: #f2e4bd; align-items: center; }
       .compact-document-final span { color: #111; text-transform: uppercase; }
-      .compact-document-final strong { color: #b00000; font-size: 18px; }
-      @media (max-width: 640px) { body { padding: 8px; } .document-shell { padding: 10px; } .compact-document-header { align-items: flex-start; } h1 { font-size: 17px; } p { font-size: 10.5px; } th, td { padding: 4px; font-size: 10px; } .doc-qty { width: 48px; } .doc-money { width: 70px; } }
+      .compact-document-final strong { color: #111; font-size: 18px; }
+      @media (max-width: 640px) { body { padding: 8px; } .document-shell { padding: 10px; } .compact-document-header { grid-template-columns: 1fr; gap: 8px; } .compact-document-title { justify-items: start; text-align: left; } .compact-document-brand h1 { font-size: 18px; } .compact-document-client { grid-template-columns: 1fr; } th, td { padding: 5px; font-size: 10.5px; } .doc-qty { width: 58px; } .doc-money { width: 76px; } }
       @media print { body { background: #fff; padding: 0; } .document-shell { border: 0; padding: 0; max-width: none; } th { background: #f2f2f2 !important; } .compact-document-final { background: #f3f3f3 !important; } }
     </style>
   `;
@@ -7333,7 +7377,9 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
     ];
   });
   const lines = [
-    "🛒 PEDIDO GB MAYORISTA",
+    "PUNTO X MAYOR",
+    "",
+    "PEDIDO",
     "",
     ...(cleanConsultationLabel ? [cleanConsultationLabel, ""] : []),
     `Cliente: ${customer.name}`,
@@ -7345,12 +7391,14 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
     ...productLines,
     "────────────────",
     "",
-    "TOTAL DEL PEDIDO",
-    formatMoney(totalPrice),
+    `Subtotal general: ${formatMoney(totalPrice)}`,
+    `Total: ${formatMoney(totalPrice)}`,
+    "Forma de entrega: A coordinar",
+    "Forma de pago: A coordinar",
     "",
     minimumReached ? "✅ Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
     "",
-    "Gracias por elegir GB Mayorista.",
+    "Gracias por elegir Punto X Mayor.",
     "Nos comunicaremos a la brevedad.",
     ...(consultationId ? ["", `ID Consulta: ${consultationId}`] : [])
   ];
@@ -7371,7 +7419,7 @@ function buildCustomerWhatsappChatUrl(order) {
 function buildBudgetMessage(order) {
   const totals = calculateBudgetTotals(order);
   const lines = [
-    "GB Mayorista",
+    "PUNTO X MAYOR",
     "",
     `Cliente: ${getOrderCustomerName(order)}`,
     "",
@@ -7963,7 +8011,7 @@ async function handleAdminKeySubmit(event) {
     hideAdminKeyForm();
     selectInternalProfile("admin", INTERNAL_ADMIN_PROFILE_TOKEN);
   } catch (error) {
-    console.error("GB Mayorista admin profile validation:", error);
+    console.error("Punto X Mayor admin profile validation:", error);
     showAdminKeyError(error.message || "No se pudo validar la clave interna.");
   } finally {
     if (els.adminKeySubmit) {
@@ -8119,7 +8167,7 @@ async function handlePasswordRecoveryRequest(event) {
     if (error) throw error;
     setLoginMessage(els.passwordRecoveryMessage, "Si el correo existe, se envió el enlace para restablecer la contraseña.", false);
   } catch (error) {
-    console.error("GB Mayorista password recovery:", error);
+    console.error("Punto X Mayor password recovery:", error);
     setLoginMessage(els.passwordRecoveryMessage, error.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.", true);
   } finally {
     if (els.passwordRecoverySubmit) {
@@ -8160,7 +8208,7 @@ async function handlePasswordResetSubmit(event) {
     lockInternalSession();
     showInternalLogin(true, "Contraseña actualizada. Iniciá sesión nuevamente.", true);
   } catch (error) {
-    console.error("GB Mayorista password reset:", error);
+    console.error("Punto X Mayor password reset:", error);
     setLoginMessage(els.passwordResetMessage, error.message || "No se pudo actualizar la contraseña. Intentá nuevamente.", true);
   } finally {
     if (els.passwordResetSubmit) {
@@ -8198,7 +8246,7 @@ async function handleInternalLogin(event) {
     await refreshCatalogFromSupabase("gestion-login", { silent: true });
     showInternalRoleChoice();
   } catch (error) {
-    console.error("GB Mayorista Supabase Auth login:", error);
+    console.error("Punto X Mayor Supabase Auth login:", error);
     if (els.internalPassword) els.internalPassword.value = "";
     showInternalLogin(true, error.message || "No se pudo iniciar sesión.");
   } finally {
@@ -8214,7 +8262,7 @@ async function handleInternalLogout() {
   try {
     if (client) await client.auth.signOut();
   } catch (error) {
-    console.error("GB Mayorista Supabase Auth logout:", error);
+    console.error("Punto X Mayor Supabase Auth logout:", error);
     showToast("No se pudo cerrar sesión");
   } finally {
     lockInternalSession();
@@ -8442,7 +8490,7 @@ function makeBudgetFromCatalogItems(items, customer, notes = "") {
     return {
       id: internalProduct?.id || item.internalProductId || item.id,
       name: internalProduct?.name || item.internalProductName || item.name,
-      brand: internalProduct?.brand || item.brand || "GB Mayorista",
+      brand: internalProduct?.brand || item.brand || "Punto X Mayor",
       price: Math.max(0, Number(item.price) || getProductSalePriceForPresentation(internalProduct) || Number(internalProduct?.price) || 0),
       saleType: internalProduct?.saleType || item.saleType || "pack",
       packQuantity: internalProduct?.packQuantity || item.packQuantity || 12,
@@ -8914,7 +8962,7 @@ function downloadImportTemplate() {
   const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "plantilla-productos-gb-mayorista.csv";
+  link.download = "plantilla-productos-punto-x-mayor.csv";
   link.click();
   URL.revokeObjectURL(link.href);
   showToast("Plantilla CSV lista para Excel");
@@ -8946,7 +8994,7 @@ function exportProductsToExcel() {
     getStockUnitLabelFromUnit(product.stockUnit, 2),
     formatCatalogVisibility(product.showInCatalog)
   ]);
-  downloadXlsxWorkbook(`productos-gb-mayorista-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
+  downloadXlsxWorkbook(`productos-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
     numericColumns: [5, 6, 8],
     moneyColumns: [5, 6]
   });
@@ -8968,7 +9016,7 @@ function exportSalesToExcel() {
     order.total || 0,
     order.items.map((item) => `${item.name} x${item.quantity}`).join(" | ")
   ]);
-  downloadCsv(`ventas-gb-mayorista-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
+  downloadCsv(`ventas-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
   showToast("Ventas exportadas para Excel");
 }
 
@@ -8992,7 +9040,7 @@ function exportStockToExcel() {
       saleValue - costValue
     ];
   });
-  downloadCsv(`stock-gb-mayorista-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
+  downloadCsv(`stock-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
   showToast("Stock exportado para Excel");
 }
 
@@ -9019,9 +9067,9 @@ function buildXlsxWorkbook(sheetName, headers, rows, options = {}) {
     ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`],
     ["docProps/app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>GB Mayorista</Application></Properties>`],
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>Punto X Mayor</Application></Properties>`],
     ["docProps/core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${safeSheetName}</dc:title><dc:creator>GB Mayorista</dc:creator><cp:lastModifiedBy>GB Mayorista</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${safeSheetName}</dc:title><dc:creator>Punto X Mayor</dc:creator><cp:lastModifiedBy>Punto X Mayor</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
     ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${safeSheetName}" sheetId="1" r:id="rId1"/></sheets></workbook>`],
     ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
