@@ -12295,10 +12295,11 @@ body:not(.private-management-mode) #floatingCartCount {
     font-size: 0.64rem !important;
   }
 }
-/* Header Punto X Mayor: logo oficial en alta resolucion */
+/* Header Punto X Mayor: logo oficial compacto */
 .topbar.public-catalog-header {
   background: #000 !important;
-  padding: 6px 8px !important;
+  padding: 3px 8px !important;
+  min-height: 0 !important;
 }
 
 .public-brand-shell,
@@ -12306,29 +12307,44 @@ body:not(.private-management-mode) #floatingCartCount {
   background: #000 !important;
 }
 
+.public-brand-shell {
+  gap: 0 !important;
+}
+
 .public-catalog-brand.brand .public-brand-logo {
   display: block !important;
-  inline-size: min(760px, 58vw) !important;
-  width: min(760px, 58vw) !important;
-  max-inline-size: calc(100vw - 20px) !important;
-  max-width: calc(100vw - 20px) !important;
-  max-height: 230px !important;
+  width: auto !important;
   height: auto !important;
+  max-width: min(620px, 52vw) !important;
+  max-height: 155px !important;
   object-fit: contain !important;
   object-position: center !important;
   background: #000 !important;
 }
 
+.public-social-links.top-actions {
+  top: 6px !important;
+}
+
 @media (max-width: 900px) {
   .topbar.public-catalog-header {
-    padding: 5px 6px !important;
+    padding: 2px 6px !important;
   }
 
   .public-catalog-brand.brand .public-brand-logo {
-    inline-size: min(390px, calc(100vw - 14px)) !important;
-    width: min(390px, calc(100vw - 14px)) !important;
-    max-inline-size: calc(100vw - 14px) !important;
-    max-width: calc(100vw - 14px) !important;
-    max-height: none !important;
+    max-width: min(260px, calc(100vw - 74px)) !important;
+    max-height: 130px !important;
+  }
+
+  .public-social-links.top-actions {
+    top: 5px !important;
+    right: 7px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .public-catalog-brand.brand .public-brand-logo {
+    max-width: min(230px, calc(100vw - 70px)) !important;
+    max-height: 115px !important;
   }
 }
