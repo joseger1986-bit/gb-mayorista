@@ -212,6 +212,7 @@ let openOrderId = "";
 let orderListSearch = "";
 let orderListFilter = "Hoy";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
+let quickSaleSearchFocusOrderId = "";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let budgetPreviewHistoryActive = false;
@@ -4547,6 +4548,7 @@ function renderOrders() {
         ${editingBudgetItem?.orderId === order.id ? renderBudgetItemEditModal() : ""}
       `;
       bindBudgetEditor();
+      focusQuickSaleSearchIfNeeded();
       return;
     }
     openOrderId = "";
@@ -4560,6 +4562,26 @@ function renderOrders() {
   `;
 
   bindBudgetEditor();
+  focusQuickSaleSearchIfNeeded();
+}
+
+function focusQuickSaleSearchIfNeeded() {
+  if (!quickSaleSearchFocusOrderId) return;
+  const orderId = quickSaleSearchFocusOrderId;
+  if (!orders.some((order) => order.id === orderId)) {
+    quickSaleSearchFocusOrderId = "";
+    return;
+  }
+  window.setTimeout(() => {
+    const input = els.ordersList.querySelector(`[data-budget-search="${CSS.escape(orderId)}"][data-quick-sale-search]`);
+    if (!input) {
+      if (quickSaleSearchFocusOrderId === orderId) quickSaleSearchFocusOrderId = "";
+      return;
+    }
+    input.focus({ preventScroll: true });
+    input.select();
+    if (quickSaleSearchFocusOrderId === orderId) quickSaleSearchFocusOrderId = "";
+  }, 0);
 }
 
 function updateOrdersAttentionBadge() {
@@ -4707,7 +4729,121 @@ function renderOrderActionButtons(order) {
 function getOrderQuantityUnitLabel(presentation, quantity) {
   return getStockUnitLabel({ presentation }, quantity);
 }
+
+function isQuickSaleDraft(order) {
+  return Boolean(order?.manualDraft && getOrderOrigin(order) === "local");
+}
+
+function renderQuickSaleView(order) {
+  const totals = calculateBudgetTotals(order);
+  return `
+    <article class="quick-sale-view order-card order-workspace">
+      <header class="quick-sale-header">
+        <div>
+          <p class="quick-sale-kicker">Venta rápida</p>
+          <h3>VENTA RÁPIDA</h3>
+          <span>${escapeHtml(formatRecordNumber(order))}</span>
+        </div>
+        <span class="order-origin-inline order-origin-local">VENTA LOCAL</span>
+        <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Volver</button>
+      </header>
+
+      <section class="quick-sale-search-panel">
+        <label class="quick-sale-search-label">
+          Buscar y agregar producto
+          <input type="search" value="" placeholder="Nombre, talle, surtido, art&iacute;culo..." data-budget-search="${order.id}" data-quick-sale-search autocomplete="off">
+        </label>
+        <div class="budget-search-results quick-sale-search-results" data-budget-search-results="${order.id}"></div>
+      </section>
+
+      <section class="quick-sale-products">
+        <div class="quick-sale-section-title">
+          <h4>PRODUCTOS AGREGADOS (${order.items.length})</h4>
+        </div>
+        ${order.items.length ? order.items.map((item) => renderQuickSaleItem(order, item)).join("") : `<div class="empty-state compact">Buscá un producto para empezar la venta.</div>`}
+      </section>
+
+      <aside class="quick-sale-total-box" aria-label="Total de venta rápida">
+        <span>Subtotal: <b data-budget-subtotal="${order.id}">${formatMoney(totals.subtotal || 0)}</b></span>
+        <span>Descuento: <b data-budget-discount="${order.id}">${escapeHtml(formatDiscountSummary(order))}</b></span>
+        <strong>TOTAL: <span data-budget-total="${order.id}">${formatMoney(totals.total || 0)}</span></strong>
+      </aside>
+
+      <details class="quick-sale-more-options">
+        <summary>MÁS OPCIONES</summary>
+        <div class="quick-sale-options-grid">
+          <fieldset>
+            <legend>Datos del cliente</legend>
+            <label>Nombre<input type="text" value="${escapeHtml(order.customerName ?? order.customer ?? "")}" data-budget-customer-name="${order.id}" placeholder="Opcional"></label>
+            <label>Teléfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" placeholder="Opcional"></label>
+            <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" placeholder="Opcional"></label>
+          </fieldset>
+          <fieldset>
+            <legend>Pedido</legend>
+            <label>Forma de pago
+              <select data-budget-payment="${order.id}">
+                ${["Efectivo", "Transferencia", "Cuenta corriente", "Otro"].map((method) => `<option value="${method}" ${(order.paymentMethod || "Transferencia") === method ? "selected" : ""}>${method}</option>`).join("")}
+              </select>
+            </label>
+            <label>Forma de entrega
+              <select data-budget-delivery="${order.id}">
+                <option value="Retira en local" ${getNormalizedDeliveryType(order.deliveryType) === "Retira en local" ? "selected" : ""}>Retira en local</option>
+                <option value="Transporte" ${getNormalizedDeliveryType(order.deliveryType) === "Transporte" ? "selected" : ""}>Transporte</option>
+                <option value="A coordinar" ${getNormalizedDeliveryType(order.deliveryType) === "A coordinar" ? "selected" : ""}>A coordinar</option>
+              </select>
+            </label>
+            <label>Descuento
+              <span class="discount-input-row">
+                <select data-budget-discount-type="${order.id}">
+                  <option value="fixed" ${(order.discountType || "fixed") !== "percent" ? "selected" : ""}>$</option>
+                  <option value="percent" ${order.discountType === "percent" ? "selected" : ""}>%</option>
+                </select>
+                <input type="number" min="0" step="1" value="${Number(order.discountValue) || 0}" data-budget-discount-value="${order.id}">
+              </span>
+            </label>
+          </fieldset>
+        </div>
+      </details>
+
+      <div class="quick-sale-actions">
+        <button class="primary-button quick-sale-finish-button" type="button" data-save-order="${order.id}">
+          FINALIZAR VENTA <span>${formatMoney(totals.total || 0)}</span>
+        </button>
+        <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Cancelar</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderQuickSaleItem(order, item) {
+  const product = products.find((entry) => entry.id === item.id);
+  const option = getBudgetItemOptionLabel(item, product);
+  const displayName = getOrderItemDisplayName(item.name, option);
+  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const presentation = getBudgetItemPresentation(item);
+  const quantity = Math.max(1, Number(item.quantity) || 1);
+  const subtotal = quantity * (Number(item.price) || 0);
+  return `
+    <div class="quick-sale-item">
+      <div class="quick-sale-item-main">
+        <strong>${escapeHtml(productLine)}</strong>
+        <span>${escapeHtml(presentation || "Sin presentación")} · ${formatMoney(item.price)}</span>
+      </div>
+      <div class="quick-sale-item-controls">
+        <span class="quick-sale-stepper" aria-label="${escapeHtml(getQuantityLabelForPresentation(presentation))}">
+          <button class="quantity-stepper-button" type="button" data-budget-line-decrease="${order.id}" data-product="${item.id}" aria-label="Restar cantidad">−</button>
+          <input type="number" min="1" step="1" value="${quantity}" inputmode="numeric" data-budget-qty="${order.id}" data-product="${item.id}">
+          <button class="quantity-stepper-button" type="button" data-budget-line-increase="${order.id}" data-product="${item.id}" aria-label="Sumar cantidad">+</button>
+        </span>
+        <button class="danger-button small-button quick-sale-remove-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto">Eliminar</button>
+      </div>
+      <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
+    </div>
+  `;
+}
+
 function renderInternalOrderCard(order, options = {}) {
+  if (isQuickSaleDraft(order)) return renderQuickSaleView(order);
   const totals = calculateBudgetTotals(order);
   const isOpen = options.standalone || previewOrderId === order.id || openOrderId === order.id;
   return `
@@ -4988,19 +5124,20 @@ function createManualConsultation() {
   draft.items = [];
   recalculateBudget(draft);
   orders.unshift(draft);
-  editingOrderCustomerId = draft.id;
+  editingOrderCustomerId = "";
+  quickSaleSearchFocusOrderId = draft.id;
   openOrderDetail(draft.id);
 }
 
 function saveManualConsultation(order) {
-  const customerName = String(order.customerName || order.customer || "").trim();
-  if (!customerName) {
-    editingOrderCustomerId = order.id;
+  if (!order.items.length) {
     openOrderId = order.id;
+    quickSaleSearchFocusOrderId = order.id;
     renderOrders();
-    showToast("Completá el nombre del cliente");
+    showToast("Agregá al menos un producto");
     return false;
   }
+  const customerName = String(order.customerName || order.customer || "").trim();
   order.customerName = customerName;
   order.customer = customerName;
   order.status = "En revisión";
@@ -5242,7 +5379,19 @@ function bindBudgetEditor() {
       }
       if (!button) return;
       const quantity = Math.max(1, Math.round(Number(quantityInput?.value) || 1));
+      quickSaleSearchFocusOrderId = container.dataset.budgetSearchResults || "";
       addBudgetItem(container.dataset.budgetSearchResults, button.dataset.budgetPickProduct, quantity);
+    });
+  });
+
+  els.ordersList.querySelectorAll("[data-budget-line-decrease], [data-budget-line-increase]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const orderId = button.dataset.budgetLineDecrease || button.dataset.budgetLineIncrease;
+      const productId = button.dataset.product;
+      const input = els.ordersList.querySelector(`[data-budget-qty="${CSS.escape(orderId)}"][data-product="${CSS.escape(productId)}"]`);
+      const current = Math.max(1, Math.round(Number(input?.value) || 1));
+      const next = Math.max(1, current + (button.dataset.budgetLineIncrease ? 1 : -1));
+      updateBudgetItemQty(orderId, productId, next);
     });
   });
 
@@ -5291,6 +5440,7 @@ function bindBudgetEditor() {
       if (!order) return;
       if (!canEditOrder(order)) return;
       openOrderId = button.dataset.saveOrder;
+      readOrderDraftFieldsFromDom(order.id);
       if (order.manualDraft) {
         saveManualConsultation(order);
         return;
@@ -6458,6 +6608,29 @@ function getBudgetShippingValue(orderId) {
   return Math.max(0, Number(input?.value) || 0);
 }
 
+function readOrderDraftFieldsFromDom(orderId) {
+  const order = orders.find((item) => item.id === orderId);
+  if (!order || !els.ordersList) return;
+  const customerName = els.ordersList.querySelector(`[data-budget-customer-name="${CSS.escape(orderId)}"]`);
+  const customerPhone = els.ordersList.querySelector(`[data-budget-customer-phone="${CSS.escape(orderId)}"]`);
+  const customerLocation = els.ordersList.querySelector(`[data-budget-customer-location="${CSS.escape(orderId)}"]`);
+  const payment = els.ordersList.querySelector(`[data-budget-payment="${CSS.escape(orderId)}"]`);
+  const delivery = els.ordersList.querySelector(`[data-budget-delivery="${CSS.escape(orderId)}"]`);
+  const discountType = els.ordersList.querySelector(`[data-budget-discount-type="${CSS.escape(orderId)}"]`);
+  const discountValue = els.ordersList.querySelector(`[data-budget-discount-value="${CSS.escape(orderId)}"]`);
+
+  if (customerName) {
+    order.customerName = customerName.value.trim();
+    order.customer = order.customerName;
+  }
+  if (customerPhone) order.customerPhone = customerPhone.value.trim();
+  if (customerLocation) order.customerLocation = customerLocation.value.trim();
+  if (payment) order.paymentMethod = payment.value;
+  if (delivery) order.deliveryType = delivery.value;
+  if (discountType) order.discountType = discountType.value === "percent" ? "percent" : "fixed";
+  if (discountValue) order.discountValue = Math.max(0, Number(discountValue.value) || 0);
+}
+
 function shouldChargeShipping(order) {
   return false;
 }
@@ -6555,20 +6728,11 @@ function renderBudgetProductMatches(orderId, query) {
   }
   const matches = getOrderedProducts()
     .filter((product) => product.active !== false)
-    .filter((product) => {
-      const haystack = normalizeProductSearchText([
-        product.name,
-        product.baseName,
-        product.optionName,
-        getProductTalleValue(product),
-        getProductSurtidoValue(product),
-        product.brand,
-        product.category,
-        product.presentation,
-        getProductPresentation(product)
-      ].filter(Boolean).join(" "));
-      return terms.every((term) => haystack.includes(term));
-    });
+    .map((product) => ({ product, score: scoreBudgetProductMatch(product, terms) }))
+    .filter((match) => match.score > 0)
+    .sort((a, b) => b.score - a.score || getProductArticleName(a.product).localeCompare(getProductArticleName(b.product), "es"))
+    .slice(0, 12)
+    .map((match) => match.product);
 
   if (!matches.length) {
     container.innerHTML = `<div class="search-empty">Sin coincidencias</div>`;
@@ -6579,7 +6743,7 @@ function renderBudgetProductMatches(orderId, query) {
     <div class="budget-search-result budget-search-result-with-quantity" data-budget-search-result="${product.id}">
       <div class="budget-search-result-info">
         <strong>${escapeHtml(getProductArticleName(product))}</strong>
-        <span>${escapeHtml(product.category)} · ${formatMoney(product.price)}</span>
+        <span>${escapeHtml(getQuickSaleProductMeta(product))}</span>
       </div>
       <div class="budget-search-result-actions">
         <label class="budget-search-quantity-label">
@@ -6594,6 +6758,74 @@ function renderBudgetProductMatches(orderId, query) {
       </div>
     </div>
   `).join("");
+}
+
+function scoreBudgetProductMatch(product, terms) {
+  const fields = getBudgetProductSearchFields(product);
+  const haystack = fields.all;
+  const compactHaystack = haystack.replace(/\s+/g, "");
+  const matchedTerms = terms.filter((term) => {
+    if (term.length <= 1 && !/\d/.test(term)) return false;
+    const compactTerm = term.replace(/\s+/g, "");
+    return haystack.includes(term) || compactHaystack.includes(compactTerm);
+  });
+  if (matchedTerms.length !== terms.length) return 0;
+
+  const query = terms.join(" ");
+  let score = 10;
+  if (fields.codes.some((code) => code === query || terms.some((term) => code === term))) score += 120;
+  if (fields.name === query || fields.baseName === query) score += 100;
+  if (fields.name.includes(query) || fields.baseName.includes(query)) score += 55;
+  matchedTerms.forEach((term) => {
+    if (fields.codes.some((code) => code.startsWith(term))) score += 25;
+    if (fields.nameTokens.some((token) => token.startsWith(term))) score += 14;
+    if (fields.variant.includes(term)) score += 12;
+    if (fields.allTokens.some((token) => token === term)) score += 8;
+  });
+  return score;
+}
+
+function getBudgetProductSearchFields(product) {
+  const rawValues = [
+    product.name,
+    product.baseName,
+    getProductBaseName(product),
+    product.optionName,
+    getProductOptionName(product),
+    getProductTalleValue(product),
+    getProductSurtidoValue(product),
+    product.brand,
+    product.category,
+    product.presentation,
+    getProductPresentation(product)
+  ].filter(Boolean);
+  const all = normalizeProductSearchText(rawValues.join(" "));
+  const name = normalizeProductSearchText(product.name);
+  const baseName = normalizeProductSearchText(getProductBaseName(product) || product.baseName);
+  const variant = normalizeProductSearchText([
+    product.optionName,
+    getProductOptionName(product),
+    getProductTalleValue(product),
+    getProductSurtidoValue(product)
+  ].filter(Boolean).join(" "));
+  return {
+    all,
+    name,
+    baseName,
+    variant,
+    codes: [...all.matchAll(/\b\d{2,6}\b/g)].map((match) => match[0]),
+    allTokens: all.split(" ").filter(Boolean),
+    nameTokens: `${name} ${baseName}`.split(" ").filter(Boolean)
+  };
+}
+
+function getQuickSaleProductMeta(product) {
+  const presentation = getProductPresentation(product);
+  return [
+    getProductOptionName(product),
+    presentation,
+    formatMoney(getProductSalePriceForPresentation(product))
+  ].filter(Boolean).join(" · ");
 }
 
 function normalizeProductSearchText(value) {
@@ -7815,6 +8047,7 @@ function normalizeClientPhone(value) {
 }
 
 function getOrderCustomerName(order) {
+  if (getOrderOrigin(order) === "local" && !(order.customerName || order.customer)) return "Venta local";
   return order.customerName || order.customer || "Cliente WhatsApp";
 }
 
