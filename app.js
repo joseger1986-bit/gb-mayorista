@@ -212,7 +212,6 @@ let openOrderId = "";
 let orderListSearch = "";
 let orderListFilter = "Hoy";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
-let quickSaleSearchFocusOrderId = "";
 let completedQuickSaleOrderId = "";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
@@ -4549,7 +4548,6 @@ function renderOrders() {
         ${editingBudgetItem?.orderId === order.id ? renderBudgetItemEditModal() : ""}
       `;
       bindBudgetEditor();
-      focusQuickSaleSearchIfNeeded();
       return;
     }
     openOrderId = "";
@@ -4563,26 +4561,6 @@ function renderOrders() {
   `;
 
   bindBudgetEditor();
-  focusQuickSaleSearchIfNeeded();
-}
-
-function focusQuickSaleSearchIfNeeded() {
-  if (!quickSaleSearchFocusOrderId) return;
-  const orderId = quickSaleSearchFocusOrderId;
-  if (!orders.some((order) => order.id === orderId)) {
-    quickSaleSearchFocusOrderId = "";
-    return;
-  }
-  window.setTimeout(() => {
-    const input = els.ordersList.querySelector(`[data-budget-search="${CSS.escape(orderId)}"][data-quick-sale-search]`);
-    if (!input) {
-      if (quickSaleSearchFocusOrderId === orderId) quickSaleSearchFocusOrderId = "";
-      return;
-    }
-    input.focus({ preventScroll: true });
-    input.select();
-    if (quickSaleSearchFocusOrderId === orderId) quickSaleSearchFocusOrderId = "";
-  }, 0);
 }
 
 function updateOrdersAttentionBadge() {
@@ -4742,6 +4720,7 @@ function isCompletedQuickSale(order) {
 function renderQuickSaleView(order) {
   const totals = calculateBudgetTotals(order);
   const paymentMethod = order.paymentMethod || "Transferencia";
+  const searchQuery = String(order.quickSaleSearch || "");
   return `
     <article class="quick-sale-view order-card order-workspace">
       <header class="quick-sale-header">
@@ -4757,9 +4736,9 @@ function renderQuickSaleView(order) {
       <section class="quick-sale-search-panel">
         <label class="quick-sale-search-label">
           Buscar y agregar producto
-          <input type="search" value="" placeholder="Nombre, talle, surtido, art&iacute;culo..." data-budget-search="${order.id}" data-quick-sale-search autocomplete="off">
+          <input type="search" value="${escapeHtml(searchQuery)}" placeholder="Nombre, talle, surtido, art&iacute;culo..." data-budget-search="${order.id}" data-quick-sale-search autocomplete="off">
         </label>
-        <div class="budget-search-results quick-sale-search-results" data-budget-search-results="${order.id}"></div>
+        <div class="budget-search-results quick-sale-search-results" data-budget-search-results="${order.id}">${buildBudgetProductMatchesHtml(order.id, searchQuery)}</div>
       </section>
 
       <section class="quick-sale-products">
@@ -4822,6 +4801,8 @@ function renderQuickSaleView(order) {
 
 function renderQuickSaleCompletedView(order) {
   const totals = calculateBudgetTotals(order);
+  const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
+  const canSendWhatsapp = Boolean(phone && phone !== "549");
   return `
     <article class="quick-sale-view quick-sale-completed order-card order-workspace">
       <header class="quick-sale-completed-header">
@@ -4847,6 +4828,7 @@ function renderQuickSaleCompletedView(order) {
 
       <div class="quick-sale-actions">
         <button class="primary-button quick-sale-finish-button" type="button" data-view-document="${order.id}">VER / IMPRIMIR TICKET</button>
+        ${canSendWhatsapp ? `<button class="secondary-button small-button" type="button" data-send-quick-sale-whatsapp="${order.id}">ENVIAR POR WHATSAPP</button>` : ""}
         <button class="secondary-button small-button" type="button" data-new-quick-sale>NUEVA VENTA</button>
         <button class="secondary-button small-button" type="button" data-close-order="${order.id}">IR A PEDIDOS</button>
       </div>
@@ -5181,18 +5163,17 @@ function createManualConsultation() {
   draft.deliveryType = "Retira en local";
   draft.discountType = "fixed";
   draft.discountValue = 0;
+  draft.quickSaleSearch = "";
   draft.items = [];
   recalculateBudget(draft);
   orders.unshift(draft);
   editingOrderCustomerId = "";
-  quickSaleSearchFocusOrderId = draft.id;
   openOrderDetail(draft.id);
 }
 
 function saveManualConsultation(order) {
   if (!order.items.length) {
     openOrderId = order.id;
-    quickSaleSearchFocusOrderId = order.id;
     renderOrders();
     showToast("Agregá al menos un producto");
     return false;
@@ -5202,6 +5183,7 @@ function saveManualConsultation(order) {
   order.customer = customerName;
   order.status = "En revisión";
   order.manualDraft = false;
+  delete order.quickSaleSearch;
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
   syncClientsFromOrders();
@@ -5374,6 +5356,12 @@ function bindBudgetEditor() {
 
 
   els.ordersList.querySelectorAll("[data-budget-customer-name]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const order = orders.find((item) => item.id === input.dataset.budgetCustomerName);
+      if (!order) return;
+      order.customer = input.value.trim();
+      order.customerName = input.value.trim();
+    });
     input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerName, {
       customer: input.value.trim(),
       customerName: input.value.trim()
@@ -5381,10 +5369,18 @@ function bindBudgetEditor() {
   });
 
   els.ordersList.querySelectorAll("[data-budget-customer-phone]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const order = orders.find((item) => item.id === input.dataset.budgetCustomerPhone);
+      if (order) order.customerPhone = input.value.trim();
+    });
     input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerPhone, { customerPhone: input.value.trim() }));
   });
 
   els.ordersList.querySelectorAll("[data-budget-customer-location]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const order = orders.find((item) => item.id === input.dataset.budgetCustomerLocation);
+      if (order) order.customerLocation = input.value.trim();
+    });
     input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerLocation, { customerLocation: input.value.trim() }));
   });
 
@@ -5435,7 +5431,11 @@ function bindBudgetEditor() {
   });
 
   els.ordersList.querySelectorAll("[data-budget-search]").forEach((input) => {
-    input.addEventListener("input", () => renderBudgetProductMatches(input.dataset.budgetSearch, input.value));
+    input.addEventListener("input", () => {
+      const order = orders.find((item) => item.id === input.dataset.budgetSearch);
+      if (order) order.quickSaleSearch = input.value;
+      renderBudgetProductMatches(input.dataset.budgetSearch, input.value);
+    });
   });
 
   els.ordersList.querySelectorAll("[data-budget-search-results]").forEach((container) => {
@@ -5453,7 +5453,9 @@ function bindBudgetEditor() {
       }
       if (!button) return;
       const quantity = Math.max(1, Math.round(Number(quantityInput?.value) || 1));
-      quickSaleSearchFocusOrderId = container.dataset.budgetSearchResults || "";
+      const order = orders.find((item) => item.id === container.dataset.budgetSearchResults);
+      const searchInput = els.ordersList.querySelector(`[data-budget-search="${CSS.escape(container.dataset.budgetSearchResults || "")}"]`);
+      if (order) order.quickSaleSearch = searchInput?.value || order.quickSaleSearch || "";
       addBudgetItem(container.dataset.budgetSearchResults, button.dataset.budgetPickProduct, quantity);
     });
   });
@@ -5537,6 +5539,10 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelectorAll("[data-new-quick-sale]").forEach((button) => {
     button.addEventListener("click", createManualConsultation);
+  });
+
+  els.ordersList.querySelectorAll("[data-send-quick-sale-whatsapp]").forEach((button) => {
+    button.addEventListener("click", () => sendQuickSaleByWhatsapp(button.dataset.sendQuickSaleWhatsapp));
   });
 
   els.ordersList.querySelectorAll("[data-preview-budget]").forEach((button) => {
@@ -6801,11 +6807,12 @@ function updateBudgetTotalDisplay(order) {
 function renderBudgetProductMatches(orderId, query) {
   const container = els.ordersList.querySelector(`[data-budget-search-results="${CSS.escape(orderId)}"]`);
   if (!container) return;
+  container.innerHTML = buildBudgetProductMatchesHtml(orderId, query);
+}
+
+function buildBudgetProductMatchesHtml(orderId, query) {
   const terms = normalizeProductSearchText(query).split(" ").filter(Boolean);
-  if (!terms.length) {
-    container.innerHTML = "";
-    return;
-  }
+  if (!terms.length) return "";
   const matches = getOrderedProducts()
     .filter((product) => product.active !== false)
     .map((product) => ({ product, score: scoreBudgetProductMatch(product, terms) }))
@@ -6815,11 +6822,10 @@ function renderBudgetProductMatches(orderId, query) {
     .map((match) => match.product);
 
   if (!matches.length) {
-    container.innerHTML = `<div class="search-empty">Sin coincidencias</div>`;
-    return;
+    return `<div class="search-empty">Sin coincidencias</div>`;
   }
 
-  container.innerHTML = matches.map((product) => `
+  return matches.map((product) => `
     <div class="budget-search-result budget-search-result-with-quantity" data-budget-search-result="${product.id}">
       <div class="budget-search-result-info">
         <strong>${escapeHtml(getProductArticleName(product))}</strong>
@@ -7036,6 +7042,46 @@ function sendBudgetByWhatsapp(id) {
   saveOrders();
   renderAll();
   showToast("Mensaje enviado por WhatsApp");
+}
+
+function sendQuickSaleByWhatsapp(id) {
+  const order = orders.find((item) => item.id === id);
+  if (!order) return;
+  const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
+  if (!phone || phone === "549") {
+    showToast("La venta no tiene teléfono cargado.");
+    return;
+  }
+  const url = `https://wa.me/${phone}?text=${encodeURIComponent(buildQuickSaleWhatsappMessage(order))}`;
+  const opened = window.open(url, "_blank", "noreferrer");
+  if (!opened) {
+    showToast("No se pudo abrir WhatsApp");
+    return;
+  }
+  showToast("WhatsApp listo para enviar", "success");
+}
+
+function buildQuickSaleWhatsappMessage(order) {
+  const totals = calculateBudgetTotals(order);
+  const lines = [
+    "PUNTO X MAYOR",
+    formatRecordNumber(order),
+    "",
+    ...order.items.map((item) => {
+      const product = products.find((entry) => entry.id === item.id);
+      const option = getBudgetItemOptionLabel(item, product);
+      const displayName = getOrderItemDisplayName(item.name, option);
+      const productLine = option ? `${displayName} - ${option}` : displayName;
+      const quantityLine = formatCleanQuantity({ ...item, presentation: getBudgetItemPresentation(item) });
+      return `* ${quantityLine} · ${productLine}: ${formatMoney(item.quantity * item.price)}`;
+    }),
+    "",
+    `Subtotal: ${formatMoney(totals.subtotal)}`,
+    ...(totals.discountAmount > 0 ? [`Descuento: ${formatMoney(totals.discountAmount)}`] : []),
+    `Total: ${formatMoney(totals.total)}`,
+    `Forma de pago: ${order.paymentMethod || "Transferencia"}`
+  ];
+  return lines.join("\n");
 }
 
 function viewOrderDocument(id) {
@@ -8127,7 +8173,7 @@ function normalizeClientPhone(value) {
 }
 
 function getOrderCustomerName(order) {
-  if (getOrderOrigin(order) === "local" && !(order.customerName || order.customer)) return "Venta local";
+  if (getOrderOrigin(order) === "local" && !(order.customerName || order.customer)) return "Sin nombre";
   return order.customerName || order.customer || "Cliente WhatsApp";
 }
 
