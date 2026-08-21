@@ -12829,6 +12829,23 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   font-weight: 850;
 }
 
+.quick-sale-customer-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 8px;
+  align-items: center;
+}
+
+.quick-sale-customer-field input {
+  min-width: 0;
+}
+
+.quick-sale-customer-field .small-button {
+  width: 100%;
+  min-height: 40px;
+  padding-inline: 0;
+}
+
 .quick-sale-actions {
   display: grid;
   gap: 8px;

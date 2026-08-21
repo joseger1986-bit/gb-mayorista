@@ -4782,9 +4782,24 @@ function renderQuickSaleView(order) {
         <div class="quick-sale-options-grid">
           <fieldset>
             <legend>Datos del cliente</legend>
-            <label>Nombre<input type="text" value="${escapeHtml(order.customerName ?? order.customer ?? "")}" data-budget-customer-name="${order.id}" placeholder="Opcional"></label>
-            <label>Teléfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" placeholder="Opcional"></label>
-            <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" placeholder="Opcional"></label>
+            <label>Nombre
+              <span class="quick-sale-customer-field">
+                <input type="text" value="${escapeHtml(order.customerName ?? order.customer ?? "")}" data-budget-customer-name="${order.id}" placeholder="Opcional">
+                <button class="secondary-button small-button" type="button" data-confirm-quick-sale-customer="${order.id}" data-customer-field="name">OK</button>
+              </span>
+            </label>
+            <label>Teléfono
+              <span class="quick-sale-customer-field">
+                <input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" placeholder="Opcional">
+                <button class="secondary-button small-button" type="button" data-confirm-quick-sale-customer="${order.id}" data-customer-field="phone">OK</button>
+              </span>
+            </label>
+            <label>Localidad
+              <span class="quick-sale-customer-field">
+                <input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" placeholder="Opcional">
+                <button class="secondary-button small-button" type="button" data-confirm-quick-sale-customer="${order.id}" data-customer-field="location">OK</button>
+              </span>
+            </label>
           </fieldset>
         </div>
       </details>
@@ -5382,6 +5397,10 @@ function bindBudgetEditor() {
       if (order) order.customerLocation = input.value.trim();
     });
     input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerLocation, { customerLocation: input.value.trim() }));
+  });
+
+  els.ordersList.querySelectorAll("[data-confirm-quick-sale-customer]").forEach((button) => {
+    button.addEventListener("click", () => confirmQuickSaleCustomerField(button.dataset.confirmQuickSaleCustomer, button.dataset.customerField));
   });
 
   els.ordersList.querySelectorAll("[data-budget-delivery]").forEach((select) => {
@@ -6713,6 +6732,29 @@ function readOrderDraftFieldsFromDom(orderId) {
   if (delivery) order.deliveryType = delivery.value;
   if (discountType) order.discountType = discountType.value === "percent" ? "percent" : "fixed";
   if (discountValue) order.discountValue = Math.max(0, Number(discountValue.value) || 0);
+}
+
+function confirmQuickSaleCustomerField(orderId, field) {
+  const order = orders.find((item) => item.id === orderId);
+  if (!order || !els.ordersList) return;
+  const selectors = {
+    name: `[data-budget-customer-name="${CSS.escape(orderId)}"]`,
+    phone: `[data-budget-customer-phone="${CSS.escape(orderId)}"]`,
+    location: `[data-budget-customer-location="${CSS.escape(orderId)}"]`
+  };
+  const input = els.ordersList.querySelector(selectors[field] || "");
+  if (!input) return;
+  const value = input.value.trim();
+  if (field === "name") {
+    order.customerName = value;
+    order.customer = value;
+  } else if (field === "phone") {
+    order.customerPhone = value;
+  } else if (field === "location") {
+    order.customerLocation = value;
+  }
+  order.updatedAt = new Date().toISOString();
+  showToast("Dato guardado", "success");
 }
 
 function shouldChargeShipping(order) {
