@@ -4805,6 +4805,7 @@ function renderQuickSaleView(order) {
       </details>
 
       <div class="quick-sale-actions">
+        <span class="quick-sale-paid-note">Esta venta se guardará como Pagada</span>
         <button class="primary-button quick-sale-finish-button" type="button" data-save-order="${order.id}">
           FINALIZAR VENTA <span data-budget-finish-total="${order.id}">${formatMoney(totals.total || 0)}</span>
         </button>
@@ -5196,14 +5197,22 @@ function saveManualConsultation(order) {
   const customerName = String(order.customerName || order.customer || "").trim();
   order.customerName = customerName;
   order.customer = customerName;
-  order.status = "En revisión";
+  order.status = "Pagado";
+  order.paidAt = order.paidAt || new Date().toISOString();
   order.manualDraft = false;
   delete order.quickSaleSearch;
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
+  if (!order.stockApplied) {
+    applyBudgetStock(order, -1);
+    order.stockApplied = true;
+    recordClientPurchase(order);
+  }
   syncClientsFromOrders();
+  saveProducts();
   saveOrders();
   saveClients();
+  saveStockHistory();
   openOrderId = order.id;
   completedQuickSaleOrderId = order.id;
   editingOrderCustomerId = "";
@@ -5377,10 +5386,16 @@ function bindBudgetEditor() {
       order.customer = input.value.trim();
       order.customerName = input.value.trim();
     });
-    input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerName, {
-      customer: input.value.trim(),
-      customerName: input.value.trim()
-    }));
+    input.addEventListener("change", () => {
+      if (input.closest(".quick-sale-view")) {
+        confirmQuickSaleCustomerField(input.dataset.budgetCustomerName, "name", { silent: true });
+        return;
+      }
+      updateBudget(input.dataset.budgetCustomerName, {
+        customer: input.value.trim(),
+        customerName: input.value.trim()
+      });
+    });
   });
 
   els.ordersList.querySelectorAll("[data-budget-customer-phone]").forEach((input) => {
@@ -5388,7 +5403,13 @@ function bindBudgetEditor() {
       const order = orders.find((item) => item.id === input.dataset.budgetCustomerPhone);
       if (order) order.customerPhone = input.value.trim();
     });
-    input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerPhone, { customerPhone: input.value.trim() }));
+    input.addEventListener("change", () => {
+      if (input.closest(".quick-sale-view")) {
+        confirmQuickSaleCustomerField(input.dataset.budgetCustomerPhone, "phone", { silent: true });
+        return;
+      }
+      updateBudget(input.dataset.budgetCustomerPhone, { customerPhone: input.value.trim() });
+    });
   });
 
   els.ordersList.querySelectorAll("[data-budget-customer-location]").forEach((input) => {
@@ -5396,7 +5417,13 @@ function bindBudgetEditor() {
       const order = orders.find((item) => item.id === input.dataset.budgetCustomerLocation);
       if (order) order.customerLocation = input.value.trim();
     });
-    input.addEventListener("change", () => updateBudget(input.dataset.budgetCustomerLocation, { customerLocation: input.value.trim() }));
+    input.addEventListener("change", () => {
+      if (input.closest(".quick-sale-view")) {
+        confirmQuickSaleCustomerField(input.dataset.budgetCustomerLocation, "location", { silent: true });
+        return;
+      }
+      updateBudget(input.dataset.budgetCustomerLocation, { customerLocation: input.value.trim() });
+    });
   });
 
   els.ordersList.querySelectorAll("[data-confirm-quick-sale-customer]").forEach((button) => {
@@ -6734,7 +6761,7 @@ function readOrderDraftFieldsFromDom(orderId) {
   if (discountValue) order.discountValue = Math.max(0, Number(discountValue.value) || 0);
 }
 
-function confirmQuickSaleCustomerField(orderId, field) {
+function confirmQuickSaleCustomerField(orderId, field, options = {}) {
   const order = orders.find((item) => item.id === orderId);
   if (!order || !els.ordersList) return;
   const selectors = {
@@ -6754,7 +6781,7 @@ function confirmQuickSaleCustomerField(orderId, field) {
     order.customerLocation = value;
   }
   order.updatedAt = new Date().toISOString();
-  showToast("Dato guardado", "success");
+  if (!options.silent) showToast("Dato guardado", "success");
 }
 
 function shouldChargeShipping(order) {

@@ -12851,6 +12851,13 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   gap: 8px;
 }
 
+.quick-sale-paid-note {
+  color: #6b6250;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-align: center;
+}
+
 .quick-sale-finish-button {
   display: flex;
   justify-content: center;
