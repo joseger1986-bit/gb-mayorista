@@ -213,6 +213,7 @@ let orderListSearch = "";
 let orderListFilter = "Hoy";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
 let quickSaleSearchFocusOrderId = "";
+let completedQuickSaleOrderId = "";
 let orderDetailHistoryActive = false;
 let orderDetailClosingByCode = false;
 let budgetPreviewHistoryActive = false;
@@ -4734,8 +4735,13 @@ function isQuickSaleDraft(order) {
   return Boolean(order?.manualDraft && getOrderOrigin(order) === "local");
 }
 
+function isCompletedQuickSale(order) {
+  return Boolean(order?.id && order.id === completedQuickSaleOrderId && getOrderOrigin(order) === "local");
+}
+
 function renderQuickSaleView(order) {
   const totals = calculateBudgetTotals(order);
+  const paymentMethod = order.paymentMethod || "Transferencia";
   return `
     <article class="quick-sale-view order-card order-workspace">
       <header class="quick-sale-header">
@@ -4769,8 +4775,31 @@ function renderQuickSaleView(order) {
         <strong>TOTAL: <span data-budget-total="${order.id}">${formatMoney(totals.total || 0)}</span></strong>
       </aside>
 
+      <section class="quick-sale-payment-panel">
+        <h4>FORMA DE PAGO</h4>
+        <input type="hidden" value="${escapeHtml(paymentMethod)}" data-budget-payment="${order.id}">
+        <div class="quick-sale-payment-buttons" role="group" aria-label="Forma de pago">
+          ${["Efectivo", "Transferencia", "Cuenta corriente", "Otro"].map((method) => `
+            <button class="quick-sale-payment-button ${paymentMethod === method ? "is-selected" : ""}" type="button" data-quick-sale-payment="${order.id}" data-payment-method="${method}">
+              ${escapeHtml(method)}
+            </button>
+          `).join("")}
+        </div>
+      </section>
+
+      <section class="quick-sale-discount-panel">
+        <h4>DESCUENTO</h4>
+        <span class="quick-sale-discount-row">
+          <select data-budget-discount-type="${order.id}" aria-label="Tipo de descuento">
+            <option value="fixed" ${(order.discountType || "fixed") !== "percent" ? "selected" : ""}>$</option>
+            <option value="percent" ${order.discountType === "percent" ? "selected" : ""}>%</option>
+          </select>
+          <input type="number" min="0" step="1" value="${Number(order.discountValue) || 0}" data-budget-discount-value="${order.id}" aria-label="Valor del descuento">
+        </span>
+      </section>
+
       <details class="quick-sale-more-options">
-        <summary>MÁS OPCIONES</summary>
+        <summary>+ MÁS OPCIONES DEL CLIENTE</summary>
         <div class="quick-sale-options-grid">
           <fieldset>
             <legend>Datos del cliente</legend>
@@ -4778,40 +4807,69 @@ function renderQuickSaleView(order) {
             <label>Teléfono<input type="tel" value="${escapeHtml(order.customerPhone || "")}" data-budget-customer-phone="${order.id}" placeholder="Opcional"></label>
             <label>Localidad<input type="text" value="${escapeHtml(order.customerLocation || "")}" data-budget-customer-location="${order.id}" placeholder="Opcional"></label>
           </fieldset>
-          <fieldset>
-            <legend>Pedido</legend>
-            <label>Forma de pago
-              <select data-budget-payment="${order.id}">
-                ${["Efectivo", "Transferencia", "Cuenta corriente", "Otro"].map((method) => `<option value="${method}" ${(order.paymentMethod || "Transferencia") === method ? "selected" : ""}>${method}</option>`).join("")}
-              </select>
-            </label>
-            <label>Forma de entrega
-              <select data-budget-delivery="${order.id}">
-                <option value="Retira en local" ${getNormalizedDeliveryType(order.deliveryType) === "Retira en local" ? "selected" : ""}>Retira en local</option>
-                <option value="Transporte" ${getNormalizedDeliveryType(order.deliveryType) === "Transporte" ? "selected" : ""}>Transporte</option>
-                <option value="A coordinar" ${getNormalizedDeliveryType(order.deliveryType) === "A coordinar" ? "selected" : ""}>A coordinar</option>
-              </select>
-            </label>
-            <label>Descuento
-              <span class="discount-input-row">
-                <select data-budget-discount-type="${order.id}">
-                  <option value="fixed" ${(order.discountType || "fixed") !== "percent" ? "selected" : ""}>$</option>
-                  <option value="percent" ${order.discountType === "percent" ? "selected" : ""}>%</option>
-                </select>
-                <input type="number" min="0" step="1" value="${Number(order.discountValue) || 0}" data-budget-discount-value="${order.id}">
-              </span>
-            </label>
-          </fieldset>
         </div>
       </details>
 
       <div class="quick-sale-actions">
         <button class="primary-button quick-sale-finish-button" type="button" data-save-order="${order.id}">
-          FINALIZAR VENTA <span>${formatMoney(totals.total || 0)}</span>
+          FINALIZAR VENTA <span data-budget-finish-total="${order.id}">${formatMoney(totals.total || 0)}</span>
         </button>
         <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Cancelar</button>
       </div>
     </article>
+  `;
+}
+
+function renderQuickSaleCompletedView(order) {
+  const totals = calculateBudgetTotals(order);
+  return `
+    <article class="quick-sale-view quick-sale-completed order-card order-workspace">
+      <header class="quick-sale-completed-header">
+        <p class="quick-sale-kicker">Venta realizada</p>
+        <h3>VENTA REALIZADA</h3>
+        <strong>${escapeHtml(formatRecordNumber(order))}</strong>
+        <span class="order-origin-inline order-origin-local">VENTA LOCAL</span>
+      </header>
+
+      <section class="quick-sale-products">
+        <div class="quick-sale-section-title">
+          <h4>DETALLE</h4>
+        </div>
+        ${order.items.map((item) => renderQuickSaleCompletedItem(item)).join("")}
+      </section>
+
+      <aside class="quick-sale-total-box" aria-label="Total de venta realizada">
+        <span>Subtotal: <b>${formatMoney(totals.subtotal || 0)}</b></span>
+        <span>Descuento: <b>${escapeHtml(formatDiscountSummary(order))}</b></span>
+        <strong>TOTAL: <span>${formatMoney(totals.total || 0)}</span></strong>
+        <span>Forma de pago: <b>${escapeHtml(order.paymentMethod || "Transferencia")}</b></span>
+      </aside>
+
+      <div class="quick-sale-actions">
+        <button class="primary-button quick-sale-finish-button" type="button" data-view-document="${order.id}">VER / IMPRIMIR TICKET</button>
+        <button class="secondary-button small-button" type="button" data-new-quick-sale>NUEVA VENTA</button>
+        <button class="secondary-button small-button" type="button" data-close-order="${order.id}">IR A PEDIDOS</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderQuickSaleCompletedItem(item) {
+  const product = products.find((entry) => entry.id === item.id);
+  const option = getBudgetItemOptionLabel(item, product);
+  const displayName = getOrderItemDisplayName(item.name, option);
+  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const presentation = getBudgetItemPresentation(item);
+  const quantity = Math.max(1, Number(item.quantity) || 1);
+  const subtotal = quantity * (Number(item.price) || 0);
+  return `
+    <div class="quick-sale-item quick-sale-completed-item">
+      <div class="quick-sale-item-main">
+        <strong>${escapeHtml(productLine)}</strong>
+        <span>${escapeHtml(formatCleanQuantity({ ...item, presentation }))} · ${formatMoney(item.price)}</span>
+      </div>
+      <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
+    </div>
   `;
 }
 
@@ -4843,6 +4901,7 @@ function renderQuickSaleItem(order, item) {
 }
 
 function renderInternalOrderCard(order, options = {}) {
+  if (isCompletedQuickSale(order)) return renderQuickSaleCompletedView(order);
   if (isQuickSaleDraft(order)) return renderQuickSaleView(order);
   const totals = calculateBudgetTotals(order);
   const isOpen = options.standalone || previewOrderId === order.id || openOrderId === order.id;
@@ -5113,6 +5172,7 @@ function createManualConsultation() {
   const draft = makeConsultation({ name: "", phone: "", location: "" }, "Venta local cargada manualmente.");
   draft.origin = "local";
   draft.manualDraft = true;
+  completedQuickSaleOrderId = "";
   draft.customer = "";
   draft.customerName = "";
   draft.customerPhone = "";
@@ -5148,8 +5208,10 @@ function saveManualConsultation(order) {
   saveOrders();
   saveClients();
   openOrderId = order.id;
+  completedQuickSaleOrderId = order.id;
   editingOrderCustomerId = "";
-  showToast("Cambios guardados", "success");
+  renderOrders();
+  showToast("Venta realizada", "success");
   return true;
 }
 
@@ -5179,6 +5241,7 @@ function openOrderDetail(orderId) {
 function closeOrderDetail(orderId = openOrderId, options = {}) {
   removeManualDraft(orderId);
   if (editingOrderCustomerId === orderId) editingOrderCustomerId = "";
+  if (completedQuickSaleOrderId === orderId) completedQuickSaleOrderId = "";
   if (openOrderId === orderId) openOrderId = "";
   if (previewOrderId === orderId) previewOrderId = "";
   if (orderDetailHistoryActive) {
@@ -5360,6 +5423,17 @@ function bindBudgetEditor() {
     select.addEventListener("change", () => updateBudgetDiscountType(select.dataset.budgetDiscountType, select.value));
   });
 
+  els.ordersList.querySelectorAll("[data-quick-sale-payment]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const order = orders.find((item) => item.id === button.dataset.quickSalePayment);
+      if (!order || !canEditOrder(order)) return;
+      openOrderId = order.id;
+      order.paymentMethod = button.dataset.paymentMethod || "Transferencia";
+      recalculateBudget(order);
+      renderOrders();
+    });
+  });
+
   els.ordersList.querySelectorAll("[data-budget-search]").forEach((input) => {
     input.addEventListener("input", () => renderBudgetProductMatches(input.dataset.budgetSearch, input.value));
   });
@@ -5459,6 +5533,10 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => {
       closeOrderDetail(button.dataset.closeOrder);
     });
+  });
+
+  els.ordersList.querySelectorAll("[data-new-quick-sale]").forEach((button) => {
+    button.addEventListener("click", createManualConsultation);
   });
 
   els.ordersList.querySelectorAll("[data-preview-budget]").forEach((button) => {
@@ -6705,11 +6783,13 @@ function updateBudgetTotalDisplay(order) {
   const discount = els.ordersList.querySelector(`[data-budget-discount="${CSS.escape(order.id)}"]`);
   const shipping = els.ordersList.querySelector(`[data-budget-shipping="${CSS.escape(order.id)}"]`);
   const total = els.ordersList.querySelector(`[data-budget-total="${CSS.escape(order.id)}"]`);
+  const finishTotal = els.ordersList.querySelector(`[data-budget-finish-total="${CSS.escape(order.id)}"]`);
   const cardTotal = els.ordersList.querySelector(`[data-order-card-total="${CSS.escape(order.id)}"]`);
   if (subtotal) subtotal.textContent = formatMoney(order.subtotal || 0);
   if (discount) discount.textContent = formatDiscountSummary(order);
   if (shipping) shipping.textContent = formatMoney(order.shippingCost || 0);
   if (total) total.textContent = formatMoney(order.total || 0);
+  if (finishTotal) finishTotal.textContent = formatMoney(order.total || 0);
   if (cardTotal) cardTotal.textContent = formatMoney(order.total || 0);
 
   if (previewOrderId === order.id) {

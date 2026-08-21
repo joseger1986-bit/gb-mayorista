@@ -12563,7 +12563,9 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
 .quick-sale-search-panel,
 .quick-sale-products,
 .quick-sale-more-options,
-.quick-sale-total-box {
+.quick-sale-total-box,
+.quick-sale-payment-panel,
+.quick-sale-discount-panel {
   border: 1px solid #ded6c5;
   border-radius: 8px;
   background: #fff;
@@ -12692,6 +12694,98 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   font-weight: 950;
 }
 
+.quick-sale-payment-panel,
+.quick-sale-discount-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.quick-sale-payment-panel h4,
+.quick-sale-discount-panel h4,
+.quick-sale-completed-header h3,
+.quick-sale-completed-header p {
+  margin: 0;
+}
+
+.quick-sale-payment-panel h4,
+.quick-sale-discount-panel h4 {
+  color: #111;
+  font-size: 0.82rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
+.quick-sale-payment-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-sale-payment-button {
+  min-height: 42px;
+  border: 1px solid #d8d0be;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #111;
+  font-size: 0.82rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.quick-sale-payment-button.is-selected {
+  border-color: #0b0b0b;
+  background: #0b0b0b;
+  color: #fff;
+  box-shadow: inset 0 -3px 0 #c9a24a;
+}
+
+.quick-sale-discount-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.quick-sale-discount-row select,
+.quick-sale-discount-row input {
+  min-height: 42px;
+  border: 1px solid #d8d0be;
+  border-radius: 8px;
+  background: #fff;
+  color: #111;
+  font-weight: 900;
+}
+
+.quick-sale-discount-row input {
+  padding-inline: 10px;
+}
+
+.quick-sale-completed-header {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  padding: 14px 12px;
+  border-radius: 8px;
+  background: #0b0b0b;
+  color: #fff;
+  text-align: center;
+}
+
+.quick-sale-completed-header h3 {
+  color: #fff;
+  font-size: 1.28rem;
+  letter-spacing: 0.03em;
+}
+
+.quick-sale-completed-header strong {
+  color: #c9a24a;
+  font-size: 1rem;
+}
+
+.quick-sale-completed-item {
+  background: #fff;
+}
+
 .quick-sale-more-options {
   padding: 0;
 }
@@ -12751,7 +12845,11 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
 
 @media (min-width: 760px) {
   .quick-sale-options-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+  }
+
+  .quick-sale-payment-buttons {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -12774,7 +12872,9 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   }
 
   .quick-sale-search-panel,
-  .quick-sale-products {
+  .quick-sale-products,
+  .quick-sale-payment-panel,
+  .quick-sale-discount-panel {
     padding: 8px;
   }
 
