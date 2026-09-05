@@ -3420,32 +3420,23 @@ async function deleteEditingProduct() {
   const product = products.find((item) => item.id === editingProductId);
   if (!product) return;
   const dependencyCount = getProductOrderDependencyCount(product.id);
-  const hasDependencies = dependencyCount > 0;
 
   await requestDeleteConfirmation({
-    title: hasDependencies ? "¿Archivar este producto?" : "¿Eliminar definitivamente este producto?",
-    text: hasDependencies
+    title: "¿Archivar este producto?",
+    text: dependencyCount
       ? `"${getProductDisplayName(product)}" aparece en ${dependencyCount} consulta(s)/pedido(s). No se eliminará físicamente: se moverá a Productos archivados para conservar el historial.`
-      : `Vas a eliminar definitivamente "${getProductDisplayName(product)}". Esta acción no se puede deshacer.`,
-    confirmText: hasDependencies ? "Archivar producto" : "Eliminar definitivamente",
-    loadingText: hasDependencies ? "Archivando..." : "Eliminando...",
+      : `"${getProductDisplayName(product)}" se moverá a Productos archivados y dejará de aparecer en Gestión y en el catálogo.`,
+    confirmText: "Archivar producto",
+    loadingText: "Archivando...",
     action: async () => {
       const scrollTop = getAdminTableScrollTop();
-      if (hasDependencies) {
-        await archiveProductInSupabase(product);
-        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      } else {
-        await ensureProductDeletedFromSupabase(product.id, getProductDisplayName(product));
-        await removeProductImagesFromStorage(product);
-        products = products.filter((item) => item.id !== product.id);
-        supabaseCatalogPendingDeletedProductIds.delete(product.id);
-        localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-      }
+      await archiveProductInSupabase(product);
+      localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
       closeEditProductModal({ skipUnsavedCheck: true });
-      await refreshCatalogFromSupabase(hasDependencies ? "after-archive-product" : "after-delete-product", { silent: true });
+      await refreshCatalogFromSupabase("after-archive-product", { silent: true });
       renderAll();
       restoreAdminTableScroll(scrollTop);
-      showToast(hasDependencies ? "Producto archivado correctamente" : "Producto eliminado correctamente", "success");
+      showToast("Producto archivado correctamente", "success");
     }
   });
 }
