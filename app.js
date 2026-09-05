@@ -279,6 +279,7 @@ let lightboxTitle = "";
 let lightboxDescription = "";
 let lightboxTouchStartX = 0;
 let catalogImageFallbacks = new Map();
+let catalogImagePreloadTimer = null;
 let passwordRecoveryActive = false;
 
 const els = {
@@ -2191,10 +2192,11 @@ function renderCatalog() {
     mergeProductImages(group.images || [], group.image ? [group.image] : [])
   ]));
 
-  els.productGrid.innerHTML = filtered.map((group) => `
+  const priorityImageCount = getCatalogPriorityImageCount();
+  els.productGrid.innerHTML = filtered.map((group, index) => `
     <article class="product-card ${hasCatalogVariantChoices(group) ? "has-variants" : "no-variants"}">
       <button class="product-image-button" type="button" data-open-gallery="${escapeHtml(group.id)}" aria-label="Ver fotos de ${escapeHtml(group.name)}">
-        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="lazy" data-catalog-image="${escapeHtml(group.id)}" data-image-index="0" onerror="showNextCatalogImage(this)">
+        <img class="product-image" src="${escapeHtml(group.image)}" alt="${escapeHtml(group.name)}" loading="${index < priorityImageCount ? "eager" : "lazy"}" decoding="async" fetchpriority="${index < priorityImageCount ? "high" : "low"}" data-catalog-image="${escapeHtml(group.id)}" data-image-index="0" onerror="showNextCatalogImage(this)">
       </button>
       <div class="product-body">
         <div class="product-title-row">
@@ -2229,6 +2231,7 @@ function renderCatalog() {
   els.productGrid.querySelectorAll("[data-catalog-image]").forEach((image) => {
     if (image.complete && image.naturalWidth === 0) showNextCatalogImage(image);
   });
+  preloadCatalogImages(filtered, priorityImageCount);
 
   els.productGrid.querySelectorAll("[data-add-catalog]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2272,6 +2275,40 @@ function renderCatalog() {
     });
   });
 
+}
+
+function getCatalogPriorityImageCount() {
+  return window.matchMedia("(min-width: 900px)").matches ? 8 : 6;
+}
+
+function preloadCatalogImages(groups, priorityImageCount = getCatalogPriorityImageCount()) {
+  if (catalogImagePreloadTimer) {
+    window.clearTimeout(catalogImagePreloadTimer);
+    catalogImagePreloadTimer = null;
+  }
+  const urls = groups
+    .slice(priorityImageCount, priorityImageCount + 14)
+    .flatMap((group) => mergeProductImages(group.images || [], group.image ? [group.image] : []))
+    .filter((url) => url && url !== DEFAULT_PRODUCT_IMAGE && !String(url).startsWith("data:"))
+    .filter((url, index, list) => list.indexOf(url) === index);
+  if (!urls.length) return;
+  catalogImagePreloadTimer = window.setTimeout(() => warmCatalogImageQueue(urls, 2), 350);
+}
+
+function warmCatalogImageQueue(urls, concurrency = 2) {
+  let cursor = 0;
+  const loadNext = () => {
+    const url = urls[cursor];
+    cursor += 1;
+    if (!url) return;
+    const image = new Image();
+    image.decoding = "async";
+    image.loading = "eager";
+    image.onload = loadNext;
+    image.onerror = loadNext;
+    image.src = url;
+  };
+  Array.from({ length: Math.min(concurrency, urls.length) }).forEach(loadNext);
 }
 
 function getCatalogProducts() {
