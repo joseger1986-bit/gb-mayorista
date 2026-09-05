@@ -20,6 +20,13 @@
         detectSessionInUrl: true
       }
     });
+    window.gbSupabasePublicRead = sdkFactory(config.url, config.publishableKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    });
     window.gbSupabaseStatus = {
       connected: true,
       mode: "supabase-js",
@@ -28,6 +35,7 @@
     document.documentElement.dataset.gbSupabase = "supabase-js";
   } else {
     window.gbSupabase = createRestSupabaseClient(config);
+    window.gbSupabasePublicRead = window.gbSupabase;
     window.gbSupabaseStatus = {
       connected: true,
       mode: "rest-fallback",

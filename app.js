@@ -1122,6 +1122,10 @@ function getSupabaseCatalogClient() {
   return window.gbSupabase || null;
 }
 
+function getSupabaseCatalogReadClient() {
+  return window.gbSupabasePublicRead || getSupabaseCatalogClient();
+}
+
 function updateSupabaseCatalogStatus(status) {
   const payload = {
     ...status,
@@ -1210,7 +1214,7 @@ async function initializeSupabaseCatalog() {
 }
 
 async function loadCatalogFromSupabase() {
-  const client = getSupabaseCatalogClient();
+  const client = getSupabaseCatalogReadClient();
   if (!client) return { categories: [], products: [] };
   supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
   supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
