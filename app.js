@@ -280,6 +280,7 @@ let lightboxDescription = "";
 let lightboxTouchStartX = 0;
 let catalogImageFallbacks = new Map();
 let catalogImagePreloadTimer = null;
+let archivedProductsCache = [];
 let passwordRecoveryActive = false;
 
 const els = {
@@ -1233,6 +1234,7 @@ async function loadCatalogFromSupabase() {
   const { data: productRows, error: productError } = await client
     .from("products")
     .select("*, categories(name), product_variants(*)")
+    .eq("active", true)
     .order("sort_order", { ascending: true });
 
   if (productError) throw productError;
@@ -1870,19 +1872,50 @@ function getProductOrderDependencyCount(productId) {
 
 async function archiveProductInSupabase(product) {
   if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede archivar productos.");
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error("Supabase no está disponible. No se archivó el producto.");
+  const id = String(product?.id || "").trim();
+  if (!id) throw new Error("ID de producto inválido. No se archivó el producto.");
+
+  const { data: updatedRows, error: updateError } = await client
+    .from("products")
+    .update({ active: false })
+    .eq("id", id)
+    .select("id, active, show_in_catalog");
+  if (updateError) throw new Error(formatSupabaseOperationError(updateError, "No se pudo archivar el producto en Supabase."));
+  if (!Array.isArray(updatedRows) || updatedRows.length !== 1 || String(updatedRows[0]?.id) !== id) {
+    throw new Error(`Supabase no confirmó el archivado de "${getProductDisplayName(product)}".`);
+  }
+  if (updatedRows[0].active !== false) {
+    throw new Error(`Supabase devolvió el producto "${getProductDisplayName(product)}" como activo después de archivarlo.`);
+  }
+
   product.active = false;
-  product.showInCatalog = false;
-  const result = await syncSingleProductToSupabase(product, "archive-product");
-  if (!result?.ok) throw new Error(result?.message || "No se pudo archivar el producto en Supabase.");
-  return result;
+  return { ok: true, productId: id, row: updatedRows[0] };
 }
 
 async function restoreProductInSupabase(product) {
   if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede restaurar productos.");
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error("Supabase no está disponible. No se restauró el producto.");
+  const id = String(product?.id || "").trim();
+  if (!id) throw new Error("ID de producto inválido. No se restauró el producto.");
+
+  const { data: updatedRows, error: updateError } = await client
+    .from("products")
+    .update({ active: true })
+    .eq("id", id)
+    .select("id, active, show_in_catalog");
+  if (updateError) throw new Error(formatSupabaseOperationError(updateError, "No se pudo restaurar el producto en Supabase."));
+  if (!Array.isArray(updatedRows) || updatedRows.length !== 1 || String(updatedRows[0]?.id) !== id) {
+    throw new Error(`Supabase no confirmó la restauración de "${getProductDisplayName(product)}".`);
+  }
+  if (updatedRows[0].active !== true) {
+    throw new Error(`Supabase devolvió el producto "${getProductDisplayName(product)}" como archivado después de restaurarlo.`);
+  }
+
   product.active = true;
-  const result = await syncSingleProductToSupabase(product, "restore-product");
-  if (!result?.ok) throw new Error(result?.message || "No se pudo restaurar el producto en Supabase.");
-  return result;
+  return { ok: true, productId: id, row: updatedRows[0] };
 }
 async function deleteExplicitlyRemovedProductsFromSupabase(client) {
   const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
@@ -2275,6 +2308,27 @@ function renderCatalog() {
     });
   });
 
+}
+
+async function loadArchivedProductsFromSupabase() {
+  const client = getSupabaseCatalogClient();
+  if (!client) return [];
+  const { data: productRows, error: productError } = await client
+    .from("products")
+    .select("*, categories(name), product_variants(*)")
+    .eq("active", false)
+    .order("sort_order", { ascending: true });
+  if (productError) throw productError;
+  return mapSupabaseProductsToLocal(productRows || []);
+}
+
+async function refreshArchivedProductsFromSupabase() {
+  archivedProductsCache = await withSupabaseTimeout(
+    loadArchivedProductsFromSupabase(),
+    "No se pudo cargar Productos archivados desde Supabase a tiempo."
+  );
+  renderAdminArchivedProducts();
+  return archivedProductsCache;
 }
 
 function getCatalogPriorityImageCount() {
@@ -3431,6 +3485,7 @@ async function deleteEditingProduct() {
     action: async () => {
       const scrollTop = getAdminTableScrollTop();
       await archiveProductInSupabase(product);
+      products = products.filter((item) => String(item.id) !== String(product.id));
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
       closeEditProductModal({ skipUnsavedCheck: true });
       await refreshCatalogFromSupabase("after-archive-product", { silent: true });
@@ -3448,7 +3503,12 @@ function renderAdminArchivedProducts() {
     els.archivedProducts.innerHTML = "";
     return;
   }
-  const archived = getOrderedProducts().filter((product) => product.active === false);
+  const archived = [...archivedProductsCache].sort((a, b) => {
+    const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+    const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+    if (left !== right) return left - right;
+    return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+  });
   if (!archived.length) {
     els.archivedProducts.innerHTML = `<div class="empty-state compact">No hay productos archivados.</div>`;
     return;
@@ -3480,12 +3540,21 @@ function renderAdminArchivedProducts() {
   });
 }
 
-function openArchivedProductsPanel() {
+async function openArchivedProductsPanel() {
   if (!canAccess("admin")) return;
-  renderAdminArchivedProducts();
+  if (els.archivedProducts) els.archivedProducts.innerHTML = `<div class="empty-state compact">Cargando productos archivados...</div>`;
   els.archivedProductsOverlay?.classList.remove("hidden");
   els.archivedProductsOverlay?.setAttribute("aria-hidden", "false");
   document.querySelector(".more-product-actions[open]")?.removeAttribute("open");
+  try {
+    await refreshArchivedProductsFromSupabase();
+  } catch (error) {
+    console.error("No se pudieron cargar productos archivados", error);
+    if (els.archivedProducts) {
+      els.archivedProducts.innerHTML = `<div class="empty-state compact">No se pudieron cargar los productos archivados.</div>`;
+    }
+    showToast(error.message || "No se pudieron cargar los productos archivados");
+  }
 }
 
 function closeArchivedProductsPanel() {
@@ -3495,14 +3564,13 @@ function closeArchivedProductsPanel() {
 
 async function restoreArchivedProduct(productId) {
   if (!canAccess("admin")) return;
-  const product = products.find((item) => item.id === productId);
+  const product = archivedProductsCache.find((item) => item.id === productId) || products.find((item) => item.id === productId);
   if (!product) return;
   try {
     await restoreProductInSupabase(product);
-    localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+    archivedProductsCache = archivedProductsCache.filter((item) => String(item.id) !== String(product.id));
     await refreshCatalogFromSupabase("after-restore-product", { silent: true });
-    renderAll();
-    renderAdminArchivedProducts();
+    await refreshArchivedProductsFromSupabase();
     showToast("Producto restaurado correctamente", "success");
   } catch (error) {
     console.error("No se pudo restaurar producto", error);
@@ -3512,7 +3580,7 @@ async function restoreArchivedProduct(productId) {
 
 async function deleteArchivedProductPermanently(productId) {
   if (!canAccess("admin")) return;
-  const product = products.find((item) => item.id === productId);
+  const product = archivedProductsCache.find((item) => item.id === productId) || products.find((item) => item.id === productId);
   if (!product) return;
   const dependencyCount = getProductOrderDependencyCount(product.id);
   if (dependencyCount > 0) {
@@ -3528,10 +3596,10 @@ async function deleteArchivedProductPermanently(productId) {
       await ensureProductDeletedFromSupabase(product.id, getProductDisplayName(product));
       await removeProductImagesFromStorage(product);
       products = products.filter((item) => item.id !== product.id);
+      archivedProductsCache = archivedProductsCache.filter((item) => String(item.id) !== String(product.id));
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
       await refreshCatalogFromSupabase("after-delete-archived-product", { silent: true });
-      renderAll();
-      renderAdminArchivedProducts();
+      await refreshArchivedProductsFromSupabase();
       showToast("Producto eliminado correctamente", "success");
     }
   });
