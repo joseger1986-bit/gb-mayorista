@@ -1872,50 +1872,49 @@ function getProductOrderDependencyCount(productId) {
 
 async function archiveProductInSupabase(product) {
   if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede archivar productos.");
-  const client = getSupabaseCatalogClient();
-  if (!client) throw new Error("Supabase no está disponible. No se archivó el producto.");
-  const id = String(product?.id || "").trim();
-  if (!id) throw new Error("ID de producto inválido. No se archivó el producto.");
-
-  const { data: updatedRows, error: updateError } = await client
-    .from("products")
-    .update({ active: false })
-    .eq("id", id)
-    .select("id, active, show_in_catalog");
-  if (updateError) throw new Error(formatSupabaseOperationError(updateError, "No se pudo archivar el producto en Supabase."));
-  if (!Array.isArray(updatedRows) || updatedRows.length !== 1 || String(updatedRows[0]?.id) !== id) {
-    throw new Error(`Supabase no confirmó el archivado de "${getProductDisplayName(product)}".`);
-  }
-  if (updatedRows[0].active !== false) {
-    throw new Error(`Supabase devolvió el producto "${getProductDisplayName(product)}" como activo después de archivarlo.`);
-  }
-
+  const result = await updateProductActiveStateInSupabase(product, false, "archivar");
   product.active = false;
-  return { ok: true, productId: id, row: updatedRows[0] };
+  return result;
 }
 
 async function restoreProductInSupabase(product) {
   if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede restaurar productos.");
-  const client = getSupabaseCatalogClient();
-  if (!client) throw new Error("Supabase no está disponible. No se restauró el producto.");
-  const id = String(product?.id || "").trim();
-  if (!id) throw new Error("ID de producto inválido. No se restauró el producto.");
-
-  const { data: updatedRows, error: updateError } = await client
-    .from("products")
-    .update({ active: true })
-    .eq("id", id)
-    .select("id, active, show_in_catalog");
-  if (updateError) throw new Error(formatSupabaseOperationError(updateError, "No se pudo restaurar el producto en Supabase."));
-  if (!Array.isArray(updatedRows) || updatedRows.length !== 1 || String(updatedRows[0]?.id) !== id) {
-    throw new Error(`Supabase no confirmó la restauración de "${getProductDisplayName(product)}".`);
-  }
-  if (updatedRows[0].active !== true) {
-    throw new Error(`Supabase devolvió el producto "${getProductDisplayName(product)}" como archivado después de restaurarlo.`);
-  }
-
+  const result = await updateProductActiveStateInSupabase(product, true, "restaurar");
   product.active = true;
-  return { ok: true, productId: id, row: updatedRows[0] };
+  return result;
+}
+
+async function updateProductActiveStateInSupabase(product, active, actionName) {
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error(`Supabase no está disponible. No se pudo ${actionName} el producto.`);
+  const readClient = getSupabaseCatalogReadClient() || client;
+  const id = String(product?.id || "").trim();
+  if (!id) throw new Error(`ID de producto inválido. No se pudo ${actionName} el producto.`);
+
+  const { error: updateError, count } = await client
+    .from("products")
+    .update({ active }, { count: "exact" })
+    .eq("id", id);
+  if (updateError) throw new Error(formatSupabaseOperationError(updateError, `No se pudo ${actionName} el producto en Supabase.`));
+  if (count !== null && count !== 1) {
+    throw new Error(`Supabase confirmó ${count || 0} fila(s) al intentar ${actionName} "${getProductDisplayName(product)}".`);
+  }
+
+  const { data: verifiedRows, error: verifyError } = await readClient
+    .from("products")
+    .select("id, active, show_in_catalog")
+    .eq("id", id)
+    .limit(1);
+  if (verifyError) throw new Error(formatSupabaseOperationError(verifyError, `No se pudo verificar el producto después de ${actionName}.`));
+  if (!Array.isArray(verifiedRows) || verifiedRows.length !== 1 || String(verifiedRows[0]?.id) !== id) {
+    throw new Error(`Supabase no devolvió el producto después de ${actionName} "${getProductDisplayName(product)}".`);
+  }
+  if (verifiedRows[0].active !== active) {
+    const stateText = active ? "activo" : "archivado";
+    throw new Error(`Supabase no dejó el producto "${getProductDisplayName(product)}" como ${stateText}.`);
+  }
+
+  return { ok: true, productId: id, row: verifiedRows[0] };
 }
 async function deleteExplicitlyRemovedProductsFromSupabase(client) {
   const deletedIds = [...supabaseCatalogPendingDeletedProductIds].filter(Boolean);
@@ -2311,7 +2310,7 @@ function renderCatalog() {
 }
 
 async function loadArchivedProductsFromSupabase() {
-  const client = getSupabaseCatalogClient();
+  const client = getSupabaseCatalogReadClient();
   if (!client) return [];
   const { data: productRows, error: productError } = await client
     .from("products")
