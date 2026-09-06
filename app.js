@@ -1891,13 +1891,19 @@ async function updateProductActiveStateInSupabase(product, active, actionName) {
   const id = String(product?.id || "").trim();
   if (!id) throw new Error(`ID de producto inválido. No se pudo ${actionName} el producto.`);
 
-  const { error: updateError, count } = await client
-    .from("products")
-    .update({ active }, { count: "exact" })
-    .eq("id", id);
+  console.info("ARCHIVE START", { productId: id, productName: getProductDisplayName(product), active });
+
+  const { data: rpcResult, error: updateError } = await client.rpc("set_product_archived", {
+    product_id: id,
+    archived: !active
+  });
   if (updateError) throw new Error(formatSupabaseOperationError(updateError, `No se pudo ${actionName} el producto en Supabase.`));
-  if (count !== null && count !== 1) {
-    throw new Error(`Supabase confirmó ${count || 0} fila(s) al intentar ${actionName} "${getProductDisplayName(product)}".`);
+  if (!rpcResult || String(rpcResult.id) !== id) {
+    throw new Error(`Supabase no confirmó el producto al intentar ${actionName} "${getProductDisplayName(product)}".`);
+  }
+  if (rpcResult.active !== active) {
+    const stateText = active ? "activo" : "archivado";
+    throw new Error(`Supabase RPC no dejó el producto "${getProductDisplayName(product)}" como ${stateText}.`);
   }
 
   const { data: verifiedRows, error: verifyError } = await readClient
@@ -1913,6 +1919,7 @@ async function updateProductActiveStateInSupabase(product, active, actionName) {
     const stateText = active ? "activo" : "archivado";
     throw new Error(`Supabase no dejó el producto "${getProductDisplayName(product)}" como ${stateText}.`);
   }
+  console.info("ARCHIVE CHECK", { id: verifiedRows[0].id, active: verifiedRows[0].active });
 
   return { ok: true, productId: id, row: verifiedRows[0] };
 }
