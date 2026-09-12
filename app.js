@@ -237,6 +237,8 @@ let stockModalDefaultMode = "add";
 let stockModalSaving = false;
 let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
+let internalCatalogSale = null;
+let internalCatalogSaleExpanded = false;
 let editingProductId = "";
 let editProductInitialState = "";
 let editProductRemoveImagePending = false;
@@ -304,6 +306,7 @@ const els = {
   cartCount: document.querySelector("#cartCount"),
   floatingCartButton: document.querySelector("#floatingCartButton"),
   floatingCartCount: document.querySelector("#floatingCartCount"),
+  internalSaleDock: document.querySelector("#internalSaleDock"),
   cartTotal: document.querySelector("#cartTotal"),
   cartSubtitle: document.querySelector("#cartSubtitle"),
   cartSummaryCounts: document.querySelector("#cartSummaryCounts"),
@@ -2190,6 +2193,7 @@ function renderAll() {
     }
   }
   renderCart();
+  renderInternalCatalogSale();
   applyRoleVisibility();
 }
 
@@ -2285,7 +2289,7 @@ function renderCatalog() {
             <input id="qty-${group.id}" type="number" min="${group.minimum}" step="1" value="${group.minimum}" aria-label="${escapeHtml(getCatalogQuantityLabel(group))} para ${escapeHtml(group.name)}" data-catalog-qty="${group.id}">
             <button class="quantity-stepper-button" type="button" data-qty-increase="${group.id}" aria-label="Sumar cantidad">+</button>
           </div>
-          <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}><span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span></button>
+          <button class="primary-button" type="button" data-add-catalog="${group.id}" ${!hasCatalogVariantChoices(group) && !hasCatalogPrice(group.variants[0]?.price) ? "disabled" : ""}>${isInternalCatalogQuickSaleMode() ? "AGREGAR" : `<span class="button-label-full">Agregar al carrito</span><span class="button-label-short">Agregar</span>`}</button>
         </div>
       </div>
     </article>
@@ -2323,7 +2327,11 @@ function renderCatalog() {
         return;
       }
       const internalProduct = products.find((item) => item.id === variant.productId);
-      addCatalogGroupToCart(group, variant, getCatalogQuantityValue(group.id, group.minimum), internalProduct);
+      if (isInternalCatalogQuickSaleMode()) {
+        addCatalogGroupToInternalSale(group, variant, getCatalogQuantityValue(group.id, group.minimum), internalProduct);
+      } else {
+        addCatalogGroupToCart(group, variant, getCatalogQuantityValue(group.id, group.minimum), internalProduct);
+      }
     });
   });
 
@@ -6362,6 +6370,255 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
   saveCart();
   renderCart();
   showToast("Producto agregado al carrito");
+}
+
+function isInternalCatalogQuickSaleMode() {
+  return isPrivateManagementRoute() && internalUnlocked && currentView === "catalogo" && hasPermission("orders");
+}
+
+function createInternalCatalogSaleDraft() {
+  const draft = makeConsultation({ name: "", phone: "", location: "" }, "Venta local cargada desde catálogo interno.");
+  draft.origin = "local";
+  draft.manualDraft = true;
+  draft.catalogQuickSaleDraft = true;
+  draft.customer = "";
+  draft.customerName = "";
+  draft.customerPhone = "";
+  draft.customerLocation = "";
+  draft.paymentMethod = "Transferencia";
+  draft.deliveryType = "Retira en local";
+  draft.discountType = "fixed";
+  draft.discountValue = 0;
+  draft.items = [];
+  recalculateBudget(draft);
+  return draft;
+}
+
+function getInternalCatalogSale() {
+  if (!internalCatalogSale) internalCatalogSale = createInternalCatalogSaleDraft();
+  return internalCatalogSale;
+}
+
+function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct = null) {
+  const sale = getInternalCatalogSale();
+  const cleanQuantity = Math.max(group.minimum || 1, Math.round(Number(quantity) || group.minimum || 1));
+  const productId = variant.productId;
+  const existing = sale.items.find((item) => String(item.id) === String(productId));
+  if (existing) {
+    existing.quantity += cleanQuantity;
+  } else {
+    sale.items.push({
+      id: productId,
+      name: internalProduct?.name || variant.internalName || getCartProductNameFromCatalog(group, variant),
+      brand: internalProduct?.brand || group.brand || "Punto X Mayor",
+      price: Math.max(0, Number(variant.price) || 0),
+      saleType: getSaleTypeFromPresentation(variant.presentation),
+      packQuantity: getPackQuantityFromPresentation(variant.presentation),
+      stockUnit: normalizeStockUnit(variant.stockUnit || internalProduct?.stockUnit),
+      cost: getProductCostForPresentation(internalProduct),
+      variant: variant.label || "",
+      catalogProduct: group.name || "",
+      presentation: variant.presentation || getProductPresentation(internalProduct),
+      quantity: cleanQuantity
+    });
+  }
+  recalculateBudget(sale);
+  internalCatalogSaleExpanded = false;
+  renderInternalCatalogSale();
+  showToast("Producto agregado a la venta");
+}
+
+function renderInternalCatalogSale() {
+  if (!els.internalSaleDock) return;
+  const active = isInternalCatalogQuickSaleMode() && internalCatalogSale?.items?.length;
+  els.internalSaleDock.classList.toggle("hidden", !active);
+  document.body.classList.toggle("internal-sale-active", Boolean(active));
+  els.floatingCartButton?.classList.toggle("hidden", isInternalCatalogQuickSaleMode());
+  if (!active) {
+    els.internalSaleDock.innerHTML = "";
+    return;
+  }
+  const sale = internalCatalogSale;
+  recalculateBudget(sale);
+  const totalQuantity = sale.items.reduce((sum, item) => sum + Math.max(1, Number(item.quantity) || 1), 0);
+  els.internalSaleDock.innerHTML = `
+    <section class="internal-sale-panel ${internalCatalogSaleExpanded ? "expanded" : ""}">
+      <button class="internal-sale-summary" type="button" data-internal-sale-toggle>
+        <span><b>VENTA ACTUAL</b><em>${totalQuantity} productos · ${formatMoney(sale.total || 0)}</em></span>
+        <strong>${internalCatalogSaleExpanded ? "SEGUIR AGREGANDO" : "▲ VER DETALLE"}</strong>
+      </button>
+      <div class="internal-sale-detail">
+        <div class="internal-sale-detail-head">
+          <h3>VENTA ACTUAL</h3>
+          <button class="secondary-button small-button" type="button" data-internal-sale-toggle>Seguir agregando</button>
+        </div>
+        <div class="internal-sale-items">
+          ${sale.items.map((item) => renderInternalSaleItem(item)).join("")}
+        </div>
+        <div class="internal-sale-totals">
+          <span>Subtotal <b data-internal-sale-subtotal>${formatMoney(sale.subtotal || 0)}</b></span>
+          <span>Descuento <b data-internal-sale-discount>${escapeHtml(formatDiscountSummary(sale))}</b></span>
+          <strong>TOTAL <span data-internal-sale-total>${formatMoney(sale.total || 0)}</span></strong>
+        </div>
+        <section class="internal-sale-payment">
+          <h4>FORMA DE PAGO</h4>
+          <div class="quick-sale-payment-buttons" role="group" aria-label="Forma de pago">
+            ${["Efectivo", "Transferencia", "Cuenta corriente", "Otro"].map((method) => `
+              <button class="quick-sale-payment-button ${(sale.paymentMethod || "Transferencia") === method ? "is-selected" : ""}" type="button" data-internal-sale-payment="${method}">
+                ${escapeHtml(method)}
+              </button>
+            `).join("")}
+          </div>
+        </section>
+        <section class="quick-sale-discount-panel internal-sale-discount-panel">
+          <h4>DESCUENTO</h4>
+          <span class="quick-sale-discount-row">
+            <select data-internal-sale-discount-type aria-label="Tipo de descuento">
+              <option value="fixed" ${(sale.discountType || "fixed") !== "percent" ? "selected" : ""}>$</option>
+              <option value="percent" ${sale.discountType === "percent" ? "selected" : ""}>%</option>
+            </select>
+            <input type="number" min="0" step="1" value="${Number(sale.discountValue) || 0}" data-internal-sale-discount-value aria-label="Valor del descuento">
+          </span>
+        </section>
+        <details class="quick-sale-more-options internal-sale-customer-options">
+          <summary>+ MÁS OPCIONES DEL CLIENTE</summary>
+          <div class="quick-sale-options-grid">
+            <fieldset>
+              <legend>Datos del cliente</legend>
+              <label>Nombre<input type="text" value="${escapeHtml(sale.customerName || "")}" data-internal-sale-customer="name" placeholder="Opcional"></label>
+              <label>Teléfono<input type="tel" value="${escapeHtml(sale.customerPhone || "")}" data-internal-sale-customer="phone" placeholder="Opcional"></label>
+              <label>Localidad<input type="text" value="${escapeHtml(sale.customerLocation || "")}" data-internal-sale-customer="location" placeholder="Opcional"></label>
+            </fieldset>
+          </div>
+        </details>
+        <button class="primary-button internal-sale-finish-button" type="button" data-internal-sale-finish>
+          FINALIZAR VENTA ${formatMoney(sale.total || 0)}
+        </button>
+      </div>
+    </section>
+  `;
+  bindInternalCatalogSale();
+}
+
+function renderInternalSaleItem(item) {
+  const quantity = Math.max(1, Number(item.quantity) || 1);
+  return `
+    <article class="internal-sale-item">
+      <div>
+        <strong>${escapeHtml(item.name || "Producto")}</strong>
+        <span>${item.variant ? `${escapeHtml(item.variant)} · ` : ""}${escapeHtml(formatCartPresentation(item))}</span>
+        <em>${escapeHtml(formatQuantityWithPresentationLabel(item.presentation || formatCartPresentation(item), quantity))} · ${formatMoney(item.price)} · Subtotal ${formatMoney(item.price * quantity)}</em>
+      </div>
+      <div class="internal-sale-item-actions">
+        <button class="quantity-stepper-button" type="button" data-internal-sale-decrease="${escapeHtml(item.id)}">−</button>
+        <b>${quantity}</b>
+        <button class="quantity-stepper-button" type="button" data-internal-sale-increase="${escapeHtml(item.id)}">+</button>
+        <button class="danger-button small-button" type="button" data-internal-sale-remove="${escapeHtml(item.id)}">Quitar</button>
+      </div>
+    </article>
+  `;
+}
+
+function bindInternalCatalogSale() {
+  if (!els.internalSaleDock || !internalCatalogSale) return;
+  els.internalSaleDock.querySelectorAll("[data-internal-sale-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      internalCatalogSaleExpanded = !internalCatalogSaleExpanded;
+      renderInternalCatalogSale();
+    });
+  });
+  els.internalSaleDock.querySelectorAll("[data-internal-sale-increase], [data-internal-sale-decrease]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.internalSaleIncrease || button.dataset.internalSaleDecrease;
+      const delta = button.dataset.internalSaleIncrease ? 1 : -1;
+      updateInternalSaleItemQuantity(id, delta);
+    });
+  });
+  els.internalSaleDock.querySelectorAll("[data-internal-sale-remove]").forEach((button) => {
+    button.addEventListener("click", () => removeInternalSaleItem(button.dataset.internalSaleRemove));
+  });
+  els.internalSaleDock.querySelectorAll("[data-internal-sale-payment]").forEach((button) => {
+    button.addEventListener("click", () => {
+      internalCatalogSale.paymentMethod = button.dataset.internalSalePayment || "Transferencia";
+      recalculateBudget(internalCatalogSale);
+      renderInternalCatalogSale();
+    });
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-discount-type]")?.addEventListener("change", (event) => {
+    internalCatalogSale.discountType = event.target.value === "percent" ? "percent" : "fixed";
+    recalculateBudget(internalCatalogSale);
+    renderInternalCatalogSale();
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-discount-value]")?.addEventListener("input", (event) => {
+    internalCatalogSale.discountValue = Math.max(0, Number(event.target.value) || 0);
+    recalculateBudget(internalCatalogSale);
+    updateInternalSaleTotals();
+  });
+  els.internalSaleDock.querySelectorAll("[data-internal-sale-customer]").forEach((input) => {
+    input.addEventListener("input", () => updateInternalSaleCustomer(input.dataset.internalSaleCustomer, input.value));
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-finish]")?.addEventListener("click", finalizeInternalCatalogSale);
+}
+
+function updateInternalSaleItemQuantity(productId, delta) {
+  if (!internalCatalogSale) return;
+  const item = internalCatalogSale.items.find((entry) => String(entry.id) === String(productId));
+  if (!item) return;
+  item.quantity = Math.max(1, Math.round(Number(item.quantity) || 1) + delta);
+  recalculateBudget(internalCatalogSale);
+  renderInternalCatalogSale();
+}
+
+function removeInternalSaleItem(productId) {
+  if (!internalCatalogSale) return;
+  internalCatalogSale.items = internalCatalogSale.items.filter((entry) => String(entry.id) !== String(productId));
+  if (!internalCatalogSale.items.length) {
+    internalCatalogSale = null;
+    internalCatalogSaleExpanded = false;
+  } else {
+    recalculateBudget(internalCatalogSale);
+  }
+  renderInternalCatalogSale();
+}
+
+function updateInternalSaleCustomer(field, value) {
+  if (!internalCatalogSale) return;
+  const cleanValue = String(value || "").trim();
+  if (field === "name") {
+    internalCatalogSale.customerName = cleanValue;
+    internalCatalogSale.customer = cleanValue;
+  } else if (field === "phone") {
+    internalCatalogSale.customerPhone = cleanValue;
+  } else if (field === "location") {
+    internalCatalogSale.customerLocation = cleanValue;
+  }
+}
+
+function updateInternalSaleTotals() {
+  if (!internalCatalogSale || !els.internalSaleDock) return;
+  const subtotal = els.internalSaleDock.querySelector("[data-internal-sale-subtotal]");
+  const discount = els.internalSaleDock.querySelector("[data-internal-sale-discount]");
+  const total = els.internalSaleDock.querySelector("[data-internal-sale-total]");
+  const finish = els.internalSaleDock.querySelector("[data-internal-sale-finish]");
+  if (subtotal) subtotal.textContent = formatMoney(internalCatalogSale.subtotal || 0);
+  if (discount) discount.textContent = formatDiscountSummary(internalCatalogSale);
+  if (total) total.textContent = formatMoney(internalCatalogSale.total || 0);
+  if (finish) finish.textContent = `FINALIZAR VENTA ${formatMoney(internalCatalogSale.total || 0)}`;
+}
+
+function finalizeInternalCatalogSale() {
+  if (!internalCatalogSale?.items?.length) return;
+  const sale = internalCatalogSale;
+  sale.manualDraft = true;
+  sale.origin = "local";
+  sale.status = "Pagado";
+  recalculateBudget(sale);
+  if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
+  const saved = saveManualConsultation(sale);
+  if (!saved) return;
+  internalCatalogSale = null;
+  internalCatalogSaleExpanded = false;
+  renderAll();
 }
 
 function getCartProductNameFromCatalog(group, variant) {
