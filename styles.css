@@ -2393,6 +2393,64 @@ th .table-sort-button[data-sort-products="stock"] {
   gap: 8px;
 }
 
+.stock-movement-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.stock-movement-filters .active {
+  border-color: var(--accent-dark);
+  background: #f0f7ed;
+  color: var(--accent-dark);
+}
+
+.stock-movement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-movement-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.stock-movement-row.entrada {
+  border-left-color: var(--accent);
+}
+
+.stock-movement-row.salida {
+  border-left-color: var(--danger);
+}
+
+.stock-movement-row div {
+  display: grid;
+  gap: 3px;
+}
+
+.stock-movement-row div:last-child {
+  text-align: right;
+}
+
+.stock-movement-row span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.stock-movement-row b {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
 .executive-product-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) minmax(120px, auto);
@@ -2686,7 +2744,8 @@ th .table-sort-button[data-sort-products="stock"] {
 }
 
 .stock-mode-options label,
-.stock-modal-quantity {
+.stock-modal-quantity,
+.stock-modal-reason {
   display: grid;
   gap: 6px;
   color: var(--text);
@@ -2701,7 +2760,8 @@ th .table-sort-button[data-sort-products="stock"] {
   padding: 10px;
 }
 
-.stock-modal-quantity input {
+.stock-modal-quantity input,
+.stock-modal-reason select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -10692,9 +10752,9 @@ body.cart-is-open {
 
 .edit-product-stock-control {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .edit-product-stock-control label {
@@ -10784,6 +10844,14 @@ body.cart-is-open {
 }
 
 @media (max-width: 680px) {
+  .stock-movement-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-movement-row div:last-child {
+    text-align: left;
+  }
+
   .product-edit-modal {
     gap: 10px;
   }
@@ -10793,7 +10861,7 @@ body.cart-is-open {
   }
 
   .edit-product-stock-control {
-    grid-template-columns: 38px minmax(0, 1fr) 38px;
+    grid-template-columns: 1fr;
   }
 
   .edit-product-photo-section .edit-image-preview {

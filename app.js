@@ -233,6 +233,10 @@ let currentPdfBlob = null;
 let currentPdfFilename = "";
 let currentPrintDocument = null;
 let stockModalProductId = "";
+let stockModalDefaultMode = "add";
+let stockModalSaving = false;
+let stockMovementFilter = "todos";
+let stockMovementsRemoteRefreshing = false;
 let editingProductId = "";
 let editProductInitialState = "";
 let editProductRemoveImagePending = false;
@@ -370,6 +374,9 @@ const els = {
   stockModalCurrent: document.querySelector("#stockModalCurrent"),
   stockModalQuantityLabel: document.querySelector("#stockModalQuantityLabel"),
   stockModalQuantity: document.querySelector("#stockModalQuantity"),
+  stockModalReasonWrap: document.querySelector("#stockModalReasonWrap"),
+  stockModalReason: document.querySelector("#stockModalReason"),
+  stockModalSubmit: document.querySelector("#stockModalSubmit"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
   editProductOverlay: document.querySelector("#editProductOverlay"),
   editProductForm: document.querySelector("#editProductForm"),
@@ -629,6 +636,9 @@ els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
 });
 els.stockModalForm?.addEventListener("submit", confirmStockModal);
+els.stockModalForm?.addEventListener("change", (event) => {
+  if (event.target?.name === "stockMode") updateStockModalMode();
+});
 els.stockModalCancel?.addEventListener("click", closeStockModal);
 els.stockModalOverlay?.addEventListener("click", (event) => {
   if (event.target === els.stockModalOverlay) closeStockModal();
@@ -641,8 +651,8 @@ els.editProductOverlay?.addEventListener("click", (event) => {
 els.editProductImage?.addEventListener("change", previewEditProductImage);
 els.replaceEditProductPhoto?.addEventListener("click", () => els.editProductImage?.click());
 els.removeEditProductPhoto?.addEventListener("click", confirmRemoveAllEditProductPhotos);
-els.editProductStockDecrease?.addEventListener("click", () => stepEditProductStock(-1));
-els.editProductStockIncrease?.addEventListener("click", () => stepEditProductStock(1));
+els.editProductStockDecrease?.addEventListener("click", () => openStockModal(editingProductId, "subtract"));
+els.editProductStockIncrease?.addEventListener("click", () => openStockModal(editingProductId, "add"));
 els.editProductStock?.addEventListener("input", normalizeEditProductStockInput);
 els.editProductStockUnitSelect?.addEventListener("change", () => {
   const product = products.find((item) => item.id === editingProductId);
@@ -1105,6 +1115,31 @@ async function saveOrderToSupabase(order) {
 
 function saveStockHistory() {
   localStorage.setItem(STORAGE_STOCK_HISTORY, JSON.stringify(stockHistory));
+}
+
+async function refreshStockMovementsFromSupabase(reason = "manual", options = {}) {
+  if (!isPrivateManagementRoute() || !hasPermission("reports")) return { ok: false, message: "Movimientos disponibles solo en Reportes." };
+  const client = getSupabaseCatalogClient();
+  if (!client || stockMovementsRemoteRefreshing) return { ok: false, message: "Sin cliente Supabase para movimientos." };
+  stockMovementsRemoteRefreshing = true;
+  try {
+    const { data, error } = await withSupabaseTimeout(client
+      .from("stock_movements")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(300), "No se pudieron leer los movimientos de stock a tiempo.");
+    if (error) throw error;
+    stockHistory = (data || []).map((row) => normalizeStockMovementFromRemote(row, null)).filter(Boolean);
+    saveStockHistory();
+    if (currentView === "reportes") renderReports();
+    return { ok: true, movements: stockHistory.length, reason };
+  } catch (error) {
+    console.error("Punto X Mayor stock movements read:", error);
+    if (!options.silent) showToast(error.message || "No se pudieron leer los movimientos de stock.");
+    return { ok: false, message: error.message || "No se pudieron leer los movimientos de stock." };
+  } finally {
+    stockMovementsRemoteRefreshing = false;
+  }
 }
 
 function saveClients() {
@@ -3793,13 +3828,14 @@ async function saveEditedProduct(event) {
   }
 }
 
-function openStockModal(productId) {
+function openStockModal(productId, mode = "add") {
   if (!hasPermission("stock")) return;
   const product = products.find((item) => item.id === productId);
   if (!product || !els.stockModalOverlay || !els.stockModalForm) return;
   stockModalProductId = productId;
+  stockModalDefaultMode = mode === "subtract" ? "subtract" : "add";
   if (els.stockModalTitle) {
-    els.stockModalTitle.textContent = `Modificar stock: ${getProductArticleName(product)}`;
+    els.stockModalTitle.textContent = `${stockModalDefaultMode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
   }
   if (els.stockModalCurrent) {
     els.stockModalCurrent.textContent = `Stock actual: ${formatProductStock(product)}`;
@@ -3808,13 +3844,14 @@ function openStockModal(productId) {
     els.stockModalQuantityLabel.textContent = `Cantidad de ${getStockUnitLabelFromUnit(product.stockUnit, 2)}`;
   }
   els.stockModalForm.reset();
-  const addMode = els.stockModalForm.querySelector('input[name="stockMode"][value="add"]');
-  if (addMode) addMode.checked = true;
+  const checkedMode = els.stockModalForm.querySelector(`input[name="stockMode"][value="${stockModalDefaultMode}"]`);
+  if (checkedMode) checkedMode.checked = true;
   if (els.stockModalQuantity) els.stockModalQuantity.value = "";
+  updateStockModalMode();
+  setStockModalSaving(false);
   els.stockModalOverlay.classList.remove("hidden");
   els.stockModalOverlay.setAttribute("aria-hidden", "false");
   pushStockModalHistoryState();
-  window.setTimeout(() => els.stockModalQuantity?.focus(), 0);
 }
 
 function closeStockModal(options = {}) {
@@ -3837,23 +3874,61 @@ function pushStockModalHistoryState() {
   window.history.pushState({ ...makeAppHistoryState(currentView), modal: "stockModal" }, "", getCurrentHistoryUrl());
 }
 
-function confirmStockModal(event) {
+function updateStockModalMode() {
+  const form = els.stockModalForm ? new FormData(els.stockModalForm) : new FormData();
+  const mode = String(form.get("stockMode") || stockModalDefaultMode || "add");
+  els.stockModalReasonWrap?.classList.toggle("hidden", mode !== "subtract");
+  const product = products.find((item) => item.id === stockModalProductId);
+  if (els.stockModalTitle && product) {
+    els.stockModalTitle.textContent = `${mode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
+  }
+}
+
+function setStockModalSaving(isSaving) {
+  stockModalSaving = Boolean(isSaving);
+  if (els.stockModalSubmit) {
+    els.stockModalSubmit.disabled = stockModalSaving;
+    els.stockModalSubmit.textContent = stockModalSaving ? "Guardando..." : "Confirmar";
+  }
+  if (els.stockModalCancel) els.stockModalCancel.disabled = stockModalSaving;
+  els.stockModalForm?.querySelectorAll("input, select").forEach((field) => {
+    field.disabled = stockModalSaving;
+  });
+}
+
+async function confirmStockModal(event) {
   event.preventDefault();
-  if (!stockModalProductId) return;
+  if (!stockModalProductId || stockModalSaving) return;
   const product = products.find((item) => item.id === stockModalProductId);
   if (!product) return;
   const form = new FormData(event.currentTarget);
   const mode = String(form.get("stockMode") || "add");
   const quantity = Math.max(0, Math.round(Number(els.stockModalQuantity?.value) || 0));
-  const currentStock = getProductTotalStock(product);
-  const nextStock = mode === "replace"
-    ? quantity
-    : mode === "subtract"
-      ? Math.max(0, currentStock - quantity)
-      : currentStock + quantity;
-
-  setProductStock(stockModalProductId, nextStock, "Ajuste manual", "Base / sin variante", { silent: true });
-  closeStockModal();
+  if (!quantity) {
+    showToast("Ingresá una cantidad mayor a cero");
+    return;
+  }
+  const movementType = mode === "subtract" ? "salida" : "entrada";
+  const reason = movementType === "salida"
+    ? String(form.get("stockReason") || "Ajuste").trim() || "Ajuste"
+    : "Ingreso";
+  setStockModalSaving(true);
+  try {
+    await applyStockMovement(product, {
+      movementType,
+      quantity,
+      reason,
+      orderId: null,
+      variant: "Base / sin variante"
+    });
+    closeStockModal();
+    showToast(movementType === "salida" ? "Salida de stock registrada" : "Entrada de stock registrada", "success");
+  } catch (error) {
+    console.error("Punto X Mayor stock movement:", error);
+    showToast(error.message || "No se pudo guardar el movimiento de stock.");
+  } finally {
+    setStockModalSaving(false);
+  }
 }
 
 function openAddProductModal() {
@@ -4529,11 +4604,11 @@ function renderStock() {
       <td data-label="Variante"><span class="muted-cell">${escapeHtml(variant.name)}</span></td>
       <td data-label="Presentación">${escapeHtml(variant.saleLabel)}</td>
       <td data-label="Precio">${formatMoney(variant.price)}</td>
-      <td data-label="Stock"><input class="inline-input" type="number" min="0" step="1" value="${variant.stock}" data-stock-set="${product.id}" data-variant="${escapeHtml(variant.name)}"></td>
+      <td data-label="Stock"><strong>${escapeHtml(formatProductStock(product, variant.stock))}</strong></td>
       <td data-label="Ajuste">
         <div class="stock-adjust">
-          <input class="inline-input" type="number" step="1" value="0" aria-label="Ajuste manual para ${escapeHtml(product.name)} ${escapeHtml(variant.name)}" data-stock-adjust-value="${product.id}" data-variant="${escapeHtml(variant.name)}">
-          <button class="secondary-button small-button" type="button" data-stock-adjust="${product.id}" data-variant="${escapeHtml(variant.name)}">Aplicar</button>
+          <button class="secondary-button small-button" type="button" data-stock-entry="${product.id}">+ Agregar</button>
+          <button class="danger-button small-button" type="button" data-stock-exit="${product.id}">- Quitar</button>
         </div>
       </td>
       <td data-label="Estado"><span class="status-pill ${variant.active && variant.stock > 0 ? "visible" : "hidden-product"}">${variant.active ? (variant.stock > 0 ? "Disponible" : "Sin stock") : "Inactiva"}</span></td>
@@ -4541,15 +4616,12 @@ function renderStock() {
     </tr>
   `).join("");
 
-  els.stockProducts.querySelectorAll("[data-stock-set]").forEach((input) => {
-    input.addEventListener("change", () => setProductStock(input.dataset.stockSet, Number(input.value), "Corrección manual", input.dataset.variant));
+  els.stockProducts.querySelectorAll("[data-stock-entry]").forEach((button) => {
+    button.addEventListener("click", () => openStockModal(button.dataset.stockEntry, "add"));
   });
 
-  els.stockProducts.querySelectorAll("[data-stock-adjust]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const input = els.stockProducts.querySelector(`[data-stock-adjust-value="${CSS.escape(button.dataset.stockAdjust)}"][data-variant="${CSS.escape(button.dataset.variant)}"]`);
-      adjustProductStock(button.dataset.stockAdjust, Number(input?.value || 0), button.dataset.variant);
-    });
+  els.stockProducts.querySelectorAll("[data-stock-exit]").forEach((button) => {
+    button.addEventListener("click", () => openStockModal(button.dataset.stockExit, "subtract"));
   });
 }
 
@@ -4561,7 +4633,7 @@ function renderStockHistory(productId, variantName = "Base / sin variante") {
   return `
     <div class="stock-history">
       ${movements.map((entry) => `
-        <span>${formatDateTime(entry.createdAt)} · ${escapeHtml(entry.variant || "Base")} · ${entry.delta > 0 ? "+" : ""}${entry.delta} · ${escapeHtml(entry.reason)}${entry.orderId ? ` · ${escapeHtml(entry.orderId.slice(0, 8))}` : ""}</span>
+        <span>${formatDateTime(entry.createdAt)} · ${escapeHtml(entry.variant || "Base")} · ${(entry.movementType === "entrada" || entry.delta > 0) ? "+" : ""}${entry.delta} · ${escapeHtml(entry.reason)}${entry.orderId ? ` · ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
       `).join("")}
     </div>
   `;
@@ -6019,7 +6091,28 @@ function renderReports() {
       </div>
       ${renderTopProducts(topProducts)}
     </section>
+
+    <section class="executive-report-section executive-stock-movements">
+      <div class="executive-section-head">
+        <span>Inventario</span>
+        <strong>Movimientos de stock</strong>
+      </div>
+      <div class="stock-movement-filters" role="group" aria-label="Filtrar movimientos de stock">
+        ${["todos", "entrada", "salida"].map((filter) => `
+          <button class="secondary-button small-button ${stockMovementFilter === filter ? "active" : ""}" type="button" data-stock-movement-filter="${filter}">
+            ${filter === "todos" ? "Todos" : filter === "entrada" ? "Entradas" : "Salidas"}
+          </button>
+        `).join("")}
+      </div>
+      ${renderStockMovementsReport()}
+    </section>
   `;
+  els.reportGrid.querySelectorAll("[data-stock-movement-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      stockMovementFilter = button.dataset.stockMovementFilter || "todos";
+      renderReports();
+    });
+  });
 }
 
 function renderExecutiveCard(label, value, tone = "") {
@@ -6042,6 +6135,36 @@ function renderTopProducts(items) {
           <em>${item.quantity} vendido(s)</em>
         </article>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderStockMovementsReport() {
+  const movements = stockHistory
+    .filter((entry) => stockMovementFilter === "todos" || entry.movementType === stockMovementFilter)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 80);
+  if (!movements.length) {
+    return `<div class="empty-state compact">Todavía no hay movimientos de stock registrados.</div>`;
+  }
+  return `
+    <div class="stock-movement-list">
+      ${movements.map((entry) => {
+        const quantity = Math.max(0, Math.round(Number(entry.quantity) || Math.abs(Number(entry.delta) || 0)));
+        const movementType = entry.movementType || (Number(entry.delta) > 0 ? "entrada" : "salida");
+        return `
+          <article class="stock-movement-row ${movementType}">
+            <div>
+              <strong>${escapeHtml(entry.productName || "Producto")}</strong>
+              <span>${formatDateTime(entry.createdAt)} · ${movementType === "entrada" ? "Entrada" : "Salida"} · ${escapeHtml(entry.reason || "Sin motivo")}</span>
+            </div>
+            <div>
+              <b>${movementType === "entrada" ? "+" : "-"}${quantity} ${escapeHtml(getStockUnitLabelFromUnit(entry.stockUnit, quantity))}</b>
+              <span>${Number(entry.previousStock) || 0} → ${Number(entry.nextStock) || 0}${entry.user ? ` · ${escapeHtml(entry.user)}` : ""}${entry.orderId ? ` · Pedido ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
+            </div>
+          </article>
+        `;
+      }).join("")}
     </div>
   `;
 }
@@ -6307,6 +6430,87 @@ function setProductStock(id, nextStock, reason = "Ajuste manual", variantName = 
   if (!options.silent) showToast("Stock modificado");
 }
 
+async function applyStockMovement(product, options = {}) {
+  if (!hasPermission("stock")) throw new Error("No tenés permiso para modificar stock.");
+  if (!product?.id) throw new Error("No se encontró el producto para modificar stock.");
+  const movementType = options.movementType === "salida" ? "salida" : "entrada";
+  const quantity = Math.max(0, Math.round(Number(options.quantity) || 0));
+  if (!quantity) throw new Error("Ingresá una cantidad mayor a cero.");
+  const previousStock = getProductTotalStock(product);
+  if (movementType === "salida" && quantity > previousStock) {
+    throw new Error(`No hay stock suficiente. Stock actual: ${formatProductStock(product)}.`);
+  }
+  const client = getSupabaseCatalogClient();
+  if (!client || typeof client.rpc !== "function") {
+    throw new Error("No se pudo conectar con Supabase para registrar el movimiento.");
+  }
+  const { data, error } = await withSupabaseTimeout(client.rpc("adjust_product_stock", {
+    product_id: product.id,
+    movement_type: movementType,
+    movement_quantity: quantity,
+    movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
+    related_order_id: options.orderId || null
+  }), "Supabase tardó demasiado en guardar el movimiento de stock.");
+  if (error) {
+    throw new Error(formatSupabaseOperationError(error, "No se pudo guardar el movimiento de stock."));
+  }
+  const movement = data?.movement || data?.stock_movement || data;
+  const nextStock = Math.max(0, Math.round(Number(data?.new_stock ?? movement?.new_stock)));
+  if (!Number.isFinite(nextStock)) {
+    throw new Error("Supabase guardó el movimiento, pero no devolvió el stock actualizado.");
+  }
+  setProductVariantStock(product, "Base / sin variante", nextStock);
+  if (String(editingProductId || "") === String(product.id)) {
+    if (els.editProductStock) els.editProductStock.value = String(nextStock);
+    updateEditProductStockLabels(product);
+  }
+  if (String(stockModalProductId || "") === String(product.id) && els.stockModalCurrent) {
+    els.stockModalCurrent.textContent = `Stock actual: ${formatProductStock(product)}`;
+  }
+  upsertStockMovement(normalizeStockMovementFromRemote(movement, product, {
+    movementType,
+    quantity,
+    previousStock,
+    nextStock,
+    reason: options.reason,
+    orderId: options.orderId
+  }));
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  saveStockHistory();
+  renderAll();
+  return { ok: true, previousStock, nextStock };
+}
+
+async function registerStockMovementOnly(product, movement = {}) {
+  if (!product?.id) return;
+  const client = getSupabaseCatalogClient();
+  const quantity = Math.abs(Math.round(Number(movement.quantity) || 0));
+  if (!client || !quantity) return;
+  try {
+    const { data, error } = await withSupabaseTimeout(client
+      .from("stock_movements")
+      .insert([{
+        product_id: product.id,
+        product_name: getProductArticleName(product),
+        movement_type: movement.movementType === "entrada" ? "entrada" : "salida",
+        reason: movement.reason || "Venta",
+        quantity,
+        stock_unit: normalizeStockUnit(product.stockUnit),
+        previous_stock: Math.max(0, Math.round(Number(movement.previousStock) || 0)),
+        new_stock: Math.max(0, Math.round(Number(movement.nextStock) || 0)),
+        order_id: movement.orderId || null
+      }])
+      .select("*")
+      .limit(1), "Supabase tardó demasiado en registrar el movimiento de stock.");
+    if (error) throw error;
+    const saved = Array.isArray(data) ? data[0] : null;
+    if (saved) upsertStockMovement(normalizeStockMovementFromRemote(saved, product, movement));
+  } catch (error) {
+    console.error("Punto X Mayor stock movement log:", error);
+    showToast(error.message || "El stock se actualizó, pero no se pudo registrar el movimiento.");
+  }
+}
+
 function adjustProductStock(id, delta, variantName = "Base / sin variante") {
   if (!hasPermission("stock")) return;
   const product = products.find((item) => item.id === id);
@@ -6328,19 +6532,52 @@ function adjustProductStock(id, delta, variantName = "Base / sin variante") {
 
 function recordStockMovement(product, delta, previousStock, nextStock, reason, meta = {}) {
   if (!delta) return;
-  stockHistory.unshift({
+  upsertStockMovement({
     id: crypto.randomUUID(),
     productId: product.id,
     productName: getProductArticleName(product),
     variant: meta.variant || "Base / sin variante",
     delta,
+    movementType: delta > 0 ? "entrada" : "salida",
+    quantity: Math.abs(delta),
+    stockUnit: normalizeStockUnit(product.stockUnit),
     previousStock,
     nextStock,
     reason,
     orderId: meta.orderId || "",
+    user: meta.user || "",
+    userId: meta.userId || "",
     createdAt: new Date().toISOString()
   });
-  stockHistory = stockHistory.slice(0, 80);
+}
+
+function upsertStockMovement(entry) {
+  if (!entry?.id) return;
+  stockHistory = [entry, ...stockHistory.filter((movement) => String(movement.id) !== String(entry.id))].slice(0, 300);
+}
+
+function normalizeStockMovementFromRemote(row, product, fallback = {}) {
+  const movementType = row?.movement_type || fallback.movementType || "salida";
+  const previousStock = Math.max(0, Math.round(Number(row?.previous_stock ?? fallback.previousStock) || 0));
+  const nextStock = Math.max(0, Math.round(Number(row?.new_stock ?? fallback.nextStock) || 0));
+  const quantity = Math.max(0, Math.round(Number(row?.quantity ?? fallback.quantity) || Math.abs(nextStock - previousStock)));
+  return {
+    id: String(row?.id || crypto.randomUUID()),
+    productId: String(row?.product_id || product?.id || ""),
+    productName: row?.product_name || getProductArticleName(product || {}),
+    variant: fallback.variant || "Base / sin variante",
+    delta: movementType === "entrada" ? quantity : -quantity,
+    movementType,
+    quantity,
+    stockUnit: normalizeStockUnit(row?.stock_unit || product?.stockUnit),
+    previousStock,
+    nextStock,
+    reason: row?.reason || fallback.reason || "",
+    orderId: row?.order_id || fallback.orderId || "",
+    user: row?.user_email || fallback.user || "",
+    userId: row?.user_id || fallback.userId || "",
+    createdAt: row?.created_at || new Date().toISOString()
+  };
 }
 
 function duplicateProduct(id) {
@@ -8131,6 +8368,15 @@ function applyBudgetStock(order, direction) {
         orderId: order.id,
         variant: variantName
       });
+      registerStockMovementOnly(product, {
+        movementType: "salida",
+        reason: "Venta",
+        quantity: Math.abs(nextStock - previousStock),
+        previousStock,
+        nextStock,
+        orderId: order.remoteId || null,
+        variant: variantName
+      });
     }
   });
 }
@@ -8552,6 +8798,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   if (view === "pedidos") {
     markOrdersNotificationsSeen();
+  }
+  if (view === "reportes") {
+    refreshStockMovementsFromSupabase("reports-open", { silent: true });
   }
   renderRole();
   renderNav();

@@ -533,17 +533,26 @@
           <p class="stock-current-line" id="stockModalCurrent">Stock actual: 0</p>
           </div>
         <div class="stock-mode-options" role="radiogroup" aria-label="Tipo de ajuste de stock">
-          <label><input type="radio" name="stockMode" value="add" checked> Sumar stock</label>
-          <label><input type="radio" name="stockMode" value="subtract"> Restar stock</label>
-          <label><input type="radio" name="stockMode" value="replace"> Reemplazar stock final</label>
+          <label><input type="radio" name="stockMode" value="add" checked> Entrada · agregar stock</label>
+          <label><input type="radio" name="stockMode" value="subtract"> Salida · quitar stock</label>
           </div>
         <label class="stock-modal-quantity">
           <span id="stockModalQuantityLabel">Cantidad</span>
           <input id="stockModalQuantity" type="number" min="0" step="1" placeholder="0" required>
         </label>
+        <label class="stock-modal-reason hidden" id="stockModalReasonWrap">
+          Motivo de salida
+          <select id="stockModalReason" name="stockReason">
+            <option value="Ajuste">Ajuste</option>
+            <option value="Rotura">Rotura</option>
+            <option value="Faltante">Faltante</option>
+            <option value="Traslado">Traslado</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </label>
         <div class="stock-modal-actions">
           <button class="secondary-button small-button" id="stockModalCancel" type="button">Cancelar</button>
-          <button class="primary-button small-button" type="submit">Confirmar</button>
+          <button class="primary-button small-button" id="stockModalSubmit" type="submit">Confirmar</button>
           </div>
       </form>
           </div>
@@ -604,12 +613,9 @@
               </select>
             </label>
             <div class="edit-product-stock-control">
-              <button class="secondary-button small-button" id="editProductStockDecrease" type="button" aria-label="Disminuir stock">−</button>
-              <label>
-                <span id="editProductStockQuantityLabel">Cantidad</span>
-                <input id="editProductStock" name="stock" type="number" min="0" step="1" inputmode="numeric">
-              </label>
-              <button class="secondary-button small-button" id="editProductStockIncrease" type="button" aria-label="Aumentar stock">+</button>
+              <input id="editProductStock" name="stock" type="hidden">
+              <button class="secondary-button small-button" id="editProductStockIncrease" type="button">+ Agregar stock</button>
+              <button class="danger-button small-button" id="editProductStockDecrease" type="button">- Quitar stock</button>
           </div>
             <span class="context-line" id="editProductStockUnit"></span>
           </div>
