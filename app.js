@@ -6857,29 +6857,79 @@ async function applyStockMovement(product, options = {}) {
   const movementType = options.movementType === "salida" ? "salida" : "entrada";
   const quantity = Math.max(0, Math.round(Number(options.quantity) || 0));
   if (!quantity) throw new Error("Ingresá una cantidad mayor a cero.");
-  const previousStock = getProductTotalStock(product);
-  if (movementType === "salida" && quantity > previousStock) {
-    throw new Error(`No hay stock suficiente. Stock actual: ${formatProductStock(product)}.`);
-  }
   const client = getSupabaseCatalogClient();
   if (!client || typeof client.rpc !== "function") {
     throw new Error("No se pudo conectar con Supabase para registrar el movimiento.");
   }
-  const { data, error } = await withSupabaseTimeout(client.rpc("adjust_product_stock", {
+  if (!client.auth || typeof client.auth.getSession !== "function") {
+    throw new Error("No se pudo validar la sesión de Supabase para modificar stock.");
+  }
+  const { data: sessionData, error: sessionError } = await withSupabaseTimeout(
+    client.auth.getSession(),
+    "Supabase tardó demasiado en validar la sesión."
+  );
+  if (sessionError || !sessionData?.session?.access_token) {
+    throw new Error(formatSupabaseOperationError(sessionError, "La sesión de Gestión venció. Cerrá sesión y volvé a ingresar."));
+  }
+  const remoteBefore = await readProductStockFromSupabase(client, product.id, "antes del movimiento");
+  const previousStock = Math.max(0, Math.round(Number(remoteBefore.stock) || 0));
+  const expectedStock = movementType === "entrada" ? previousStock + quantity : previousStock - quantity;
+  if (movementType === "salida" && quantity > previousStock) {
+    throw new Error(`No hay stock suficiente. Stock actual: ${previousStock} ${getStockUnitLabel(product, previousStock)}.`);
+  }
+  console.info("Punto X Mayor STOCK MOVEMENT START", {
+    product_id: product.id,
+    nombre: getProductArticleName(product),
+    stock_actual: previousStock,
+    cantidad: quantity,
+    unidad: normalizeStockUnit(product.stockUnit || remoteBefore.stock_unit),
+    movimiento: movementType
+  });
+  const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", {
     product_id: product.id,
     movement_type: movementType,
     movement_quantity: quantity,
     movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
     related_order_id: options.orderId || null
   }), "Supabase tardó demasiado en guardar el movimiento de stock.");
+  const { data, error, status, statusText, count } = rpcResponse || {};
+  console.info("Punto X Mayor STOCK MOVEMENT RPC RESULT", {
+    product_id: product.id,
+    status,
+    statusText,
+    count,
+    data,
+    error
+  });
   if (error) {
     throw new Error(formatSupabaseOperationError(error, "No se pudo guardar el movimiento de stock."));
   }
-  const movement = data?.movement || data?.stock_movement || data;
-  const nextStock = Math.max(0, Math.round(Number(data?.new_stock ?? movement?.new_stock)));
+  const rpcPayload = Array.isArray(data) ? data[0] : data;
+  const movement = rpcPayload?.movement || rpcPayload?.stock_movement || rpcPayload;
+  const nextStock = Math.max(0, Math.round(Number(rpcPayload?.new_stock ?? movement?.new_stock)));
   if (!Number.isFinite(nextStock)) {
     throw new Error("Supabase guardó el movimiento, pero no devolvió el stock actualizado.");
   }
+  if (nextStock !== expectedStock) {
+    throw new Error(`Supabase devolvió stock ${nextStock}, pero se esperaba ${expectedStock}.`);
+  }
+  const remoteAfter = await readProductStockFromSupabase(client, product.id, "después del movimiento");
+  const confirmedStock = Math.max(0, Math.round(Number(remoteAfter.stock) || 0));
+  console.info("Punto X Mayor STOCK MOVEMENT CHECK", {
+    product_id: remoteAfter.id,
+    nombre: remoteAfter.name,
+    stock_devuelto_por_supabase: confirmedStock,
+    stock_esperado: expectedStock
+  });
+  if (confirmedStock !== nextStock) {
+    throw new Error(`Supabase no confirmó el stock actualizado. Esperado: ${nextStock}, actual: ${confirmedStock}.`);
+  }
+  await verifyStockMovementSaved(client, movement, product, {
+    movementType,
+    quantity,
+    previousStock,
+    nextStock
+  });
   setProductVariantStock(product, "Base / sin variante", nextStock);
   if (String(editingProductId || "") === String(product.id)) {
     if (els.editProductStock) els.editProductStock.value = String(nextStock);
@@ -6901,6 +6951,61 @@ async function applyStockMovement(product, options = {}) {
   if (!options.deferRender) renderAll();
   renderStockMovementsPanel();
   return { ok: true, previousStock, nextStock };
+}
+
+async function readProductStockFromSupabase(client, productId, stage = "lectura") {
+  const { data, error } = await withSupabaseTimeout(client
+    .from("products")
+    .select("id,name,stock,stock_unit,active,show_in_catalog")
+    .eq("id", productId)
+    .limit(1), `Supabase tardó demasiado en leer el stock ${stage}.`);
+  if (error) {
+    throw new Error(formatSupabaseOperationError(error, `No se pudo leer el stock ${stage}.`));
+  }
+  const productRow = Array.isArray(data) ? data[0] : data;
+  if (!productRow?.id) throw new Error(`No se encontró el producto en Supabase para validar stock ${stage}.`);
+  return productRow;
+}
+
+async function verifyStockMovementSaved(client, movement, product, expected) {
+  let movementRow = null;
+  if (movement?.id) {
+    const { data, error } = await withSupabaseTimeout(client
+      .from("stock_movements")
+      .select("id,product_id,movement_type,quantity,stock_unit,previous_stock,new_stock,reason,created_at")
+      .eq("id", movement.id)
+      .limit(1), "Supabase tardó demasiado en confirmar el movimiento de stock.");
+    if (error) {
+      throw new Error(formatSupabaseOperationError(error, "No se pudo confirmar el movimiento de stock."));
+    }
+    movementRow = Array.isArray(data) ? data[0] : data;
+  }
+  if (!movementRow) {
+    const { data, error } = await withSupabaseTimeout(client
+      .from("stock_movements")
+      .select("id,product_id,movement_type,quantity,stock_unit,previous_stock,new_stock,reason,created_at")
+      .eq("product_id", product.id)
+      .order("created_at", { ascending: false })
+      .limit(1), "Supabase tardó demasiado en confirmar el movimiento de stock.");
+    if (error) {
+      throw new Error(formatSupabaseOperationError(error, "No se pudo confirmar el movimiento de stock."));
+    }
+    movementRow = Array.isArray(data) ? data[0] : data;
+  }
+  console.info("Punto X Mayor STOCK MOVEMENT SAVED", {
+    product_id: product.id,
+    movimiento: movementRow
+  });
+  if (!movementRow?.id) throw new Error("Supabase actualizó el stock, pero no confirmó el movimiento registrado.");
+  const sameProduct = String(movementRow.product_id || "") === String(product.id);
+  const sameType = String(movementRow.movement_type || "") === String(expected.movementType);
+  const sameQuantity = Math.round(Number(movementRow.quantity) || 0) === expected.quantity;
+  const samePrevious = Math.round(Number(movementRow.previous_stock) || 0) === expected.previousStock;
+  const sameNext = Math.round(Number(movementRow.new_stock) || 0) === expected.nextStock;
+  if (!sameProduct || !sameType || !sameQuantity || !samePrevious || !sameNext) {
+    throw new Error("Supabase registró un movimiento de stock que no coincide con la operación solicitada.");
+  }
+  return movementRow;
 }
 
 async function registerStockMovementOnly(product, movement = {}) {
