@@ -86,7 +86,7 @@ begin
     next_stock,
     adjust_product_stock.related_order_id,
     auth.uid(),
-    auth.jwt() ->> 'email'
+    null
   )
   returning * into saved_movement;
 
