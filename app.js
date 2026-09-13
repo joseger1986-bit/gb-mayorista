@@ -389,7 +389,6 @@ const els = {
   stockModalQuantity: document.querySelector("#stockModalQuantity"),
   stockModalReasonWrap: document.querySelector("#stockModalReasonWrap"),
   stockModalReason: document.querySelector("#stockModalReason"),
-  stockModalDiagnostics: document.querySelector("#stockModalDiagnostics"),
   stockModalSubmit: document.querySelector("#stockModalSubmit"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
   editProductOverlay: document.querySelector("#editProductOverlay"),
@@ -3889,7 +3888,6 @@ function openStockModal(productId, mode = "add") {
     els.stockModalQuantityLabel.textContent = `Cantidad de ${getStockUnitLabelFromUnit(product.stockUnit, 2)}`;
   }
   els.stockModalForm.reset();
-  resetStockModalDiagnostics();
   const checkedMode = els.stockModalForm.querySelector(`input[name="stockMode"][value="${stockModalDefaultMode}"]`);
   if (checkedMode) checkedMode.checked = true;
   if (els.stockModalQuantity) els.stockModalQuantity.value = "";
@@ -3942,21 +3940,6 @@ function setStockModalSaving(isSaving) {
   });
 }
 
-function resetStockModalDiagnostics() {
-  if (!els.stockModalDiagnostics) return;
-  els.stockModalDiagnostics.innerHTML = "";
-  els.stockModalDiagnostics.classList.add("hidden");
-}
-
-function addStockModalDiagnostic(message, type = "") {
-  if (!els.stockModalDiagnostics) return;
-  const line = document.createElement("div");
-  line.className = ["stock-diagnostic-line", type ? `stock-diagnostic-${type}` : ""].filter(Boolean).join(" ");
-  line.textContent = message;
-  els.stockModalDiagnostics.appendChild(line);
-  els.stockModalDiagnostics.classList.remove("hidden");
-}
-
 async function confirmStockModal(event) {
   event.preventDefault();
   if (!stockModalProductId || stockModalSaving) return;
@@ -3973,8 +3956,6 @@ async function confirmStockModal(event) {
   const reason = movementType === "salida"
     ? String(form.get("stockReason") || "Ajuste").trim() || "Ajuste"
     : "Ingreso";
-  resetStockModalDiagnostics();
-  addStockModalDiagnostic("Botón confirmar ejecutado");
   setStockModalSaving(true);
   try {
     await applyStockMovement(product, {
@@ -3983,8 +3964,7 @@ async function confirmStockModal(event) {
       reason,
       orderId: null,
       variant: "Base / sin variante",
-      deferRender: true,
-      onDiagnostic: addStockModalDiagnostic
+      deferRender: true
     });
     closeStockModal();
     renderAdmin();
@@ -3996,7 +3976,6 @@ async function confirmStockModal(event) {
     showToast(movementType === "salida" ? "Salida de stock registrada" : "Entrada de stock registrada", "success");
   } catch (error) {
     console.error("Punto X Mayor stock movement:", error);
-    addStockModalDiagnostic(`ERROR: ${error.message || "No se pudo guardar el movimiento de stock."}`, "error");
     showToast(error.message || "No se pudo guardar el movimiento de stock.");
   } finally {
     setStockModalSaving(false);
@@ -6911,7 +6890,6 @@ async function applyStockMovement(product, options = {}) {
     access_token_present: Boolean(stockSession?.access_token),
     role: stockSessionJwt?.role || stockSession?.user?.role || null
   });
-  options.onDiagnostic?.(`Sesión autenticada: ${stockSession?.access_token ? "SÍ" : "NO"}${stockSession?.user?.id ? ` (${stockSession.user.id})` : ""}`, stockSession?.access_token ? "ok" : "error");
   if (sessionError || !sessionData?.session?.access_token) {
     throw new Error(formatSupabaseOperationError(sessionError, "La sesión de Gestión venció. Cerrá sesión y volvé a ingresar."));
   }
@@ -6938,7 +6916,6 @@ async function applyStockMovement(product, options = {}) {
     rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid)",
     rpc_params: rpcParams
   });
-  options.onDiagnostic?.("Llamando a adjust_product_stock...");
   const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", rpcParams), "Supabase tardó demasiado en guardar el movimiento de stock.");
   const { data, error, status, statusText, count } = rpcResponse || {};
   console.info("Punto X Mayor STOCK MOVEMENT RPC RESULT", {
@@ -6950,10 +6927,8 @@ async function applyStockMovement(product, options = {}) {
     error
   });
   if (error) {
-    options.onDiagnostic?.(`RPC ERROR: ${formatSupabaseOperationError(error, "No se pudo guardar el movimiento de stock.")}`, "error");
     throw new Error(formatSupabaseOperationError(error, "No se pudo guardar el movimiento de stock."));
   }
-  options.onDiagnostic?.("RPC OK", "ok");
   const rpcPayload = Array.isArray(data) ? data[0] : data;
   const movement = rpcPayload?.movement || rpcPayload?.stock_movement || rpcPayload;
   const nextStock = Math.max(0, Math.round(Number(rpcPayload?.new_stock ?? movement?.new_stock)));
@@ -6974,7 +6949,6 @@ async function applyStockMovement(product, options = {}) {
   if (confirmedStock !== nextStock) {
     throw new Error(`Supabase no confirmó el stock actualizado. Esperado: ${nextStock}, actual: ${confirmedStock}.`);
   }
-  options.onDiagnostic?.(`Stock actualizado en Supabase: ${previousStock} → ${nextStock}`, "ok");
   await verifyStockMovementSaved(client, movement, product, {
     movementType,
     quantity,
@@ -7049,7 +7023,10 @@ async function verifyStockMovementSaved(client, movement, product, expected) {
   });
   if (!movementRow?.id) throw new Error("Supabase actualizó el stock, pero no confirmó el movimiento registrado.");
   const sameProduct = String(movementRow.product_id || "") === String(product.id);
-  const sameType = String(movementRow.movement_type || "") === String(expected.movementType);
+  const savedMovementType = String(movementRow.movement_type || "").toLowerCase();
+  const expectedMovementType = expected.movementType === "entrada" ? "add" : "subtract";
+  const legacyMovementType = expected.movementType === "entrada" ? "entrada" : "salida";
+  const sameType = savedMovementType === expectedMovementType || savedMovementType === legacyMovementType;
   const sameQuantity = Math.round(Number(movementRow.quantity) || 0) === expected.quantity;
   const samePrevious = Math.round(Number(movementRow.previous_stock) || 0) === expected.previousStock;
   const sameNext = Math.round(Number(movementRow.new_stock) || 0) === expected.nextStock;
@@ -7070,7 +7047,7 @@ async function registerStockMovementOnly(product, movement = {}) {
       .insert([{
         product_id: product.id,
         product_name: getProductArticleName(product),
-        movement_type: movement.movementType === "entrada" ? "entrada" : "salida",
+        movement_type: normalizeStockMovementType(movement.movementType) === "entrada" ? "add" : "subtract",
         reason: movement.reason || "Venta",
         quantity,
         stock_unit: normalizeStockUnit(product.stockUnit),
@@ -7135,7 +7112,7 @@ function upsertStockMovement(entry) {
 }
 
 function normalizeStockMovementFromRemote(row, product, fallback = {}) {
-  const movementType = row?.movement_type || fallback.movementType || "salida";
+  const movementType = normalizeStockMovementType(row?.movement_type || fallback.movementType || "salida");
   const previousStock = Math.max(0, Math.round(Number(row?.previous_stock ?? fallback.previousStock) || 0));
   const nextStock = Math.max(0, Math.round(Number(row?.new_stock ?? fallback.nextStock) || 0));
   const quantity = Math.max(0, Math.round(Number(row?.quantity ?? fallback.quantity) || Math.abs(nextStock - previousStock)));
@@ -7156,6 +7133,13 @@ function normalizeStockMovementFromRemote(row, product, fallback = {}) {
     userId: row?.user_id || fallback.userId || "",
     createdAt: row?.created_at || new Date().toISOString()
   };
+}
+
+function normalizeStockMovementType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "add" || text === "entrada") return "entrada";
+  if (text === "subtract" || text === "salida") return "salida";
+  return text === "replace" ? "entrada" : "salida";
 }
 
 function duplicateProduct(id) {
