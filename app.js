@@ -5503,6 +5503,14 @@ function clearCompletedQuickSaleViewState() {
   }
 }
 
+function clearOrdersListViewState() {
+  openOrderId = "";
+  previewOrderId = "";
+  completedQuickSaleOrderId = "";
+  editingOrderCustomerId = "";
+  editingBudgetItem = null;
+}
+
 function pushOrderDetailHistoryState() {
   if (!appHistoryReady || !window.history?.pushState) return;
   if (orderDetailHistoryActive || window.history.state?.modal === "orderDetail") return;
@@ -9346,7 +9354,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (!preserveRole) {
     currentRole = isPrivateManagementRoute() && internalUnlocked && currentRole !== "client" ? currentRole : "client";
   }
-  if (isManagementView) {
+  if (view === "pedidos") {
+    clearOrdersListViewState();
+  } else if (isManagementView) {
     clearCompletedQuickSaleViewState();
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
