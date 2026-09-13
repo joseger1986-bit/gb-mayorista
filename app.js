@@ -9365,6 +9365,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
   document.documentElement.dataset.privateManagement = isPrivateManagementRoute() ? "true" : "false";
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
+  if (isInternalCatalogQuickSaleMode()) {
+    renderCatalog();
+  }
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
   els.passwordRecoveryView?.classList.add("hidden");
