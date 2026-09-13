@@ -2600,6 +2600,21 @@ th .table-sort-button[data-sort-products="stock"] {
   padding: 20px;
 }
 
+#stockModalOverlay {
+  z-index: 170;
+}
+
+.stock-movements-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.stock-movement-list-wrap {
+  display: grid;
+  gap: 8px;
+}
+
 .stock-modal {
   display: grid;
   gap: 16px;

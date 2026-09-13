@@ -220,6 +220,7 @@
               <div class="more-product-actions-menu">
                 <button class="secondary-button" id="manageCategoriesButton" type="button" data-manage-products-only>Agregar categoría</button>
                 <button class="secondary-button" id="viewArchivedProductsButton" type="button" data-admin-only>Productos archivados</button>
+                <button class="secondary-button" id="viewStockMovementsButton" type="button" data-manage-products-only>Movimientos de stock</button>
                 <button class="secondary-button" id="importProductsButton" type="button" data-import-export-only>Importar Excel</button>
                 <button class="secondary-button" id="exportProductsButton" type="button" data-import-export-only>Exportar Excel</button>
                 <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
@@ -349,6 +350,19 @@
             <button class="modal-close" id="archivedProductsClose" type="button" aria-label="Cerrar">&times;</button>
           </div>
           <div class="archived-products-list" id="archivedProducts"></div>
+        </section>
+      </div>
+      <div class="stock-modal-overlay hidden" id="stockMovementsOverlay" aria-hidden="true">
+        <section class="stock-modal stock-movements-dialog" role="dialog" aria-modal="true" aria-labelledby="stockMovementsTitle">
+          <div class="modal-title-row">
+            <div>
+              <h3 id="stockMovementsTitle">Movimientos de stock</h3>
+              <p>Historial completo de entradas y salidas.</p>
+            </div>
+            <button class="modal-close" id="stockMovementsClose" type="button" aria-label="Cerrar">&times;</button>
+          </div>
+          <div class="stock-movement-filters" id="stockMovementsFilters" role="group" aria-label="Filtrar movimientos de stock"></div>
+          <div class="stock-movement-list-wrap" id="stockMovementsList"></div>
         </section>
       </div>
       <section id="importView" class="content-view hidden">

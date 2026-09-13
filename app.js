@@ -339,8 +339,13 @@ const els = {
   adminCategoryFilters: document.querySelector("#adminCategoryFilters"),
   manageCategoriesButton: document.querySelector("#manageCategoriesButton"),
   viewArchivedProductsButton: document.querySelector("#viewArchivedProductsButton"),
+  viewStockMovementsButton: document.querySelector("#viewStockMovementsButton"),
   archivedProductsOverlay: document.querySelector("#archivedProductsOverlay"),
   archivedProductsClose: document.querySelector("#archivedProductsClose"),
+  stockMovementsOverlay: document.querySelector("#stockMovementsOverlay"),
+  stockMovementsClose: document.querySelector("#stockMovementsClose"),
+  stockMovementsFilters: document.querySelector("#stockMovementsFilters"),
+  stockMovementsList: document.querySelector("#stockMovementsList"),
   categoryManager: document.querySelector("#categoryManager"),
   closeCategoryManager: document.querySelector("#closeCategoryManager"),
   newCategoryName: document.querySelector("#newCategoryName"),
@@ -519,9 +524,14 @@ els.manageCategoriesButton?.addEventListener("click", () => {
   window.setTimeout(() => els.newCategoryName?.focus(), 0);
 });
 els.viewArchivedProductsButton?.addEventListener("click", openArchivedProductsPanel);
+els.viewStockMovementsButton?.addEventListener("click", openStockMovementsPanel);
 els.archivedProductsClose?.addEventListener("click", closeArchivedProductsPanel);
 els.archivedProductsOverlay?.addEventListener("click", (event) => {
   if (event.target === els.archivedProductsOverlay) closeArchivedProductsPanel();
+});
+els.stockMovementsClose?.addEventListener("click", closeStockMovementsPanel);
+els.stockMovementsOverlay?.addEventListener("click", (event) => {
+  if (event.target === els.stockMovementsOverlay) closeStockMovementsPanel();
 });
 els.closeCategoryManager?.addEventListener("click", () => {
   els.categoryManager?.classList.add("hidden");
@@ -701,6 +711,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && els.archivedProductsOverlay && !els.archivedProductsOverlay.classList.contains("hidden")) {
     closeArchivedProductsPanel();
+    return;
+  }
+  if (event.key === "Escape" && els.stockMovementsOverlay && !els.stockMovementsOverlay.classList.contains("hidden")) {
+    closeStockMovementsPanel();
     return;
   }
   if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
@@ -1121,7 +1135,7 @@ function saveStockHistory() {
 }
 
 async function refreshStockMovementsFromSupabase(reason = "manual", options = {}) {
-  if (!isPrivateManagementRoute() || !hasPermission("reports")) return { ok: false, message: "Movimientos disponibles solo en Reportes." };
+  if (!isPrivateManagementRoute() || !hasPermission("stock")) return { ok: false, message: "Movimientos disponibles solo en Gestión." };
   const client = getSupabaseCatalogClient();
   if (!client || stockMovementsRemoteRefreshing) return { ok: false, message: "Sin cliente Supabase para movimientos." };
   stockMovementsRemoteRefreshing = true;
@@ -1135,6 +1149,7 @@ async function refreshStockMovementsFromSupabase(reason = "manual", options = {}
     stockHistory = (data || []).map((row) => normalizeStockMovementFromRemote(row, null)).filter(Boolean);
     saveStockHistory();
     if (currentView === "reportes") renderReports();
+    renderStockMovementsPanel();
     return { ok: true, movements: stockHistory.length, reason };
   } catch (error) {
     console.error("Punto X Mayor stock movements read:", error);
@@ -6100,27 +6115,7 @@ function renderReports() {
       ${renderTopProducts(topProducts)}
     </section>
 
-    <section class="executive-report-section executive-stock-movements">
-      <div class="executive-section-head">
-        <span>Inventario</span>
-        <strong>Movimientos de stock</strong>
-      </div>
-      <div class="stock-movement-filters" role="group" aria-label="Filtrar movimientos de stock">
-        ${["todos", "entrada", "salida"].map((filter) => `
-          <button class="secondary-button small-button ${stockMovementFilter === filter ? "active" : ""}" type="button" data-stock-movement-filter="${filter}">
-            ${filter === "todos" ? "Todos" : filter === "entrada" ? "Entradas" : "Salidas"}
-          </button>
-        `).join("")}
-      </div>
-      ${renderStockMovementsReport()}
-    </section>
   `;
-  els.reportGrid.querySelectorAll("[data-stock-movement-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      stockMovementFilter = button.dataset.stockMovementFilter || "todos";
-      renderReports();
-    });
-  });
 }
 
 function renderExecutiveCard(label, value, tone = "") {
@@ -6151,7 +6146,7 @@ function renderStockMovementsReport() {
   const movements = stockHistory
     .filter((entry) => stockMovementFilter === "todos" || entry.movementType === stockMovementFilter)
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-    .slice(0, 80);
+    .slice(0, 300);
   if (!movements.length) {
     return `<div class="empty-state compact">Todavía no hay movimientos de stock registrados.</div>`;
   }
@@ -6168,13 +6163,47 @@ function renderStockMovementsReport() {
             </div>
             <div>
               <b>${movementType === "entrada" ? "+" : "-"}${quantity} ${escapeHtml(getStockUnitLabelFromUnit(entry.stockUnit, quantity))}</b>
-              <span>${Number(entry.previousStock) || 0} → ${Number(entry.nextStock) || 0}${entry.user ? ` · ${escapeHtml(entry.user)}` : ""}${entry.orderId ? ` · Pedido ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
+              <span>Stock anterior: ${Number(entry.previousStock) || 0} · Stock posterior: ${Number(entry.nextStock) || 0}${entry.user ? ` · ${escapeHtml(entry.user)}` : ""}${entry.orderId ? ` · Pedido ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
             </div>
           </article>
         `;
       }).join("")}
     </div>
   `;
+}
+
+async function openStockMovementsPanel() {
+  if (!hasPermission("stock")) return;
+  els.stockMovementsOverlay?.classList.remove("hidden");
+  els.stockMovementsOverlay?.setAttribute("aria-hidden", "false");
+  document.querySelector(".more-product-actions[open]")?.removeAttribute("open");
+  renderStockMovementsPanel();
+  await refreshStockMovementsFromSupabase("open-stock-movements", { silent: true });
+}
+
+function closeStockMovementsPanel() {
+  els.stockMovementsOverlay?.classList.add("hidden");
+  els.stockMovementsOverlay?.setAttribute("aria-hidden", "true");
+}
+
+function renderStockMovementsPanel() {
+  if (!els.stockMovementsOverlay || els.stockMovementsOverlay.classList.contains("hidden")) return;
+  if (els.stockMovementsFilters) {
+    els.stockMovementsFilters.innerHTML = ["todos", "entrada", "salida"].map((filter) => `
+      <button class="secondary-button small-button ${stockMovementFilter === filter ? "active" : ""}" type="button" data-stock-movement-filter="${filter}">
+        ${filter === "todos" ? "Todos" : filter === "entrada" ? "Entradas" : "Salidas"}
+      </button>
+    `).join("");
+    els.stockMovementsFilters.querySelectorAll("[data-stock-movement-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        stockMovementFilter = button.dataset.stockMovementFilter || "todos";
+        renderStockMovementsPanel();
+      });
+    });
+  }
+  if (els.stockMovementsList) {
+    els.stockMovementsList.innerHTML = renderStockMovementsReport();
+  }
 }
 
 function getProductSalesSummary() {
@@ -6735,6 +6764,7 @@ async function applyStockMovement(product, options = {}) {
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
   saveStockHistory();
   renderAll();
+  renderStockMovementsPanel();
   return { ok: true, previousStock, nextStock };
 }
 
@@ -9055,9 +9085,6 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   if (view === "pedidos") {
     markOrdersNotificationsSeen();
-  }
-  if (view === "reportes") {
-    refreshStockMovementsFromSupabase("reports-open", { silent: true });
   }
   renderRole();
   renderNav();
