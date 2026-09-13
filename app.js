@@ -1852,6 +1852,18 @@ function formatSupabaseOperationError(error, fallback = "La operación en Supaba
   return parts.join(" - ") || fallback;
 }
 
+function decodeJwtPayloadSafe(token) {
+  try {
+    const payload = String(token || "").split(".")[1];
+    if (!payload || typeof window.atob !== "function") return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    return JSON.parse(window.atob(padded));
+  } catch (error) {
+    return null;
+  }
+}
+
 async function ensureProductDeletedFromSupabase(productId, productName = "producto") {
   if (!canAccess("admin")) throw new Error("Solo el perfil Administrador puede eliminar productos.");
   const client = getSupabaseCatalogClient();
@@ -6868,6 +6880,15 @@ async function applyStockMovement(product, options = {}) {
     client.auth.getSession(),
     "Supabase tardó demasiado en validar la sesión."
   );
+  const stockSession = sessionData?.session || null;
+  const stockSessionJwt = decodeJwtPayloadSafe(stockSession?.access_token);
+  console.info("Punto X Mayor STOCK SESSION", {
+    has_session: Boolean(stockSession),
+    user_id: stockSession?.user?.id || null,
+    access_token_present: Boolean(stockSession?.access_token),
+    role: stockSessionJwt?.role || stockSession?.user?.role || null,
+    expires_at: stockSession?.expires_at || null
+  });
   if (sessionError || !sessionData?.session?.access_token) {
     throw new Error(formatSupabaseOperationError(sessionError, "La sesión de Gestión venció. Cerrá sesión y volvé a ingresar."));
   }
