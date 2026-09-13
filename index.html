@@ -555,6 +555,11 @@
           <span id="stockModalQuantityLabel">Cantidad</span>
           <input id="stockModalQuantity" type="number" min="0" step="1" placeholder="0" required>
         </label>
+        <label class="stock-modal-reason" id="stockModalCostWrap">
+          <span id="stockModalCostLabel">Costo de esta mercadería</span>
+          <input id="stockModalUnitCost" type="number" min="0" step="0.01" placeholder="0">
+          <small id="stockModalCostHint">Se usará para recalcular el costo promedio ponderado.</small>
+        </label>
         <label class="stock-modal-reason hidden" id="stockModalReasonWrap">
           Motivo de salida
           <select id="stockModalReason" name="stockReason">

@@ -237,6 +237,8 @@ let stockModalDefaultMode = "add";
 let stockModalSaving = false;
 let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
+let reportPeriodStart = "";
+let reportPeriodEnd = "";
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -387,7 +389,11 @@ const els = {
   stockModalCurrent: document.querySelector("#stockModalCurrent"),
   stockModalQuantityLabel: document.querySelector("#stockModalQuantityLabel"),
   stockModalQuantity: document.querySelector("#stockModalQuantity"),
+  stockModalCostWrap: document.querySelector("#stockModalCostWrap"),
+  stockModalUnitCost: document.querySelector("#stockModalUnitCost"),
+  stockModalCostHint: document.querySelector("#stockModalCostHint"),
   stockModalReasonWrap: document.querySelector("#stockModalReasonWrap"),
+  stockModalCostLabel: document.querySelector("#stockModalCostLabel"),
   stockModalReason: document.querySelector("#stockModalReason"),
   stockModalSubmit: document.querySelector("#stockModalSubmit"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
@@ -3891,6 +3897,10 @@ function openStockModal(productId, mode = "add") {
   const checkedMode = els.stockModalForm.querySelector(`input[name="stockMode"][value="${stockModalDefaultMode}"]`);
   if (checkedMode) checkedMode.checked = true;
   if (els.stockModalQuantity) els.stockModalQuantity.value = "";
+  if (els.stockModalUnitCost) {
+    els.stockModalUnitCost.value = "";
+    els.stockModalUnitCost.placeholder = product.cost ? String(Math.round(Number(product.cost) || 0)) : "0";
+  }
   updateStockModalMode();
   setStockModalSaving(false);
   els.stockModalOverlay.classList.remove("hidden");
@@ -3922,9 +3932,15 @@ function updateStockModalMode() {
   const form = els.stockModalForm ? new FormData(els.stockModalForm) : new FormData();
   const mode = String(form.get("stockMode") || stockModalDefaultMode || "add");
   els.stockModalReasonWrap?.classList.toggle("hidden", mode !== "subtract");
+  els.stockModalCostWrap?.classList.toggle("hidden", mode !== "add");
+  if (els.stockModalUnitCost) els.stockModalUnitCost.required = mode === "add";
   const product = products.find((item) => item.id === stockModalProductId);
   if (els.stockModalTitle && product) {
     els.stockModalTitle.textContent = `${mode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
+  }
+  if (els.stockModalCostLabel && product) {
+    const unit = normalizeStockUnit(product.stockUnit) === "docenas" ? "docena" : "unidad";
+    els.stockModalCostLabel.textContent = `Costo nuevo por ${unit}`;
   }
 }
 
@@ -3953,6 +3969,11 @@ async function confirmStockModal(event) {
     return;
   }
   const movementType = mode === "subtract" ? "salida" : "entrada";
+  const unitCost = movementType === "entrada" ? Number(els.stockModalUnitCost?.value) || 0 : null;
+  if (movementType === "entrada" && unitCost <= 0) {
+    showToast("Ingresá el costo de la mercadería que entra");
+    return;
+  }
   const reason = movementType === "salida"
     ? String(form.get("stockReason") || "Ajuste").trim() || "Ajuste"
     : "Ingreso";
@@ -3961,6 +3982,7 @@ async function confirmStockModal(event) {
     await applyStockMovement(product, {
       movementType,
       quantity,
+      unitCost,
       reason,
       orderId: null,
       variant: "Base / sin variante",
@@ -6124,6 +6146,8 @@ function renderReports() {
   if (!els.reportGrid) return;
   const totals = getTotals();
   const confirmedOrders = orders.filter((order) => isConfirmed(order.status));
+  const periodRange = getReportPeriodRange();
+  const periodMetrics = getSalesMetricsForPeriod(periodRange.start, periodRange.end);
   const ticketAverage = confirmedOrders.length
     ? confirmedOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) / confirmedOrders.length
     : 0;
@@ -6156,6 +6180,29 @@ function renderReports() {
       </div>
     </section>
 
+    <section class="executive-report-section executive-profit">
+      <div class="executive-section-head">
+        <span>Rentabilidad histórica</span>
+        <strong>Costo promedio por período</strong>
+      </div>
+      <div class="report-period-controls" role="group" aria-label="Período de rentabilidad">
+        <label>
+          Desde
+          <input type="date" value="${escapeHtml(periodRange.start)}" data-report-period-start>
+        </label>
+        <label>
+          Hasta
+          <input type="date" value="${escapeHtml(periodRange.end)}" data-report-period-end>
+        </label>
+      </div>
+      <div class="executive-card-grid">
+        ${renderExecutiveCard("Total vendido", formatMoney(periodMetrics.sales))}
+        ${renderExecutiveCard("Costo mercadería", formatMoney(periodMetrics.cost))}
+        ${renderExecutiveCard("Ganancia bruta", formatMoney(periodMetrics.profit), "highlight")}
+        ${renderExecutiveCard("Margen / Markup", `${formatPercent(periodMetrics.margin)} / ${formatPercent(periodMetrics.markup)}`)}
+      </div>
+    </section>
+
     <section class="executive-report-section executive-products">
       <div class="executive-section-head">
         <span>Estadísticas de ventas</span>
@@ -6165,6 +6212,54 @@ function renderReports() {
     </section>
 
   `;
+  bindReportPeriodControls();
+}
+
+function getReportPeriodRange() {
+  const now = new Date();
+  const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const defaultEnd = now.toISOString().slice(0, 10);
+  const start = reportPeriodStart || defaultStart;
+  const end = reportPeriodEnd || defaultEnd;
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
+function bindReportPeriodControls() {
+  els.reportGrid?.querySelector("[data-report-period-start]")?.addEventListener("change", (event) => {
+    reportPeriodStart = event.target.value || "";
+    renderReports();
+  });
+  els.reportGrid?.querySelector("[data-report-period-end]")?.addEventListener("change", (event) => {
+    reportPeriodEnd = event.target.value || "";
+    renderReports();
+  });
+}
+
+function getSalesMetricsForPeriod(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T23:59:59`);
+  const periodOrders = orders.filter((order) => {
+    if (!isConfirmed(order.status)) return false;
+    const saleDate = new Date(getOrderSaleDate(order));
+    return saleDate >= start && saleDate <= end;
+  });
+  const sales = periodOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+  const cost = periodOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
+    const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
+    return itemSum + ((Number(item.cost) || 0) * quantity);
+  }, 0), 0);
+  const profit = sales - cost;
+  return {
+    sales,
+    cost,
+    profit,
+    margin: sales > 0 ? (profit / sales) * 100 : 0,
+    markup: cost > 0 ? (profit / cost) * 100 : 0
+  };
+}
+
+function formatPercent(value) {
+  return `${(Number(value) || 0).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 }
 
 function renderExecutiveCard(label, value, tone = "") {
@@ -6204,6 +6299,11 @@ function renderStockMovementsReport() {
       ${movements.map((entry) => {
         const quantity = Math.max(0, Math.round(Number(entry.quantity) || Math.abs(Number(entry.delta) || 0)));
         const movementType = entry.movementType || (Number(entry.delta) > 0 ? "entrada" : "salida");
+        const costParts = [];
+        if (Number(entry.unitCost) > 0) costParts.push(`Costo mov.: ${formatMoney(entry.unitCost)}`);
+        if (Number(entry.previousCost) > 0 || Number(entry.nextCost) > 0) {
+          costParts.push(`Costo prom.: ${formatMoney(entry.previousCost || 0)} → ${formatMoney(entry.nextCost || 0)}`);
+        }
         return `
           <article class="stock-movement-row ${movementType}">
             <div>
@@ -6212,7 +6312,7 @@ function renderStockMovementsReport() {
             </div>
             <div>
               <b>${movementType === "entrada" ? "+" : "-"}${quantity} ${escapeHtml(getStockUnitLabelFromUnit(entry.stockUnit, quantity))}</b>
-              <span>Stock anterior: ${Number(entry.previousStock) || 0} · Stock posterior: ${Number(entry.nextStock) || 0}${entry.user ? ` · ${escapeHtml(entry.user)}` : ""}${entry.orderId ? ` · Pedido ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
+              <span>Stock anterior: ${Number(entry.previousStock) || 0} · Stock posterior: ${Number(entry.nextStock) || 0}${costParts.length ? ` · ${escapeHtml(costParts.join(" · "))}` : ""}${entry.user ? ` · ${escapeHtml(entry.user)}` : ""}${entry.orderId ? ` · Pedido ${escapeHtml(String(entry.orderId).slice(0, 8))}` : ""}</span>
             </div>
           </article>
         `;
@@ -6926,7 +7026,8 @@ async function applyStockMovement(product, options = {}) {
     movement_type: movementType,
     movement_quantity: quantity,
     movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
-    related_order_id: options.orderId || null
+    related_order_id: options.orderId || null,
+    movement_unit_cost: movementType === "entrada" ? Number(options.unitCost) || 0 : null
   };
   console.info("Punto X Mayor STOCK MOVEMENT START", {
     product_id: product.id,
@@ -6935,7 +7036,7 @@ async function applyStockMovement(product, options = {}) {
     cantidad: quantity,
     unidad: normalizeStockUnit(product.stockUnit || remoteBefore.stock_unit),
     movimiento: movementType,
-    rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid)",
+    rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid, numeric)",
     rpc_params: rpcParams
   });
   const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", rpcParams), "Supabase tardó demasiado en guardar el movimiento de stock.");
@@ -6954,6 +7055,7 @@ async function applyStockMovement(product, options = {}) {
   const rpcPayload = Array.isArray(data) ? data[0] : data;
   const movement = rpcPayload?.movement || rpcPayload?.stock_movement || rpcPayload;
   const nextStock = Math.max(0, Math.round(Number(rpcPayload?.new_stock ?? movement?.new_stock)));
+  const nextAverageCost = Number(rpcPayload?.new_cost ?? movement?.new_cost);
   if (!Number.isFinite(nextStock)) {
     throw new Error("Supabase guardó el movimiento, pero no devolvió el stock actualizado.");
   }
@@ -6978,6 +7080,9 @@ async function applyStockMovement(product, options = {}) {
     nextStock
   });
   setProductVariantStock(product, "Base / sin variante", nextStock);
+  if (movementType === "entrada" && Number.isFinite(nextAverageCost) && nextAverageCost >= 0) {
+    product.cost = nextAverageCost;
+  }
   if (String(editingProductId || "") === String(product.id)) {
     if (els.editProductStock) els.editProductStock.value = String(nextStock);
     updateEditProductStockLabels(product);
@@ -7075,7 +7180,11 @@ async function registerStockMovementOnly(product, movement = {}) {
         stock_unit: normalizeStockUnit(product.stockUnit),
         previous_stock: Math.max(0, Math.round(Number(movement.previousStock) || 0)),
         new_stock: Math.max(0, Math.round(Number(movement.nextStock) || 0)),
-        order_id: movement.orderId || null
+        order_id: movement.orderId || null,
+        unit_cost: Number(movement.unitCost) || Number(product.cost) || 0,
+        previous_cost: Number(movement.unitCost) || Number(product.cost) || 0,
+        new_cost: Number(movement.unitCost) || Number(product.cost) || 0,
+        total_cost: quantity * (Number(movement.unitCost) || Number(product.cost) || 0)
       }])
       .select("*")
       .limit(1), "Supabase tardó demasiado en registrar el movimiento de stock.");
@@ -7151,6 +7260,10 @@ function normalizeStockMovementFromRemote(row, product, fallback = {}) {
     nextStock,
     reason: row?.reason || fallback.reason || "",
     orderId: row?.order_id || fallback.orderId || "",
+    unitCost: Number(row?.unit_cost ?? fallback.unitCost) || 0,
+    previousCost: Number(row?.previous_cost ?? fallback.previousCost) || 0,
+    nextCost: Number(row?.new_cost ?? fallback.nextCost) || 0,
+    totalCost: Number(row?.total_cost ?? fallback.totalCost) || 0,
     user: row?.user_email || fallback.user || "",
     userId: row?.user_id || fallback.userId || "",
     createdAt: row?.created_at || new Date().toISOString()
@@ -8965,7 +9078,8 @@ function applyBudgetStock(order, direction) {
         previousStock,
         nextStock,
         orderId: order.remoteId || null,
-        variant: variantName
+        variant: variantName,
+        unitCost: Number(item.cost) || getProductCostForPresentation(product) || Number(product.cost) || 0
       });
     }
   });
