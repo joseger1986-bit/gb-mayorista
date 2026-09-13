@@ -12954,6 +12954,12 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   padding-bottom: 92px;
 }
 
+body.internal-sale-detail-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 .internal-sale-dock {
   position: fixed;
   right: 0;
@@ -13026,6 +13032,9 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   display: none;
   max-height: min(68vh, 620px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 10px;
   background: #f5f3ee;
   color: #111;

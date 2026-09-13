@@ -239,6 +239,7 @@ let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
+let internalCatalogCompletedSaleId = "";
 let editingProductId = "";
 let editProductInitialState = "";
 let editProductRemoveImagePending = false;
@@ -4792,7 +4793,6 @@ function renderOrdersToolbar() {
   if (!filters.includes(orderListFilter)) orderListFilter = "Hoy";
   return `
     <div class="orders-workbar">
-      <button class="primary-button small-button new-consultation-button" type="button" data-new-consultation>+ Nueva venta local</button>
       <label class="search-box orders-search-box">
         Buscar consulta
         <input type="search" value="${escapeHtml(orderListSearch)}" placeholder="Número, cliente, teléfono o localidad" data-orders-search>
@@ -6461,6 +6461,7 @@ function getInternalCatalogSale() {
 
 function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct = null) {
   const sale = getInternalCatalogSale();
+  internalCatalogCompletedSaleId = "";
   const cleanQuantity = Math.max(group.minimum || 1, Math.round(Number(quantity) || group.minimum || 1));
   const productId = variant.productId;
   const existing = sale.items.find((item) => String(item.id) === String(productId));
@@ -6488,14 +6489,23 @@ function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct
   showToast("Producto agregado a la venta");
 }
 
-function renderInternalCatalogSale() {
+function renderInternalCatalogSale(options = {}) {
   if (!els.internalSaleDock) return;
-  const active = isInternalCatalogQuickSaleMode() && internalCatalogSale?.items?.length;
+  const completedSale = internalCatalogCompletedSaleId ? orders.find((order) => order.id === internalCatalogCompletedSaleId) : null;
+  const active = isInternalCatalogQuickSaleMode() && (internalCatalogSale?.items?.length || completedSale);
+  const detail = els.internalSaleDock.querySelector(".internal-sale-detail");
+  const previousScrollTop = options.preservePanelScroll ? detail?.scrollTop || 0 : 0;
   els.internalSaleDock.classList.toggle("hidden", !active);
   document.body.classList.toggle("internal-sale-active", Boolean(active));
+  document.body.classList.toggle("internal-sale-detail-open", Boolean(active && (internalCatalogSaleExpanded || completedSale)));
   els.floatingCartButton?.classList.toggle("hidden", isInternalCatalogQuickSaleMode());
   if (!active) {
     els.internalSaleDock.innerHTML = "";
+    return;
+  }
+  if (completedSale) {
+    els.internalSaleDock.innerHTML = renderInternalSaleCompletedPanel(completedSale);
+    bindInternalCatalogSale();
     return;
   }
   const sale = internalCatalogSale;
@@ -6558,6 +6568,40 @@ function renderInternalCatalogSale() {
     </section>
   `;
   bindInternalCatalogSale();
+  if (options.preservePanelScroll && internalCatalogSaleExpanded) {
+    const nextDetail = els.internalSaleDock.querySelector(".internal-sale-detail");
+    if (nextDetail) nextDetail.scrollTop = previousScrollTop;
+  }
+}
+
+function renderInternalSaleCompletedPanel(order) {
+  const totals = calculateBudgetTotals(order);
+  return `
+    <section class="internal-sale-panel internal-sale-completed-panel expanded">
+      <div class="internal-sale-detail">
+        <div class="quick-sale-completed-header">
+          <p class="quick-sale-kicker">Venta finalizada</p>
+          <h3>VENTA FINALIZADA</h3>
+          <strong>${escapeHtml(formatRecordNumber(order))}</strong>
+          <span>Total: ${formatMoney(totals.total || 0)}</span>
+          <span>Forma de pago: ${escapeHtml(order.paymentMethod || "Transferencia")}</span>
+          ${getOrderCustomerName(order) !== "Consumidor final" ? `<span>Cliente: ${escapeHtml(getOrderCustomerName(order))}</span>` : ""}
+        </div>
+        <section class="quick-sale-products">
+          <div class="quick-sale-section-title">
+            <h4>DETALLE</h4>
+          </div>
+          ${order.items.map((item) => renderQuickSaleCompletedItem(item)).join("")}
+        </section>
+        <div class="quick-sale-actions">
+          <button class="primary-button quick-sale-finish-button" type="button" data-internal-sale-whatsapp="${escapeHtml(order.id)}">COMPARTIR POR WHATSAPP</button>
+          <button class="secondary-button small-button" type="button" data-internal-sale-print="${escapeHtml(order.id)}">IMPRIMIR</button>
+          <button class="secondary-button small-button" type="button" data-internal-sale-pdf="${escapeHtml(order.id)}">COMPARTIR PDF POR WHATSAPP</button>
+          <button class="secondary-button small-button" type="button" data-internal-sale-new>NUEVA VENTA</button>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function renderInternalSaleItem(item) {
@@ -6580,7 +6624,7 @@ function renderInternalSaleItem(item) {
 }
 
 function bindInternalCatalogSale() {
-  if (!els.internalSaleDock || !internalCatalogSale) return;
+  if (!els.internalSaleDock) return;
   els.internalSaleDock.querySelectorAll("[data-internal-sale-toggle]").forEach((button) => {
     button.addEventListener("click", () => {
       if (internalCatalogSaleExpanded) {
@@ -6602,17 +6646,23 @@ function bindInternalCatalogSale() {
   });
   els.internalSaleDock.querySelectorAll("[data-internal-sale-payment]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!internalCatalogSale) return;
       internalCatalogSale.paymentMethod = button.dataset.internalSalePayment || "Transferencia";
       recalculateBudget(internalCatalogSale);
-      renderInternalCatalogSale();
+      els.internalSaleDock.querySelectorAll("[data-internal-sale-payment]").forEach((paymentButton) => {
+        paymentButton.classList.toggle("is-selected", paymentButton === button);
+      });
+      updateInternalSaleTotals();
     });
   });
   els.internalSaleDock.querySelector("[data-internal-sale-discount-type]")?.addEventListener("change", (event) => {
+    if (!internalCatalogSale) return;
     internalCatalogSale.discountType = event.target.value === "percent" ? "percent" : "fixed";
     recalculateBudget(internalCatalogSale);
-    renderInternalCatalogSale();
+    updateInternalSaleTotals();
   });
   els.internalSaleDock.querySelector("[data-internal-sale-discount-value]")?.addEventListener("input", (event) => {
+    if (!internalCatalogSale) return;
     internalCatalogSale.discountValue = Math.max(0, Number(event.target.value) || 0);
     recalculateBudget(internalCatalogSale);
     updateInternalSaleTotals();
@@ -6621,6 +6671,16 @@ function bindInternalCatalogSale() {
     input.addEventListener("input", () => updateInternalSaleCustomer(input.dataset.internalSaleCustomer, input.value));
   });
   els.internalSaleDock.querySelector("[data-internal-sale-finish]")?.addEventListener("click", finalizeInternalCatalogSale);
+  els.internalSaleDock.querySelector("[data-internal-sale-whatsapp]")?.addEventListener("click", (event) => {
+    sendQuickSaleByWhatsapp(event.currentTarget.dataset.internalSaleWhatsapp);
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-print]")?.addEventListener("click", (event) => {
+    viewOrderDocument(event.currentTarget.dataset.internalSalePrint);
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-pdf]")?.addEventListener("click", (event) => {
+    sendBudgetPreviewPdfByWhatsapp(event.currentTarget.dataset.internalSalePdf);
+  });
+  els.internalSaleDock.querySelector("[data-internal-sale-new]")?.addEventListener("click", startNewInternalCatalogSale);
 }
 
 function updateInternalSaleItemQuantity(productId, delta) {
@@ -6629,7 +6689,7 @@ function updateInternalSaleItemQuantity(productId, delta) {
   if (!item) return;
   item.quantity = Math.max(1, Math.round(Number(item.quantity) || 1) + delta);
   recalculateBudget(internalCatalogSale);
-  renderInternalCatalogSale();
+  renderInternalCatalogSale({ preservePanelScroll: true });
 }
 
 function expandInternalSaleDetail() {
@@ -6669,7 +6729,7 @@ function removeInternalSaleItem(productId) {
   } else {
     recalculateBudget(internalCatalogSale);
   }
-  renderInternalCatalogSale();
+  renderInternalCatalogSale({ preservePanelScroll: true });
 }
 
 function updateInternalSaleCustomer(field, value) {
@@ -6707,10 +6767,22 @@ function finalizeInternalCatalogSale() {
   if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
   const saved = saveManualConsultation(sale);
   if (!saved) return;
-  collapseInternalSaleDetail();
+  collapseInternalSaleDetail({ fromHistory: true });
   internalCatalogSale = null;
   internalCatalogSaleExpanded = false;
-  renderAll();
+  internalCatalogCompletedSaleId = sale.id;
+  currentView = "catalogo";
+  renderCatalog();
+  renderInternalCatalogSale();
+}
+
+function startNewInternalCatalogSale() {
+  internalCatalogSale = null;
+  internalCatalogSaleExpanded = false;
+  internalCatalogCompletedSaleId = "";
+  document.body.classList.remove("internal-sale-detail-open");
+  renderCatalog();
+  renderInternalCatalogSale();
 }
 
 function getCartProductNameFromCatalog(group, variant) {
@@ -7828,6 +7900,7 @@ function buildQuickSaleWhatsappMessage(order) {
   const lines = [
     "PUNTO X MAYOR",
     formatRecordNumber(order),
+    `Fecha: ${formatDocumentDateTime(order.createdAt || new Date().toISOString())}`,
     "",
     ...order.items.map((item) => {
       const product = products.find((entry) => entry.id === item.id);
@@ -7835,7 +7908,12 @@ function buildQuickSaleWhatsappMessage(order) {
       const displayName = getOrderItemDisplayName(item.name, option);
       const productLine = option ? `${displayName} - ${option}` : displayName;
       const quantityLine = formatCleanQuantity({ ...item, presentation: getBudgetItemPresentation(item) });
-      return `* ${quantityLine} · ${productLine}: ${formatMoney(item.quantity * item.price)}`;
+      return [
+        `* ${productLine}`,
+        `  Cantidad: ${quantityLine}`,
+        `  Precio: ${formatMoney(item.price)}`,
+        `  Subtotal: ${formatMoney(item.quantity * item.price)}`
+      ].join("\n");
     }),
     "",
     `Subtotal: ${formatMoney(totals.subtotal)}`,
