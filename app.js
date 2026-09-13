@@ -259,6 +259,10 @@ let imageLightboxHistoryActive = false;
 let imageLightboxClosingByCode = false;
 let stockModalHistoryActive = false;
 let stockModalClosingByCode = false;
+let stockMovementsHistoryActive = false;
+let stockMovementsClosingByCode = false;
+let internalSaleDetailHistoryActive = false;
+let internalSaleDetailClosingByCode = false;
 let addProductModalHistoryActive = false;
 let addProductModalClosingByCode = false;
 var supabaseCatalogSyncTimer = null;
@@ -715,6 +719,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && els.stockMovementsOverlay && !els.stockMovementsOverlay.classList.contains("hidden")) {
     closeStockMovementsPanel();
+    return;
+  }
+  if (event.key === "Escape" && internalCatalogSaleExpanded) {
+    collapseInternalSaleDetail();
     return;
   }
   if (event.key === "Escape" && els.editProductOverlay && !els.editProductOverlay.classList.contains("hidden")) {
@@ -3942,9 +3950,16 @@ async function confirmStockModal(event) {
       quantity,
       reason,
       orderId: null,
-      variant: "Base / sin variante"
+      variant: "Base / sin variante",
+      deferRender: true
     });
     closeStockModal();
+    renderAdmin();
+    renderCatalog();
+    renderStockMovementsPanel();
+    if (String(editingProductId || "") === String(product.id)) {
+      editProductInitialState = getEditProductFormState();
+    }
     showToast(movementType === "salida" ? "Salida de stock registrada" : "Entrada de stock registrada", "success");
   } catch (error) {
     console.error("Punto X Mayor stock movement:", error);
@@ -6177,13 +6192,29 @@ async function openStockMovementsPanel() {
   els.stockMovementsOverlay?.classList.remove("hidden");
   els.stockMovementsOverlay?.setAttribute("aria-hidden", "false");
   document.querySelector(".more-product-actions[open]")?.removeAttribute("open");
+  pushStockMovementsHistoryState();
   renderStockMovementsPanel();
   await refreshStockMovementsFromSupabase("open-stock-movements", { silent: true });
 }
 
-function closeStockMovementsPanel() {
+function closeStockMovementsPanel(options = {}) {
+  const wasOpen = els.stockMovementsOverlay && !els.stockMovementsOverlay.classList.contains("hidden");
   els.stockMovementsOverlay?.classList.add("hidden");
   els.stockMovementsOverlay?.setAttribute("aria-hidden", "true");
+  if (wasOpen && stockMovementsHistoryActive) {
+    stockMovementsHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "stockMovements") {
+      stockMovementsClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushStockMovementsHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (stockMovementsHistoryActive || window.history.state?.modal === "stockMovements") return;
+  stockMovementsHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "stockMovements" }, "", getCurrentHistoryUrl());
 }
 
 function renderStockMovementsPanel() {
@@ -6552,8 +6583,11 @@ function bindInternalCatalogSale() {
   if (!els.internalSaleDock || !internalCatalogSale) return;
   els.internalSaleDock.querySelectorAll("[data-internal-sale-toggle]").forEach((button) => {
     button.addEventListener("click", () => {
-      internalCatalogSaleExpanded = !internalCatalogSaleExpanded;
-      renderInternalCatalogSale();
+      if (internalCatalogSaleExpanded) {
+        collapseInternalSaleDetail();
+      } else {
+        expandInternalSaleDetail();
+      }
     });
   });
   els.internalSaleDock.querySelectorAll("[data-internal-sale-increase], [data-internal-sale-decrease]").forEach((button) => {
@@ -6598,10 +6632,38 @@ function updateInternalSaleItemQuantity(productId, delta) {
   renderInternalCatalogSale();
 }
 
+function expandInternalSaleDetail() {
+  if (!internalCatalogSale?.items?.length) return;
+  internalCatalogSaleExpanded = true;
+  renderInternalCatalogSale();
+  pushInternalSaleDetailHistoryState();
+}
+
+function collapseInternalSaleDetail(options = {}) {
+  if (!internalCatalogSaleExpanded && !internalSaleDetailHistoryActive) return;
+  internalCatalogSaleExpanded = false;
+  renderInternalCatalogSale();
+  if (internalSaleDetailHistoryActive) {
+    internalSaleDetailHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "internalSaleDetail") {
+      internalSaleDetailClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushInternalSaleDetailHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (internalSaleDetailHistoryActive || window.history.state?.modal === "internalSaleDetail") return;
+  internalSaleDetailHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "internalSaleDetail" }, "", getCurrentHistoryUrl());
+}
+
 function removeInternalSaleItem(productId) {
   if (!internalCatalogSale) return;
   internalCatalogSale.items = internalCatalogSale.items.filter((entry) => String(entry.id) !== String(productId));
   if (!internalCatalogSale.items.length) {
+    collapseInternalSaleDetail();
     internalCatalogSale = null;
     internalCatalogSaleExpanded = false;
   } else {
@@ -6645,6 +6707,7 @@ function finalizeInternalCatalogSale() {
   if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
   const saved = saveManualConsultation(sale);
   if (!saved) return;
+  collapseInternalSaleDetail();
   internalCatalogSale = null;
   internalCatalogSaleExpanded = false;
   renderAll();
@@ -6763,7 +6826,7 @@ async function applyStockMovement(product, options = {}) {
   }));
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
   saveStockHistory();
-  renderAll();
+  if (!options.deferRender) renderAll();
   renderStockMovementsPanel();
   return { ok: true, previousStock, nextStock };
 }
@@ -9147,6 +9210,22 @@ function handleAppPopState(event) {
     closeStockModal({ fromHistory: true });
     return;
   }
+  if (stockMovementsClosingByCode) {
+    stockMovementsClosingByCode = false;
+    return;
+  }
+  if (stockMovementsHistoryActive && els.stockMovementsOverlay && !els.stockMovementsOverlay.classList.contains("hidden")) {
+    closeStockMovementsPanel({ fromHistory: true });
+    return;
+  }
+  if (internalSaleDetailClosingByCode) {
+    internalSaleDetailClosingByCode = false;
+    return;
+  }
+  if (internalSaleDetailHistoryActive && internalCatalogSaleExpanded) {
+    collapseInternalSaleDetail({ fromHistory: true });
+    return;
+  }
   if (productDetailsMenuClosingByCode) {
     productDetailsMenuClosingByCode = false;
     return;
@@ -9205,6 +9284,13 @@ function handleAppPopState(event) {
   const state = event.state;
   if (state?.gbMayorista) {
     if (state.guard) {
+      if (isPrivateManagementRoute() && internalUnlocked && currentView === "catalogo") {
+        suppressHistoryUpdate = true;
+        setView("admin", true, { skipHistory: true });
+        suppressHistoryUpdate = false;
+        window.history.pushState(makeAppHistoryState(currentView), "", getCurrentHistoryUrl());
+        return;
+      }
       handleAppExitBack();
       return;
     }
