@@ -6883,11 +6883,12 @@ async function applyStockMovement(product, options = {}) {
   const stockSession = sessionData?.session || null;
   const stockSessionJwt = decodeJwtPayloadSafe(stockSession?.access_token);
   console.info("Punto X Mayor STOCK SESSION", {
-    has_session: Boolean(stockSession),
+    session_exists: Boolean(stockSession),
     user_id: stockSession?.user?.id || null,
+    expires_at: stockSession?.expires_at || null,
+    session_error: sessionError || null,
     access_token_present: Boolean(stockSession?.access_token),
-    role: stockSessionJwt?.role || stockSession?.user?.role || null,
-    expires_at: stockSession?.expires_at || null
+    role: stockSessionJwt?.role || stockSession?.user?.role || null
   });
   if (sessionError || !sessionData?.session?.access_token) {
     throw new Error(formatSupabaseOperationError(sessionError, "La sesión de Gestión venció. Cerrá sesión y volvé a ingresar."));
@@ -6898,21 +6899,24 @@ async function applyStockMovement(product, options = {}) {
   if (movementType === "salida" && quantity > previousStock) {
     throw new Error(`No hay stock suficiente. Stock actual: ${previousStock} ${getStockUnitLabel(product, previousStock)}.`);
   }
+  const rpcParams = {
+    product_id: product.id,
+    movement_type: movementType,
+    movement_quantity: quantity,
+    movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
+    related_order_id: options.orderId || null
+  };
   console.info("Punto X Mayor STOCK MOVEMENT START", {
     product_id: product.id,
     nombre: getProductArticleName(product),
     stock_actual: previousStock,
     cantidad: quantity,
     unidad: normalizeStockUnit(product.stockUnit || remoteBefore.stock_unit),
-    movimiento: movementType
+    movimiento: movementType,
+    rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid)",
+    rpc_params: rpcParams
   });
-  const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", {
-    product_id: product.id,
-    movement_type: movementType,
-    movement_quantity: quantity,
-    movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
-    related_order_id: options.orderId || null
-  }), "Supabase tardó demasiado en guardar el movimiento de stock.");
+  const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", rpcParams), "Supabase tardó demasiado en guardar el movimiento de stock.");
   const { data, error, status, statusText, count } = rpcResponse || {};
   console.info("Punto X Mayor STOCK MOVEMENT RPC RESULT", {
     product_id: product.id,

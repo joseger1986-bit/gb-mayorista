@@ -108,24 +108,24 @@ declare
   fn record;
 begin
   for fn in
-    select p.oid::regprocedure as signature
+    select p.oid::regprocedure as function_signature
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname = 'adjust_product_stock'
   loop
-    execute format('revoke all on function %s from public', fn.signature);
-    execute format('revoke all on function %s from anon', fn.signature);
-    execute format('grant execute on function %s to authenticated', fn.signature);
+    execute format('revoke all on function %s from public', fn.function_signature);
+    execute format('revoke all on function %s from anon', fn.function_signature);
+    execute format('grant execute on function %s to authenticated', fn.function_signature);
   end loop;
 end $$;
 
 notify pgrst, 'reload schema';
 
 select
-  n.nspname as schema,
+  n.nspname as schema_name,
   p.proname as function_name,
-  p.oid::regprocedure as signature,
+  p.oid::regprocedure::text as function_signature,
   p.prosecdef as security_definer,
   has_function_privilege('anon', p.oid, 'execute') as anon_can_execute,
   has_function_privilege('authenticated', p.oid, 'execute') as authenticated_can_execute
@@ -133,4 +133,4 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname = 'adjust_product_stock'
-order by signature::text;
+order by p.oid::regprocedure::text;
