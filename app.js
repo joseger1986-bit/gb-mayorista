@@ -5489,6 +5489,20 @@ function closeOrderDetail(orderId = openOrderId, options = {}) {
   renderOrders();
 }
 
+function clearCompletedQuickSaleViewState() {
+  if (completedQuickSaleOrderId) {
+    if (openOrderId === completedQuickSaleOrderId) openOrderId = "";
+    if (previewOrderId === completedQuickSaleOrderId) previewOrderId = "";
+    if (editingOrderCustomerId === completedQuickSaleOrderId) editingOrderCustomerId = "";
+    completedQuickSaleOrderId = "";
+  }
+  if (internalCatalogCompletedSaleId) {
+    internalCatalogCompletedSaleId = "";
+    internalCatalogSaleExpanded = false;
+    document.body.classList.remove("internal-sale-detail-open");
+  }
+}
+
 function pushOrderDetailHistoryState() {
   if (!appHistoryReady || !window.history?.pushState) return;
   if (orderDetailHistoryActive || window.history.state?.modal === "orderDetail") return;
@@ -9331,6 +9345,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   if (!preserveRole) {
     currentRole = isPrivateManagementRoute() && internalUnlocked && currentRole !== "client" ? currentRole : "client";
+  }
+  if (isManagementView) {
+    clearCompletedQuickSaleViewState();
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
   currentView = view;
