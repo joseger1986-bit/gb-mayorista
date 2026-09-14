@@ -382,6 +382,7 @@ const els = {
   printPreviewClose: document.querySelector("#printPreviewClose"),
   printPreviewPrint: document.querySelector("#printPreviewPrint"),
   printPreviewPdf: document.querySelector("#printPreviewPdf"),
+  printPreviewShare: document.querySelector("#printPreviewShare"),
   pdfDownloadSlot: document.querySelector("#pdfDownloadSlot"),
   stockModalOverlay: document.querySelector("#stockModalOverlay"),
   stockModalForm: document.querySelector("#stockModalForm"),
@@ -658,6 +659,9 @@ els.printPreviewClose?.addEventListener("click", closeInlinePrintPreview);
 els.printPreviewPrint?.addEventListener("click", () => printModalContent(currentPrintType || "recibo"));
 els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
+});
+els.printPreviewShare?.addEventListener("click", () => {
+  shareCurrentPdf({ allowDesktopShare: true, fallbackMode: "download-only" });
 });
 els.stockModalForm?.addEventListener("submit", confirmStockModal);
 els.stockModalForm?.addEventListener("change", (event) => {
@@ -8620,29 +8624,38 @@ function preparePdfDownload(type) {
   }
 }
 
-async function shareCurrentPdf() {
+async function shareCurrentPdf(options = {}) {
   if (!currentPdfBlob || !currentPdfFilename) {
     showToast("No se pudo preparar el PDF");
     return;
   }
+  const fallbackMode = options.fallbackMode || "whatsapp-download";
+  const allowDesktopShare = Boolean(options.allowDesktopShare);
   const order = currentPrintOrderId ? orders.find((item) => item.id === currentPrintOrderId) : null;
   const phone = normalizeArgentinaWhatsappNumber(order?.customerPhone || "");
   const file = new File([currentPdfBlob], currentPdfFilename, { type: "application/pdf" });
   const canSharePdf = Boolean(navigator.share && navigator.canShare?.({ files: [file] }));
 
-  if (canSharePdf && isMobileShareEnvironment()) {
+  if (canSharePdf && (allowDesktopShare || isMobileShareEnvironment())) {
     try {
       await navigator.share({
         files: [file],
-        title: "PUNTO X MAYOR",
-        text: phone ? "Compartí el PDF por WhatsApp al cliente." : "PUNTO X MAYOR"
+        title: currentPdfFilename.replace(/\.pdf$/i, ""),
+        text: "Pedido Punto X Mayor"
       });
-      showToast("PDF compartido desde el celular", "success");
+      showToast("PDF listo para compartir", "success");
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
       console.warn("Punto X Mayor PDF share:", error);
+      showToast("No se pudo compartir el PDF. Usá Descargar PDF.");
+      return;
     }
+  }
+
+  if (fallbackMode === "download-only") {
+    showToast("Este dispositivo no permite compartir archivos PDF. Usá Descargar PDF.");
+    return;
   }
 
   triggerPdfDownload(currentPdfBlob, currentPdfFilename);
@@ -8683,10 +8696,14 @@ function showPdfDownloadLink(url, filename) {
 }
 
 function updateTopPdfLink(url, filename) {
-  if (!els.printPreviewPdf) return;
-  els.printPreviewPdf.setAttribute("href", url);
-  els.printPreviewPdf.setAttribute("download", filename);
-  els.printPreviewPdf.classList.remove("disabled");
+  if (els.printPreviewPdf) {
+    els.printPreviewPdf.setAttribute("href", url);
+    els.printPreviewPdf.setAttribute("download", filename);
+    els.printPreviewPdf.classList.remove("disabled");
+  }
+  if (els.printPreviewShare) {
+    els.printPreviewShare.disabled = !currentPdfBlob;
+  }
 }
 
 
@@ -8701,6 +8718,9 @@ function clearPdfDownloadLink(options = {}) {
     els.printPreviewPdf.setAttribute("href", "#");
     els.printPreviewPdf.removeAttribute("download");
     els.printPreviewPdf.classList.add("disabled");
+  }
+  if (els.printPreviewShare) {
+    els.printPreviewShare.disabled = true;
   }
   if (!els.pdfDownloadSlot) return;
   els.pdfDownloadSlot.innerHTML = "";
