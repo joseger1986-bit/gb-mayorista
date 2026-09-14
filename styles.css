@@ -8948,6 +8948,19 @@ body.cart-is-open {
   font-size: 0.86rem;
 }
 
+.internal-web-pending-row em {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid rgba(29, 78, 216, 0.22);
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0.03em;
+}
+
 .internal-web-pending-row span,
 .internal-web-pending-row small {
   color: #4b5563;
@@ -8986,6 +8999,12 @@ body.operational-web-detail-mode #ordersView {
 
 .operational-web-order-head > .small-button {
   width: fit-content;
+}
+
+.operational-web-order-head .status-pill.status-en-revision {
+  border-color: rgba(201, 162, 74, 0.85);
+  background: #fff;
+  color: #111;
 }
 
 .operational-web-order-summary {
@@ -9434,6 +9453,10 @@ body.operational-web-detail-mode #ordersView {
   font-weight: 900;
 }
 
+.operational-web-order-card .compact-budget-search label {
+  font-size: 0.86rem;
+}
+
 .compact-customer-grid input,
 .compact-checkout-grid input,
 .compact-checkout-grid select,
@@ -9444,6 +9467,12 @@ body.operational-web-detail-mode #ordersView {
   padding: 0 9px;
   background: #fff;
   font: inherit;
+}
+
+.operational-web-order-card .compact-budget-search input {
+  min-height: 48px;
+  padding-inline: 12px;
+  font-size: 1rem;
 }
 
 .compact-checkout-grid {

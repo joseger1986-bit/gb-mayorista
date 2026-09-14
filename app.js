@@ -55,7 +55,7 @@ const confirmedStatuses = ["Pagado"];
 const roles = {
   client: {
     label: "Catálogo cliente",
-    description: "El cliente ve productos, precios y arma una consulta por WhatsApp. No ve administración ni stock."
+    description: "El cliente ve productos, precios y arma un pedido por WhatsApp. No ve administración ni stock."
   },
   admin: {
     label: "Administrador",
@@ -643,17 +643,17 @@ els.resetProducts.addEventListener("click", () => {
   saveClients();
   saveStockHistory();
   renderAll();
-  showToast("Productos y consultas de ejemplo restaurados");
+  showToast("Productos y pedidos de ejemplo restaurados");
 });
 
 els.addSampleOrder.addEventListener("click", () => {
   if (!canAccess("admin")) return;
-  orders.unshift(makeConsultation({ name: "Cliente WhatsApp", phone: "2477000000", location: "Sin localidad" }, "Consulta de prueba sin productos."));
+  orders.unshift(makeConsultation({ name: "Cliente WhatsApp", phone: "2477000000", location: "Sin localidad" }, "Pedido de prueba sin productos."));
   syncClientsFromOrders();
   saveOrders();
   saveClients();
   renderAll();
-  showToast("Consulta de prueba agregada");
+  showToast("Pedido de prueba agregado");
 });
 
 els.downloadTemplate?.addEventListener("click", downloadImportTemplate);
@@ -3696,7 +3696,7 @@ async function deleteEditingProduct() {
   await requestDeleteConfirmation({
     title: "¿Archivar este producto?",
     text: dependencyCount
-      ? `"${getProductDisplayName(product)}" aparece en ${dependencyCount} consulta(s)/pedido(s). No se eliminará físicamente: se moverá a Productos archivados para conservar el historial.`
+      ? `"${getProductDisplayName(product)}" aparece en ${dependencyCount} pedido(s). No se eliminará físicamente: se moverá a Productos archivados para conservar el historial.`
       : `"${getProductDisplayName(product)}" se moverá a Productos archivados y dejará de aparecer en Gestión y en el catálogo.`,
     confirmText: "Archivar producto",
     loadingText: "Archivando...",
@@ -3741,7 +3741,7 @@ function renderAdminArchivedProducts() {
         <div class="archived-product-info">
           <strong>${escapeHtml(getProductDisplayName(product))}</strong>
           <span>${escapeHtml(formatProductVariantSummary(product))} · ${escapeHtml(product.category || "Sin categoría")}</span>
-          <small>${dependencyCount ? `${dependencyCount} consulta(s)/pedido(s) asociado(s)` : "Sin referencias históricas detectadas"}</small>
+          <small>${dependencyCount ? `${dependencyCount} pedido(s) asociado(s)` : "Sin referencias históricas detectadas"}</small>
         </div>
         <div class="archived-product-actions">
           <button class="secondary-button small-button" type="button" data-restore-archived-product="${escapeHtml(product.id)}">Restaurar producto</button>
@@ -3802,7 +3802,7 @@ async function deleteArchivedProductPermanently(productId) {
   if (!product) return;
   const dependencyCount = getProductOrderDependencyCount(product.id);
   if (dependencyCount > 0) {
-    showToast(`No se puede eliminar definitivamente: aparece en ${dependencyCount} consulta(s)/pedido(s).`);
+    showToast(`No se puede eliminar definitivamente: aparece en ${dependencyCount} pedido(s).`);
     return;
   }
   await requestDeleteConfirmation({
@@ -4939,7 +4939,7 @@ function getProductTotalStock(product) {
 function renderOrders() {
   updateOrdersAttentionBadge();
   if (!orders.length) {
-    els.ordersList.innerHTML = `${renderOrdersToolbar()}<div class="empty-state">Todavía no hay pedidos o consultas cargadas.</div>`;
+    els.ordersList.innerHTML = `${renderOrdersToolbar()}<div class="empty-state">Todavía no hay pedidos cargados.</div>`;
     bindBudgetEditor();
     return;
   }
@@ -4999,10 +4999,9 @@ function renderInternalWebPendingAccess() {
       <button class="internal-web-pending-toggle" type="button" data-toggle-web-pending ${hasPending ? "" : "disabled"} aria-expanded="${internalWebPendingExpanded ? "true" : "false"}">
         <span class="internal-web-pending-title">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 4h6m-6 4h6m-6 4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Consultas web pendientes
+          Pedidos web pendientes
           ${hasPending ? `<b>${pending.length}</b>` : ""}
         </span>
-        <small>${hasPending ? "Tocá para elegir una consulta" : "Sin consultas web pendientes"}</small>
       </button>
       ${internalWebPendingExpanded && hasPending ? `
         <div class="internal-web-pending-list">
@@ -5010,8 +5009,9 @@ function renderInternalWebPendingAccess() {
             <article class="internal-web-pending-row">
               <div>
                 <strong>${escapeHtml(formatRecordNumber(order))}</strong>
+                <em>PEDIDO WEB</em>
                 <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
-                <small>${order.items.length} producto${order.items.length === 1 ? "" : "s"} · ${formatMoney(order.total || order.catalogTotal || 0)}</small>
+                <small>${order.items.length} producto${order.items.length === 1 ? "" : "s"} · ${formatMoney(order.total || order.catalogTotal || 0)} · ${escapeHtml(normalizeConsultationStatus(order.status))}</small>
               </div>
               <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
             </article>
@@ -5058,7 +5058,7 @@ function renderOrdersToolbar() {
   return `
     <div class="orders-workbar">
       <label class="search-box orders-search-box">
-        Buscar consulta
+        Buscar pedido
         <input type="search" value="${escapeHtml(orderListSearch)}" placeholder="Número, cliente, teléfono o localidad" data-orders-search>
       </label>
       <div class="orders-filter-row" aria-label="Filtros de pedidos">
@@ -5875,7 +5875,7 @@ function sendBudgetPreviewByWhatsapp(orderId) {
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
   const text = getBudgetPreviewText(orderId) || buildBudgetMessage(order);
   if (!phone || phone === "549") {
-    showToast("La consulta no tiene teléfono de cliente");
+    showToast("El pedido no tiene teléfono de cliente");
     return;
   }
   const opened = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noreferrer");
@@ -7255,7 +7255,7 @@ function addToCart(product, quantity) {
 }
 
 async function saveCatalogConsultation(items, totalPrice, customer) {
-  const order = makeBudgetFromCatalogItems(items, customer, "Consulta enviada desde el catálogo por WhatsApp.");
+  const order = makeBudgetFromCatalogItems(items, customer, "Pedido enviado desde el catálogo por WhatsApp.");
   order.catalogTotal = totalPrice;
   const savedOrder = await withSupabaseTimeout(saveOrderToSupabase(order), "Supabase tardó demasiado en registrar el pedido.");
   orders = orders.filter((item) => String(item.remoteId || item.id) !== String(savedOrder.remoteId || savedOrder.id));
@@ -8058,7 +8058,7 @@ function updateRecordStatus(id, status) {
     return;
   }
   if (status === "En revisión" && order.stockApplied) {
-    showToast("La consulta ya está pagada y el stock descontado");
+    showToast("El pedido ya está pagado y el stock descontado");
     renderOrders();
     return;
   }
@@ -8349,7 +8349,7 @@ function normalizeProductSearchText(value) {
 }
 
 function getStatusKey(status) {
-  return normalizeProductSearchText(status || "consulta recibida").replace(/\s+/g, "-");
+  return normalizeProductSearchText(status || "pedido recibido").replace(/\s+/g, "-");
 }
 
 function showBudgetPreview(id, mode = "view") {
@@ -8415,7 +8415,7 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   if (order.stockApplied) {
     order.status = "Pagado";
     saveOrders();
-    showToast("El stock de esta consulta ya fue descontado");
+    showToast("El stock de este pedido ya fue descontado");
     renderAll();
     return;
   }
@@ -8431,7 +8431,7 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   saveClients();
   saveStockHistory();
   renderAll();
-  showToast("Consulta pagada, stock descontado y venta registrada");
+  showToast("Pedido pagado, stock descontado y venta registrada");
 }
 
 function openBudgetCustomerChat(id) {
@@ -8439,7 +8439,7 @@ function openBudgetCustomerChat(id) {
   if (!order) return;
   const url = buildCustomerWhatsappChatUrl(order);
   if (!order.customerPhone || url === "#") {
-    showToast("Esta consulta no tiene teléfono cargado.");
+    showToast("Este pedido no tiene teléfono cargado.");
     return;
   }
   const opened = window.open(url, "_blank", "noreferrer");
@@ -8450,7 +8450,7 @@ function sendBudgetByWhatsapp(id) {
   if (!order || order.stockApplied) return;
   const url = buildCustomerWhatsappUrl(order);
   if (!order.customerPhone || url === "#") {
-    showToast("La consulta no tiene teléfono de cliente");
+    showToast("El pedido no tiene teléfono de cliente");
     return;
   }
   const opened = window.open(url, "_blank", "noreferrer");
@@ -8771,7 +8771,7 @@ function preparePdfDownload(type) {
   }
 
   try {
-    const title = els.printPreviewTitle?.textContent.trim() || (type === "pedido" ? "Consulta" : "Documento");
+    const title = els.printPreviewTitle?.textContent.trim() || (type === "pedido" ? "Pedido" : "Documento");
     const pdf = currentPrintDocument
       ? createOrderDocumentPdf(currentPrintDocument)
       : createSimplePdf(getPrintablePdfLines(els.printPreviewBody), title);
@@ -8824,7 +8824,7 @@ async function shareCurrentPdf(options = {}) {
 
   triggerPdfDownload(currentPdfBlob, currentPdfFilename);
   if (!phone || phone === "549") {
-    showToast("La consulta no tiene teléfono cargado. PDF descargado.");
+    showToast("El pedido no tiene teléfono cargado. PDF descargado.");
     return;
   }
   const opened = window.open("https://wa.me/" + phone, "_blank", "noreferrer");
@@ -8845,7 +8845,7 @@ function triggerPdfDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename || "Consulta-Punto-X-Mayor.pdf";
+  link.download = filename || "Pedido-Punto-X-Mayor.pdf";
   link.style.display = "none";
   document.body.appendChild(link);
   link.click();
@@ -9234,7 +9234,7 @@ async function cancelOrder(id) {
   if (!order) return;
   if (!canEditOrder(order)) return;
   await requestDeleteConfirmation({
-    text: `Vas a cancelar la Consulta #${String(order.number || "").padStart(4, "0")}. Esta acción no se puede deshacer desde esta pantalla.`,
+    text: `Vas a cancelar el Pedido #${String(order.number || "").padStart(4, "0")}. Esta acción no se puede deshacer desde esta pantalla.`,
     confirmText: "Sí, cancelar",
     loadingText: "Cancelando...",
     action: async () => {
@@ -9243,7 +9243,7 @@ async function cancelOrder(id) {
       if (previewOrderId === id) previewOrderId = "";
       saveOrders();
       renderAll();
-      showToast("Consulta cancelada", "success");
+      showToast("Pedido cancelado", "success");
     }
   });
 }
@@ -9396,7 +9396,7 @@ async function removeBudgetItem(orderId, productId) {
   if (!canEditOrder(order)) return;
   const item = order.items.find((entry) => entry.id === productId);
   await requestDeleteConfirmation({
-    text: `Vas a eliminar "${item ? getOrderItemDisplayName(item) : "este producto"}" de la consulta.`,
+    text: `Vas a eliminar "${item ? getOrderItemDisplayName(item) : "este producto"}" del pedido.`,
     action: async () => {
       openOrderId = orderId;
       restoreConfirmedStock(order);
@@ -9486,7 +9486,7 @@ function applyPendingPaidStockDiscounts() {
 function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
   const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
   const cleanConsultationLabel = String(consultationLabel || "").trim();
-  const consultationId = cleanConsultationLabel.replace(/^Consulta\s+/i, "");
+  const consultationId = cleanConsultationLabel.replace(/^Pedido\s+/i, "");
   const productLines = items.flatMap((item) => {
     const option = shouldShowCartOptionLine(item) ? ` - ${item.variantLabel}` : "";
     const name = `${item.name}${option}`;
@@ -9520,7 +9520,7 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
     "",
     "Gracias por elegir Punto X Mayor.",
     "Nos comunicaremos a la brevedad.",
-    ...(consultationId ? ["", `ID Consulta: ${consultationId}`] : [])
+    ...(consultationId ? ["", `ID Pedido: ${consultationId}`] : [])
   ];
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
@@ -10695,12 +10695,12 @@ function getNextConsultationNumber() {
 
 function formatConsultationNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
-  return `Consulta #${String(number).padStart(4, "0")}`;
+  return `Pedido #${String(number).padStart(4, "0")}`;
 }
 
 function formatRecordNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
-  return `Consulta #${String(number).padStart(4, "0")}`;
+  return `Pedido #${String(number).padStart(4, "0")}`;
 }
 
 function normalizeOrderOrigin(value) {
@@ -10712,7 +10712,7 @@ function getOrderOrigin(order) {
 }
 
 function getOrderOriginLabel(order) {
-  return getOrderOrigin(order) === "local" ? "Venta local" : "Consulta web";
+  return getOrderOrigin(order) === "local" ? "Venta local" : "Pedido web";
 }
 
 function recalculateBudget(order) {
@@ -10755,7 +10755,7 @@ function formatDiscountSummary(order) {
 function sampleBudgets(productList) {
   return [
     makeConsultation({ name: "Autoservicio Sol", phone: "2477000001", location: "Pergamino" }, "Cliente pidió confirmar disponibilidad por WhatsApp."),
-    makeConsultation({ name: "Kiosco Centro", phone: "2477000002", location: "Colón" }, "Consulta de prueba sin productos.")
+    makeConsultation({ name: "Kiosco Centro", phone: "2477000002", location: "Colón" }, "Pedido de prueba sin productos.")
   ].map((order, index) => ({ ...order, number: index + 1 }));
 }
 
@@ -10841,6 +10841,7 @@ function normalizeBudgets(budgetList) {
       "Presupuesto armado": "En revisión",
       "Presupuesto finalizado": "En revisión",
       "Consulta recibida": "En revisión",
+      "Pedido recibido": "En revisión",
       "Presupuesto enviado": "Presupuesto enviado",
       "Pedido confirmado": "Pendiente de pago",
       "Confirmado": "Pendiente de pago",
