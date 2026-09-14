@@ -1862,8 +1862,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       const saveResponse = await client
         .from("products")
         .update(row, { count: "exact" })
-        .eq("id", product.id)
-        .select("id, name, base_name, option_name, assortment_name, presentation, cost_price, sale_price, stock_unit, show_in_catalog, description");
+        .eq("id", product.id);
       const { data: savedRows, error: saveError, status, statusText, count } = saveResponse || {};
       console.info("Punto X Mayor EDIT PRODUCT UPDATE RESULT", {
         product_id: product.id,
@@ -1874,11 +1873,8 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
         count
       });
       if (saveError) throw saveError;
-      if (count != null && count !== 1) {
-        throw new Error(`Supabase no modificó exactamente un producto. Filas modificadas: ${count}.`);
-      }
-      if (!Array.isArray(savedRows) || savedRows.length !== 1 || String(savedRows[0]?.id) !== String(product.id)) {
-        throw new Error("Supabase no confirmo la escritura del producto editado.");
+      if (count !== 1) {
+        throw new Error(`Supabase no modificó exactamente un producto. Filas modificadas: ${count ?? "sin confirmar"}.`);
       }
 
       const rereadResponse = await client
@@ -1890,7 +1886,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       console.info("Punto X Mayor EDIT PRODUCT REREAD RESULT", {
         product_id: product.id,
         form_presentation: product.presentation,
-        update_presentation: Array.isArray(savedRows) ? savedRows[0]?.presentation : null,
+        update_presentation: null,
         reread_presentation: Array.isArray(rereadRows) ? rereadRows[0]?.presentation : null,
         data: rereadRows,
         error: rereadError,
@@ -3950,6 +3946,7 @@ async function saveEditedProduct(event) {
   });
 
   try {
+    showEditProductSaveError("");
     setEditProductSavingState(true);
 
     if (photoItems.length) {
@@ -3990,10 +3987,29 @@ async function saveEditedProduct(event) {
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
     }
     console.error("Punto X Mayor edit product save:", error);
+    showEditProductSaveError(error.message || "No se pudo guardar el producto. Intentá nuevamente.");
     showToast(error.message || "No se pudo guardar el producto. Intentá nuevamente.");
   } finally {
     setEditProductSavingState(false);
   }
+}
+
+function showEditProductSaveError(message = "") {
+  if (!els.editProductForm) return;
+  let errorBox = els.editProductForm.querySelector("[data-edit-product-save-error]");
+  if (!message) {
+    errorBox?.remove();
+    return;
+  }
+  if (!errorBox) {
+    errorBox = document.createElement("div");
+    errorBox.dataset.editProductSaveError = "true";
+    errorBox.setAttribute("role", "alert");
+    errorBox.style.cssText = "border:1px solid #b91c1c;background:#fff7f7;color:#7f1d1d;border-radius:8px;padding:10px 12px;font-weight:800;";
+    const actions = els.editProductForm.querySelector(".edit-product-primary-actions");
+    els.editProductForm.insertBefore(errorBox, actions || null);
+  }
+  errorBox.textContent = message;
 }
 
 function openStockModal(productId, mode = "add") {
