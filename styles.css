@@ -10290,7 +10290,7 @@ body.cart-is-open {
 
 .print-preview-body .doc-qty {
   width: 70px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .print-preview-body .doc-product {
@@ -10298,8 +10298,14 @@ body.cart-is-open {
   word-break: normal;
 }
 
+.print-preview-body .doc-variant {
+  width: 120px;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
 .print-preview-body .doc-money {
-  width: 92px;
+  width: 84px;
   text-align: right;
   white-space: nowrap;
 }
@@ -10371,11 +10377,15 @@ body.cart-is-open {
   }
 
   .print-preview-body .doc-qty {
-    width: 48px;
+    width: 52px;
+  }
+
+  .print-preview-body .doc-variant {
+    width: 76px;
   }
 
   .print-preview-body .doc-money {
-    width: 70px;
+    width: 62px;
   }
 }
 

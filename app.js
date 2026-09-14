@@ -8360,6 +8360,8 @@ function buildOrderPrintDocument(order) {
     quantity: Math.max(1, Number(item.quantity) || 1),
     quantityLabel: formatDocumentQuantity(item),
     product: getDocumentItemName(item),
+    variant: getDocumentItemVariantLabel(item),
+    unitPrice: getDocumentItemUnitPrice(item),
     price: Math.max(0, Number(item.price) || 0),
     subtotal: Math.max(0, Number(item.quantity) || 0) * Math.max(0, Number(item.price) || 0)
   }));
@@ -8386,6 +8388,8 @@ function buildOrderDocumentHtml(order) {
     <tr>
       <td class="doc-qty">${escapeHtml(item.quantityLabel)}</td>
       <td class="doc-product">${escapeHtml(item.product)}</td>
+      <td class="doc-variant">${escapeHtml(item.variant)}</td>
+      <td class="doc-money">${formatMoney(item.unitPrice)}</td>
       <td class="doc-money">${formatMoney(item.subtotal)}</td>
     </tr>
   `).join("");
@@ -8421,6 +8425,8 @@ function buildOrderDocumentHtml(order) {
               <tr>
                 <th>Cantidad</th>
                 <th>Producto</th>
+                <th>Variante</th>
+                <th>P. unitario</th>
                 <th>Subtotal</th>
               </tr>
             </thead>
@@ -8449,10 +8455,43 @@ function getDocumentItemName(item) {
   return normalizedBase.includes(normalizedOption) ? base : `${base} ${option}`;
 }
 
+function getDocumentItemVariantLabel(item) {
+  const option = String(item.variantLabel || item.variant || item.optionName || item.option || "").trim().replace(/\s+/g, " ");
+  const presentation = String(getBudgetItemPresentation(item) || "").trim();
+  const variant = option
+    ? /^surtido\b/i.test(option)
+      ? option
+      : /^talle\b/i.test(option)
+        ? option
+        : `Talle ${option}`
+    : "";
+  return [variant, presentation].filter(Boolean).join(" · ") || "-";
+}
+
+function getDocumentItemUnitPrice(item) {
+  const totalPrice = Math.max(0, Number(item.price) || 0);
+  const basePrice = Math.max(0, Number(item.basePrice ?? item.unitPrice) || 0);
+  if (basePrice) return Math.round(basePrice);
+  const presentation = String(getBudgetItemPresentation(item) || "").trim();
+  const stockUnit = normalizeStockUnit(item?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  const multiplier = getStockUnitsPerSoldPresentation(presentation, stockUnit);
+  return Math.round(totalPrice / Math.max(1, multiplier));
+}
+
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
-  return `${quantity} ${getDocumentPresentationLabel(presentation, quantity, item?.stockUnit)}`.trim();
+  return `${quantity} ${getDocumentQuantityPresentationLabel(presentation, quantity)}`.trim();
+}
+
+function getDocumentQuantityPresentationLabel(presentation, quantity = 1) {
+  const value = String(presentation || "").trim();
+  const amount = Math.max(1, Number(quantity) || 1);
+  const packMatch = value.match(/pack\s*x\s*(\d+)/i);
+  if (packMatch) return `${amount === 1 ? "pack" : "packs"} x${packMatch[1]}`;
+  if (/docenas?|venta\s+por\s+docena/i.test(value)) return amount === 1 ? "docena" : "docenas";
+  if (/unidad(es)?|venta\s+por\s+unidad/i.test(value)) return amount === 1 ? "unidad" : "unidades";
+  return value || (amount === 1 ? "unidad" : "unidades");
 }
 
 function getDocumentPresentationLabel(presentation, quantity = 1, stockUnit = "unidades") {
@@ -8706,8 +8745,10 @@ function createOrderDocumentPdf(document) {
   };
   const renderPdfTableHeader = () => {
     addText("Cantidad", margin, y, 8.5, true);
-    addText("Producto", margin + 92, y, 8.5, true);
-    addText("Subtotal", pageWidth - 104, y, 8.5, true);
+    addText("Producto", margin + 70, y, 8.5, true);
+    addText("Variante", margin + 230, y, 8.5, true);
+    addText("P. unitario", pageWidth - 172, y, 8.5, true);
+    addText("Subtotal", pageWidth - 86, y, 8.5, true);
     y -= 9;
     addLine(margin, y, pageWidth - margin, y, 0.5);
     y -= 13;
@@ -8749,12 +8790,16 @@ function createOrderDocumentPdf(document) {
 
   renderPdfHeader(true);
   document.items.forEach((item) => {
-    const productLines = wrapPdfLine(item.product, 58);
-    const rowHeight = Math.max(16, productLines.length * 10 + 6);
+    const productLines = wrapPdfLine(item.product, 29);
+    const variantLines = wrapPdfLine(item.variant, 24);
+    const rowLines = Math.max(productLines.length, variantLines.length, 1);
+    const rowHeight = Math.max(16, rowLines * 10 + 6);
     if (y < bottom + rowHeight + 72) newPage();
     addText(item.quantityLabel, margin, y, 8.4, false);
-    productLines.forEach((line, index) => addText(line, margin + 92, y - (index * 10), 8.4, false));
-    addText(formatMoney(item.subtotal), pageWidth - 104, y, 8.4, true);
+    productLines.forEach((line, index) => addText(line, margin + 70, y - (index * 10), 8.4, false));
+    variantLines.forEach((line, index) => addText(line, margin + 230, y - (index * 10), 8.2, false));
+    addText(formatMoney(item.unitPrice), pageWidth - 172, y, 8.4, false);
+    addText(formatMoney(item.subtotal), pageWidth - 86, y, 8.4, true);
     y -= rowHeight;
   });
 
@@ -8984,16 +9029,17 @@ function getPrintStyles() {
       th, td { border-bottom: 1px solid #deded8; padding: 6px 7px; text-align: left; font-size: 11.2px; vertical-align: top; }
       tr { break-inside: avoid; page-break-inside: avoid; }
       th { background: #f2e4bd; color: #111; font-size: 10px; text-transform: uppercase; }
-      .doc-qty { width: 86px; white-space: normal; font-weight: 800; }
+      .doc-qty { width: 70px; white-space: normal; font-weight: 800; }
       .doc-product { width: auto; line-height: 1.28; word-break: normal; overflow-wrap: anywhere; white-space: normal; }
-      .doc-money { width: 94px; text-align: right; white-space: nowrap; font-weight: 900; }
+      .doc-variant { width: 130px; line-height: 1.28; overflow-wrap: anywhere; white-space: normal; }
+      .doc-money { width: 86px; text-align: right; white-space: nowrap; font-weight: 900; }
       .compact-document-totals { width: min(330px, 100%); margin: 14px 0 0 auto; display: grid; gap: 3px; }
       .compact-document-totals div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-bottom: 1px solid #e4e4dc; font-size: 12px; }
       .compact-document-totals span { color: #333; font-weight: 800; }
       .compact-document-final { border: 2px solid #111 !important; border-radius: 6px; padding: 7px 9px !important; background: #f2e4bd; align-items: center; }
       .compact-document-final span { color: #111; text-transform: uppercase; }
       .compact-document-final strong { color: #111; font-size: 18px; }
-      @media (max-width: 640px) { body { padding: 8px; } .document-shell { padding: 10px; } .compact-document-header { grid-template-columns: 1fr; gap: 8px; } .compact-document-title { justify-items: start; text-align: left; } .compact-document-brand h1 { font-size: 18px; } .compact-document-client { grid-template-columns: 1fr; } th, td { padding: 5px; font-size: 10.5px; } .doc-qty { width: 58px; } .doc-money { width: 76px; } }
+      @media (max-width: 640px) { body { padding: 8px; } .document-shell { padding: 10px; } .compact-document-header { grid-template-columns: 1fr; gap: 8px; } .compact-document-title { justify-items: start; text-align: left; } .compact-document-brand h1 { font-size: 18px; } .compact-document-client { grid-template-columns: 1fr; } th, td { padding: 5px; font-size: 10px; } .doc-qty { width: 54px; } .doc-variant { width: 82px; } .doc-money { width: 64px; } }
       @media print { body { background: #fff; padding: 0; } .document-shell { border: 0; padding: 0; max-width: none; } th { background: #f2f2f2 !important; } .compact-document-final { background: #f3f3f3 !important; } }
     </style>
   `;
