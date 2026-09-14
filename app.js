@@ -4997,7 +4997,11 @@ function renderInternalWebPendingAccess() {
   els.internalWebPendingSlot.innerHTML = `
     <section class="internal-web-pending ${hasPending ? "has-pending" : "is-empty"}">
       <button class="internal-web-pending-toggle" type="button" data-toggle-web-pending ${hasPending ? "" : "disabled"} aria-expanded="${internalWebPendingExpanded ? "true" : "false"}">
-        <span>Consultas web pendientes (${pending.length})</span>
+        <span class="internal-web-pending-title">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 4h6m-6 4h6m-6 4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Consultas web pendientes
+          ${hasPending ? `<b>${pending.length}</b>` : ""}
+        </span>
         <small>${hasPending ? "Tocá para elegir una consulta" : "Sin consultas web pendientes"}</small>
       </button>
       ${internalWebPendingExpanded && hasPending ? `
@@ -5434,14 +5438,14 @@ function renderInternalOrderCard(order, options = {}) {
               <h4>Productos del pedido</h4>
               <span>${order.items.length} producto${order.items.length === 1 ? "" : "s"}</span>
             </div>
-            <div class="budget-item budget-item-head order-product-table-head">
+            <div class="budget-item budget-item-head order-product-table-head ${isOperationalWeb ? "operational-web-hidden" : ""}">
               <span>Cantidad</span>
               <span>Producto</span>
               <span>Precio unitario</span>
               <span>Subtotal</span>
               <span>Acciones</span>
             </div>
-            ${order.items.length ? order.items.map((item) => renderCompactBudgetItem(order, item)).join("") : `<div class="empty-state compact">Este pedido no tiene productos cargados.</div>`}
+            ${order.items.length ? order.items.map((item) => isOperationalWeb ? renderOperationalWebBudgetItem(order, item) : renderCompactBudgetItem(order, item)).join("") : `<div class="empty-state compact">Este pedido no tiene productos cargados.</div>`}
           </div>
         </section>
 
@@ -5535,6 +5539,33 @@ function renderCompactBudgetItem(order, item) {
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
       <span class="order-product-actions">${actions}</span>
     </div>
+  `;
+}
+
+function renderOperationalWebBudgetItem(order, item) {
+  const product = products.find((entry) => entry.id === item.id);
+  const option = getBudgetItemOptionLabel(item, product);
+  const displayName = getOrderItemDisplayName(item.name, option);
+  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const quantityLine = formatOrderItemOperationalQuantity(item, product).replace(/=\s*(\d+)\s+([a-záéíóúñ]+)/i, (_, amount, unit) => `= ${amount} ${unit.toLocaleUpperCase("es-AR")}`);
+  const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
+  const actions = canEditOrder(order)
+    ? `
+        <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}">Editar</button>
+        <button class="danger-button small-button quick-sale-remove-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto">Eliminar</button>
+      `
+    : `<span class="readonly-order-note">Solo lectura</span>`;
+  return `
+    <article class="quick-sale-item operational-web-product-item">
+      <div class="quick-sale-item-main">
+        <strong>${escapeHtml(productLine)}</strong>
+        <span>${escapeHtml(quantityLine)}</span>
+      </div>
+      <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
+      <div class="quick-sale-item-controls operational-web-product-actions">
+        ${actions}
+      </div>
+    </article>
   `;
 }
 

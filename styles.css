@@ -8842,7 +8842,7 @@ body.cart-is-open {
 }
 
 .internal-web-pending-slot {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .internal-web-pending {
@@ -8856,37 +8856,61 @@ body.cart-is-open {
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 9px 12px;
-  border: 1px solid rgba(17, 24, 39, 0.14);
+  min-height: 42px;
+  padding: 8px 11px;
+  border: 1px solid rgba(201, 162, 74, 0.4);
   border-radius: 12px;
-  background: #fff;
-  color: #111827;
+  background: #111;
+  color: #fff;
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.06);
   cursor: pointer;
 }
 
 .internal-web-pending.has-pending .internal-web-pending-toggle {
   border-color: rgba(201, 162, 74, 0.85);
-  background: #111;
-  color: #fff;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.16);
 }
 
 .internal-web-pending.is-empty .internal-web-pending-toggle {
-  opacity: 0.58;
+  border-color: rgba(255, 255, 255, 0.14);
+  opacity: 0.72;
   cursor: default;
 }
 
-.internal-web-pending-toggle span {
-  font-size: 0.9rem;
+.internal-web-pending-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.86rem;
   font-weight: 950;
+}
+
+.internal-web-pending-title svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  color: #c9a24a;
+}
+
+.internal-web-pending-title b {
+  display: inline-grid;
+  place-items: center;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #d71920;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .internal-web-pending-toggle small {
   color: inherit;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
-  opacity: 0.78;
+  opacity: 0.82;
   text-align: right;
 }
 
@@ -8940,15 +8964,24 @@ body.operational-web-detail-mode #ordersView {
 }
 
 .operational-web-order-card {
+  display: grid;
+  gap: 10px;
   margin-top: 0;
-  border-color: rgba(201, 162, 74, 0.35);
+  padding: 10px;
+  border: 1px solid rgba(201, 162, 74, 0.38);
+  border-radius: 10px;
+  background: #f6f3ec;
+  box-shadow: none;
 }
 
 .operational-web-order-head {
   display: grid;
   gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(17, 24, 39, 0.1);
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #0b0b0b;
+  color: #fff;
 }
 
 .operational-web-order-head > .small-button {
@@ -8970,30 +9003,165 @@ body.operational-web-detail-mode #ordersView {
 
 .operational-web-order-summary h3 {
   margin: 0;
-  color: #111827;
-  font-size: 1.05rem;
+  color: #fff;
+  font-size: 1.18rem;
+  letter-spacing: 0.02em;
 }
 
 .operational-web-order-summary span {
   min-width: 0;
-  color: #4b5563;
+  color: rgba(255, 255, 255, 0.86);
   font-size: 0.86rem;
   font-weight: 750;
   overflow-wrap: anywhere;
 }
 
 .operational-web-order-summary strong {
-  color: #111827;
-  font-size: 1rem;
+  color: #c9a24a;
+  font-size: 1.08rem;
   font-weight: 950;
   text-align: right;
+}
+
+.operational-web-order-card .compact-order-detail {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .operational-web-order-card .compact-order-detail > summary {
   display: none;
 }
 
+.operational-web-order-card .compact-order-section,
+.operational-web-order-card .compact-order-summary {
+  border: 1px solid #ded6c5;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  box-shadow: none;
+}
+
+.operational-web-order-card .compact-section-title-row h4,
+.operational-web-order-card .budget-items-title-row h4,
+.operational-web-order-card .compact-order-data-panel h4 {
+  margin: 0;
+  color: #111;
+  font-size: 0.86rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
+.operational-web-order-card .client-order-section {
+  display: grid;
+  gap: 8px;
+}
+
+.operational-web-order-card .compact-customer-readonly {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.operational-web-order-card .compact-customer-readonly span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #e4dece;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #6b6250;
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.operational-web-order-card .compact-customer-readonly b {
+  color: #111;
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.operational-web-order-card .compact-budget-items {
+  display: grid;
+  gap: 8px;
+}
+
+.operational-web-hidden {
+  display: none !important;
+}
+
+.operational-web-product-item {
+  margin: 0;
+}
+
+.operational-web-product-item .quick-sale-item-main strong {
+  font-size: 1rem;
+}
+
+.operational-web-product-item .quick-sale-item-main span {
+  color: #4d4638;
+  font-size: 0.9rem;
+  font-weight: 950;
+}
+
+.operational-web-product-actions {
+  justify-content: flex-start;
+}
+
+.operational-web-product-actions .small-button {
+  min-height: 38px;
+}
+
+.operational-web-order-card .consultation-summary-box {
+  display: grid;
+  gap: 8px;
+}
+
+.operational-web-order-card .consultation-total-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #0b0b0b;
+  font-size: 1.22rem;
+  font-weight: 950;
+}
+
+.operational-web-order-card .consultation-summary-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  color: #6b6250;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.operational-web-order-card .compact-order-actions {
+  display: grid;
+  gap: 8px;
+}
+
 @media (max-width: 640px) {
+  .internal-web-pending-toggle {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .internal-web-pending-toggle small {
+    text-align: left;
+  }
+
+  .operational-web-order-card {
+    margin-inline: -6px;
+    padding: 8px;
+  }
+
   .operational-web-order-summary {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -9008,6 +9176,26 @@ body.operational-web-detail-mode #ordersView {
 
   .operational-web-order-summary strong {
     text-align: right;
+  }
+
+  .operational-web-order-card .compact-customer-readonly,
+  .operational-web-order-card .consultation-summary-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .operational-web-order-card .consultation-total-line {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 1.08rem;
+  }
+
+  .operational-web-product-actions {
+    align-items: stretch;
+  }
+
+  .operational-web-product-actions .small-button {
+    flex: 1;
   }
 }
 
