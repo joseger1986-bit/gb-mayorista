@@ -242,6 +242,7 @@ let reportPeriodEnd = "";
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
+let internalWebPendingExpanded = false;
 let editingProductId = "";
 let editProductInitialState = "";
 let editProductRemoveImagePending = false;
@@ -298,6 +299,7 @@ let passwordRecoveryActive = false;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
+  internalWebPendingSlot: document.querySelector("#internalWebPendingSlot"),
   managementShell: document.querySelector("#managementShell"),
   adminView: document.querySelector("#adminView"),
   stockView: document.querySelector("#stockView"),
@@ -2332,6 +2334,7 @@ function renderAll() {
   renderCategories();
   renderProductFormCategories();
   renderCatalog();
+  renderInternalWebPendingAccess();
   if (internalUnlocked) {
     renderAdmin();
     renderCategoryManager();
@@ -2403,6 +2406,7 @@ function renderProductFormCategories() {
 }
 
 function renderCatalog() {
+  renderInternalWebPendingAccess();
   const query = normalizeProductSearchText(els.searchInput.value);
   const catalogProducts = getCatalogProducts();
   const filtered = catalogProducts.filter((group) => {
@@ -4964,6 +4968,72 @@ function renderOrders() {
   bindBudgetEditor();
 }
 
+function getPendingWebConsultations() {
+  return orders
+    .filter((order) => {
+      if (order.manualDraft) return false;
+      if (getOrderOrigin(order) !== "web") return false;
+      if (String(order.status || "").trim() === "Cancelado") return false;
+      return normalizeConsultationStatus(order.status) !== "Pagado";
+    })
+    .sort((a, b) => (Number(b.number) || 0) - (Number(a.number) || 0));
+}
+
+function renderInternalWebPendingAccess() {
+  if (!els.internalWebPendingSlot) return;
+  const isVisible = isInternalCatalogQuickSaleMode();
+  els.internalWebPendingSlot.classList.toggle("hidden", !isVisible);
+  if (!isVisible) {
+    internalWebPendingExpanded = false;
+    els.internalWebPendingSlot.innerHTML = "";
+    return;
+  }
+
+  const pending = getPendingWebConsultations();
+  const hasPending = pending.length > 0;
+  if (!hasPending) internalWebPendingExpanded = false;
+
+  els.internalWebPendingSlot.innerHTML = `
+    <section class="internal-web-pending ${hasPending ? "has-pending" : "is-empty"}">
+      <button class="internal-web-pending-toggle" type="button" data-toggle-web-pending ${hasPending ? "" : "disabled"} aria-expanded="${internalWebPendingExpanded ? "true" : "false"}">
+        <span>Consultas web pendientes (${pending.length})</span>
+        <small>${hasPending ? "Tocá para elegir una consulta" : "Sin consultas web pendientes"}</small>
+      </button>
+      ${internalWebPendingExpanded && hasPending ? `
+        <div class="internal-web-pending-list">
+          ${pending.map((order) => `
+            <article class="internal-web-pending-row">
+              <div>
+                <strong>${escapeHtml(formatRecordNumber(order))}</strong>
+                <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
+                <small>${order.items.length} producto${order.items.length === 1 ? "" : "s"} · ${formatMoney(order.total || order.catalogTotal || 0)}</small>
+              </div>
+              <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
+            </article>
+          `).join("")}
+        </div>
+      ` : ""}
+    </section>
+  `;
+
+  els.internalWebPendingSlot.querySelector("[data-toggle-web-pending]")?.addEventListener("click", () => {
+    if (!hasPending) return;
+    internalWebPendingExpanded = !internalWebPendingExpanded;
+    renderInternalWebPendingAccess();
+  });
+  els.internalWebPendingSlot.querySelectorAll("[data-open-web-pending-order]").forEach((button) => {
+    button.addEventListener("click", () => openPendingWebConsultation(button.dataset.openWebPendingOrder));
+  });
+}
+
+function openPendingWebConsultation(orderId) {
+  const order = orders.find((item) => item.id === orderId);
+  if (!order || getOrderOrigin(order) !== "web") return;
+  internalWebPendingExpanded = false;
+  setView("pedidos");
+  openOrderDetail(order.id);
+}
+
 function updateOrdersAttentionBadge() {
   const badge = els.ordersAttentionBadge;
   if (!badge) return;
@@ -5424,7 +5494,7 @@ function renderCompactBudgetItem(order, item) {
   const displayName = getOrderItemDisplayName(item.name, option);
   const productLine = option ? `${displayName} - ${option}` : displayName;
   const presentation = getBudgetItemPresentation(item);
-  const quantityLine = formatQuantityWithPresentationLabel(presentation, Number(item.quantity) || 1);
+  const quantityLine = formatOrderItemOperationalQuantity(item, product);
   const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
   const actions = canEditOrder(order)
     ? `
@@ -5434,7 +5504,7 @@ function renderCompactBudgetItem(order, item) {
     : `<span class="readonly-order-note">Solo lectura</span>`;
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row">
-      <span class="order-product-mobile-main">${escapeHtml(quantityLine)} · ${escapeHtml(productLine)}</span>
+      <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b><small>${escapeHtml(quantityLine)}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
       <span class="order-product-unit-price">${formatMoney(item.price)}</span>
@@ -5442,6 +5512,32 @@ function renderCompactBudgetItem(order, item) {
       <span class="order-product-actions">${actions}</span>
     </div>
   `;
+}
+
+function formatOrderItemOperationalQuantity(item, product = null) {
+  const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
+  const presentation = String(getBudgetItemPresentation(item) || "").trim();
+  const stockUnit = normalizeStockUnit(item?.stockUnit || product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  const packMatch = presentation.match(/pack\s*x\s*(\d+)/i);
+
+  if (packMatch) {
+    const packAmount = Math.max(1, Number(packMatch[1]) || 1);
+    const totalStockUnits = quantity * getStockUnitsPerSoldPresentation(presentation, stockUnit);
+    const packNoun = quantity === 1 ? "pack" : "packs";
+    const packUnitLabel = getStockUnitLabelFromUnit(stockUnit, packAmount);
+    const totalUnitLabel = getStockUnitLabelFromUnit(stockUnit, totalStockUnits);
+    return `${quantity} ${packNoun} × ${packAmount} ${packUnitLabel} = ${totalStockUnits} ${totalUnitLabel}`;
+  }
+
+  if (/docenas?|venta\s+por\s+docena/i.test(presentation)) {
+    return `${quantity} ${quantity === 1 ? "docena" : "docenas"}`;
+  }
+
+  if (/unidad(es)?|venta\s+por\s+unidad/i.test(presentation)) {
+    return `${quantity} ${quantity === 1 ? "unidad" : "unidades"}`;
+  }
+
+  return presentation ? `${quantity} ${presentation}` : `${quantity} ${getStockUnitLabelFromUnit(stockUnit, quantity)}`;
 }
 
 function getOrderItemDisplayName(name, option) {
@@ -9723,6 +9819,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (view === "pedidos") {
     markOrdersNotificationsSeen();
   }
+  renderInternalWebPendingAccess();
   renderRole();
   renderNav();
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
