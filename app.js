@@ -209,6 +209,7 @@ let previewOrderId = "";
 let previewMode = "budget";
 let currentPrintOrderId = "";
 let openOrderId = "";
+let operationalWebOrderId = "";
 let orderListSearch = "";
 let orderListFilter = "Hoy";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
@@ -4948,7 +4949,7 @@ function renderOrders() {
     const order = orders.find((item) => item.id === focusedId);
     if (order) {
       els.ordersList.innerHTML = `
-        ${renderInternalOrderCard(order, { standalone: true })}
+        ${renderInternalOrderCard(order, { standalone: true, operationalWeb: operationalWebOrderId === order.id })}
         ${previewOrderId === order.id ? renderBudgetPreview(order) : ""}
         ${editingBudgetItem?.orderId === order.id ? renderBudgetItemEditModal() : ""}
       `;
@@ -5030,8 +5031,13 @@ function openPendingWebConsultation(orderId) {
   const order = orders.find((item) => item.id === orderId);
   if (!order || getOrderOrigin(order) !== "web") return;
   internalWebPendingExpanded = false;
-  setView("pedidos");
-  openOrderDetail(order.id);
+  operationalWebOrderId = order.id;
+  setView("pedidos", false, { preserveOrderState: true });
+  openOrderDetail(order.id, { source: "catalogo" });
+}
+
+function updateOperationalWebDetailModeClass() {
+  document.body.classList.toggle("operational-web-detail-mode", Boolean(operationalWebOrderId && currentView === "pedidos"));
 }
 
 function updateOrdersAttentionBadge() {
@@ -5161,11 +5167,12 @@ function renderOrderCustomerBlock(order) {
   `;
 }
 
-function renderOrderActionButtons(order) {
+function renderOrderActionButtons(order, options = {}) {
   const readonly = !canEditOrder(order);
   const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone ? "" : "disabled"}>Vista previa de WhatsApp</button>`;
   const documentButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>`;
-  const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">Volver</button>`;
+  const backButtonLabel = options.operationalWeb ? "Volver al catálogo" : "Volver";
+  const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">${backButtonLabel}</button>`;
   if (readonly) return `${previewButton}${documentButton}${backButton}`;
   return `
     <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}">Guardar cambios</button>
@@ -5373,8 +5380,24 @@ function renderInternalOrderCard(order, options = {}) {
   if (isQuickSaleDraft(order)) return renderQuickSaleView(order);
   const totals = calculateBudgetTotals(order);
   const isOpen = options.standalone || previewOrderId === order.id || openOrderId === order.id;
+  const isOperationalWeb = Boolean(options.operationalWeb);
   return `
-    <article class="order-card order-workspace order-kind-consultation order-status-${getStatusKey(normalizeConsultationStatus(order.status))} ${isConfirmed(normalizeConsultationStatus(order.status)) ? "confirmed" : ""}">
+    <article class="order-card order-workspace order-kind-consultation ${isOperationalWeb ? "operational-web-order-card" : ""} order-status-${getStatusKey(normalizeConsultationStatus(order.status))} ${isConfirmed(normalizeConsultationStatus(order.status)) ? "confirmed" : ""}">
+      ${isOperationalWeb ? `
+        <div class="operational-web-order-head">
+          <button class="secondary-button small-button" type="button" data-close-order="${order.id}">← Volver al catálogo</button>
+          <div class="operational-web-order-summary">
+            <div>
+              <h3>${escapeHtml(formatRecordNumber(order))}</h3>
+              <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
+            </div>
+            <div>
+              <span class="status-pill status-${getStatusKey(normalizeConsultationStatus(order.status))}">${escapeHtml(normalizeConsultationStatus(order.status))}</span>
+              <strong>${formatMoney(totals.total || 0)}</strong>
+            </div>
+          </div>
+        </div>
+      ` : `
       <div class="order-workspace-top compact-order-top">
         <div>
           <h3>${escapeHtml(formatRecordNumber(order))}</h3>
@@ -5384,6 +5407,7 @@ function renderInternalOrderCard(order, options = {}) {
         <span class="status-pill status-${getStatusKey(normalizeConsultationStatus(order.status))}">${escapeHtml(normalizeConsultationStatus(order.status))}</span>
         <button class="secondary-button small-button" type="button" data-close-order="${order.id}">Volver</button>
       </div>
+      `}
 
       <details class="order-detail compact-order-detail" ${isOpen ? "open" : ""}>
         <summary>Abrir</summary>
@@ -5481,7 +5505,7 @@ function renderInternalOrderCard(order, options = {}) {
         </aside>
 
         <div class="order-actions compact-order-actions">
-          ${renderOrderActionButtons(order)}
+          ${renderOrderActionButtons(order, { operationalWeb: isOperationalWeb })}
         </div>
       </details>
     </article>
@@ -5733,7 +5757,9 @@ function formatCompactDateTime(value) {
   }).format(date);
 }
 
-function openOrderDetail(orderId) {
+function openOrderDetail(orderId, options = {}) {
+  operationalWebOrderId = options.source === "catalogo" ? orderId : "";
+  updateOperationalWebDetailModeClass();
   openOrderId = orderId;
   previewOrderId = "";
   pushOrderDetailHistoryState();
@@ -5741,11 +5767,20 @@ function openOrderDetail(orderId) {
 }
 
 function closeOrderDetail(orderId = openOrderId, options = {}) {
+  const shouldReturnToCatalog = operationalWebOrderId === orderId;
   removeManualDraft(orderId);
   if (editingOrderCustomerId === orderId) editingOrderCustomerId = "";
   if (completedQuickSaleOrderId === orderId) completedQuickSaleOrderId = "";
+  if (operationalWebOrderId === orderId) operationalWebOrderId = "";
   if (openOrderId === orderId) openOrderId = "";
   if (previewOrderId === orderId) previewOrderId = "";
+  updateOperationalWebDetailModeClass();
+  if (shouldReturnToCatalog) {
+    orderDetailHistoryActive = false;
+    setView("catalogo", false, { skipHistory: Boolean(options.fromHistory) });
+    renderCatalog();
+    return;
+  }
   if (orderDetailHistoryActive) {
     orderDetailHistoryActive = false;
     if (!options.fromHistory && window.history?.state?.modal === "orderDetail") {
@@ -5774,9 +5809,11 @@ function clearCompletedQuickSaleViewState() {
 function clearOrdersListViewState() {
   openOrderId = "";
   previewOrderId = "";
+  operationalWebOrderId = "";
   completedQuickSaleOrderId = "";
   editingOrderCustomerId = "";
   editingBudgetItem = null;
+  updateOperationalWebDetailModeClass();
 }
 
 function pushOrderDetailHistoryState() {
@@ -9776,7 +9813,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (!preserveRole) {
     currentRole = isPrivateManagementRoute() && internalUnlocked && currentRole !== "client" ? currentRole : "client";
   }
-  if (view === "pedidos") {
+  if (view === "pedidos" && !historyOptions.preserveOrderState) {
     clearOrdersListViewState();
   } else if (isManagementView) {
     clearCompletedQuickSaleViewState();
@@ -9787,6 +9824,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
   document.documentElement.dataset.privateManagement = isPrivateManagementRoute() ? "true" : "false";
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
+  updateOperationalWebDetailModeClass();
   if (isInternalCatalogQuickSaleMode()) {
     renderCatalog();
   }
@@ -9794,12 +9832,12 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.internalRoleView?.classList.add("hidden");
   els.passwordRecoveryView?.classList.add("hidden");
   els.passwordResetView?.classList.add("hidden");
-  els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked));
+  els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked) || Boolean(operationalWebOrderId && view === "pedidos"));
   els.adminNavManagement?.classList.toggle("active", isManagementView);
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
   els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
   els.catalogView.classList.toggle("hidden", view !== "catalogo");
-  els.managementShell.classList.toggle("hidden", !isManagementView);
+  els.managementShell.classList.toggle("hidden", !isManagementView || Boolean(operationalWebOrderId && view === "pedidos"));
   els.adminView.classList.toggle("hidden", view !== "admin");
   els.stockView?.classList.toggle("hidden", view !== "stock");
   els.importView.classList.toggle("hidden", view !== "importacion");
