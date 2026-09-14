@@ -1758,6 +1758,18 @@ async function getSupabaseCategoryIdForProduct(client, product) {
   return Array.isArray(existing) && existing[0]?.id ? existing[0].id : null;
 }
 
+async function getExistingSupabaseCategoryIdForProduct(client, product) {
+  const categoryName = String(product?.category || "").trim();
+  if (!categoryName) return null;
+  const { data, error } = await client
+    .from("categories")
+    .select("id, name")
+    .eq("name", categoryName)
+    .limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data[0]?.id ? data[0].id : null;
+}
+
 function buildSupabaseProductRow(product, categoryId, sortOrder) {
   const row = {
     id: product.id,
@@ -1784,6 +1796,29 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
   return row;
 }
 
+function buildSupabaseProductEditRow(product, categoryId) {
+  const row = {
+    category_id: categoryId || null,
+    name: supabaseProductOptionSupported ? getProductBaseName(product) : getProductArticleName(product),
+    brand: product.brand || "",
+    presentation: getProductPresentation(product),
+    sale_price: Math.max(0, Number(product.price) || 0),
+    show_in_catalog: product.showInCatalog !== false,
+    image_path: getSupabaseImagePath(product.image),
+    updated_at: new Date().toISOString()
+  };
+  if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
+  if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
+  if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
+  if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
+  if (supabaseProductOptionSupported) {
+    row.base_name = getProductBaseName(product);
+    row.option_name = supabaseProductAssortmentSupported ? getProductTalleValue(product) : getProductOptionName(product);
+  }
+  if (supabaseProductAssortmentSupported) row.assortment_name = getProductSurtidoValue(product);
+  return row;
+}
+
 async function syncSingleProductToSupabase(product, reason = "edit-product") {
   const client = getSupabaseCatalogClient();
   if (!client) return { ok: true, mode: "local" };
@@ -1796,13 +1831,14 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       supabaseProductGallerySupported = await detectSupabaseProductGallerySupport(client);
       supabaseProductStockUnitSupported = await detectSupabaseProductStockUnitSupport(client);
       supabaseProductAssortmentSupported = await detectSupabaseProductAssortmentSupport(client);
-      const categoryId = await getSupabaseCategoryIdForProduct(client, product);
-      const sortOrder = Math.max(1, products.findIndex((item) => String(item.id) === String(product.id)) + 1);
-      const row = buildSupabaseProductRow(product, categoryId, sortOrder);
+      const categoryId = await getExistingSupabaseCategoryIdForProduct(client, product);
+      if (!categoryId) throw new Error(`No se encontró la categoría "${product.category}" en Supabase.`);
+      const row = buildSupabaseProductEditRow(product, categoryId);
       const { data: savedRows, error: saveError } = await client
         .from("products")
-        .upsert([row], { onConflict: "id" })
-        .select("id, image_path, gallery_images, show_in_catalog");
+        .update(row)
+        .eq("id", product.id)
+        .select("id");
       if (saveError) throw saveError;
       if (!Array.isArray(savedRows) || savedRows.length !== 1 || String(savedRows[0]?.id) !== String(product.id)) {
         throw new Error("Supabase no confirmo la escritura del producto editado.");
@@ -1819,6 +1855,7 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       }
       const mappedProduct = mapSupabaseProductsToLocal(rereadRows)[0];
       if (!mappedProduct) throw new Error("No se pudo reconstruir el producto guardado desde Supabase.");
+      verifyEditedProductPersisted(product, mappedProduct);
       const currentIndex = products.findIndex((item) => String(item.id) === String(product.id));
       if (currentIndex >= 0) products[currentIndex] = mappedProduct;
       localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
@@ -1846,6 +1883,30 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
     }
   })(), 25000, "Supabase tardo demasiado en guardar el producto editado.");
 }
+
+function verifyEditedProductPersisted(expected, saved) {
+  const checks = [
+    ["nombre", getProductBaseName(saved), getProductBaseName(expected)],
+    ["categoría", saved.category, expected.category],
+    ["presentación", getProductPresentation(saved), getProductPresentation(expected)],
+    ["talle", getProductTalleValue(saved), getProductTalleValue(expected)],
+    ["surtido", getProductSurtidoValue(saved), getProductSurtidoValue(expected)],
+    ["descripción", String(saved.description || "").trim(), String(expected.description || "").trim()],
+    ["unidad de stock", normalizeStockUnit(saved.stockUnit), normalizeStockUnit(expected.stockUnit)],
+    ["mostrar en catálogo", saved.showInCatalog !== false ? "yes" : "no", expected.showInCatalog !== false ? "yes" : "no"]
+  ];
+  if (Math.round(Number(saved.price) || 0) !== Math.round(Number(expected.price) || 0)) {
+    throw new Error("Supabase guardó el producto, pero el precio de venta no coincide al releerlo.");
+  }
+  if (canAccess("admin") && Math.round(Number(saved.cost) || 0) !== Math.round(Number(expected.cost) || 0)) {
+    throw new Error("Supabase guardó el producto, pero el precio de costo no coincide al releerlo.");
+  }
+  const failed = checks.find(([, actual, wanted]) => String(actual || "").trim() !== String(wanted || "").trim());
+  if (failed) {
+    throw new Error(`Supabase guardó el producto, pero el campo ${failed[0]} no coincide al releerlo.`);
+  }
+}
+
 function formatSupabaseOperationError(error, fallback = "La operación en Supabase falló.") {
   if (!error) return fallback;
   const parts = [
@@ -3830,6 +3891,14 @@ async function saveEditedProduct(event) {
   if (canAccess("admin")) nextProduct.cost = getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation);
   nextProduct.saleType = getSaleTypeFromPresentation(nextProduct.presentation);
   nextProduct.packQuantity = getPackQuantityFromPresentation(nextProduct.presentation);
+  console.info("Punto X Mayor EDIT PRODUCT SAVE START", {
+    product_id: product.id,
+    name: nextProduct.baseName,
+    presentation: nextProduct.presentation,
+    category: nextProduct.category,
+    show_in_catalog: nextProduct.showInCatalog,
+    stock_unit: nextProduct.stockUnit
+  });
 
   try {
     setEditProductSavingState(true);
