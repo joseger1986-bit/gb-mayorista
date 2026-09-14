@@ -1834,21 +1834,70 @@ async function syncSingleProductToSupabase(product, reason = "edit-product") {
       const categoryId = await getExistingSupabaseCategoryIdForProduct(client, product);
       if (!categoryId) throw new Error(`No se encontró la categoría "${product.category}" en Supabase.`);
       const row = buildSupabaseProductEditRow(product, categoryId);
-      const { data: savedRows, error: saveError } = await client
+      if (!client.auth || typeof client.auth.getSession !== "function") {
+        throw new Error("No se pudo validar la sesión de Supabase para guardar el producto.");
+      }
+      const { data: sessionData, error: sessionError } = await withSupabaseTimeout(
+        client.auth.getSession(),
+        "Supabase tardó demasiado en validar la sesión."
+      );
+      const editSession = sessionData?.session || null;
+      const editSessionJwt = decodeJwtPayloadSafe(editSession?.access_token);
+      console.info("Punto X Mayor EDIT PRODUCT SESSION", {
+        session_exists: Boolean(editSession),
+        user_id: editSession?.user?.id || null,
+        expires_at: editSession?.expires_at || null,
+        session_error: sessionError || null,
+        access_token_present: Boolean(editSession?.access_token),
+        role: editSessionJwt?.role || editSession?.user?.role || null
+      });
+      if (sessionError || !editSession?.access_token) {
+        throw new Error(formatSupabaseOperationError(sessionError, "Sesión vencida. Volvé a iniciar sesión."));
+      }
+      console.info("Punto X Mayor EDIT PRODUCT UPDATE PAYLOAD", {
+        product_id: product.id,
+        form_presentation: product.presentation,
+        payload: row
+      });
+      const saveResponse = await client
         .from("products")
-        .update(row)
+        .update(row, { count: "exact" })
         .eq("id", product.id)
-        .select("id");
+        .select("id, name, base_name, option_name, assortment_name, presentation, cost_price, sale_price, stock_unit, show_in_catalog, description");
+      const { data: savedRows, error: saveError, status, statusText, count } = saveResponse || {};
+      console.info("Punto X Mayor EDIT PRODUCT UPDATE RESULT", {
+        product_id: product.id,
+        data: savedRows,
+        error: saveError,
+        status,
+        statusText,
+        count
+      });
       if (saveError) throw saveError;
+      if (count != null && count !== 1) {
+        throw new Error(`Supabase no modificó exactamente un producto. Filas modificadas: ${count}.`);
+      }
       if (!Array.isArray(savedRows) || savedRows.length !== 1 || String(savedRows[0]?.id) !== String(product.id)) {
         throw new Error("Supabase no confirmo la escritura del producto editado.");
       }
 
-      const { data: rereadRows, error: rereadError } = await client
+      const rereadResponse = await client
         .from("products")
         .select("*, categories(name), product_variants(*)")
         .eq("id", product.id)
         .limit(1);
+      const { data: rereadRows, error: rereadError, status: rereadStatus, statusText: rereadStatusText, count: rereadCount } = rereadResponse || {};
+      console.info("Punto X Mayor EDIT PRODUCT REREAD RESULT", {
+        product_id: product.id,
+        form_presentation: product.presentation,
+        update_presentation: Array.isArray(savedRows) ? savedRows[0]?.presentation : null,
+        reread_presentation: Array.isArray(rereadRows) ? rereadRows[0]?.presentation : null,
+        data: rereadRows,
+        error: rereadError,
+        status: rereadStatus,
+        statusText: rereadStatusText,
+        count: rereadCount
+      });
       if (rereadError) throw rereadError;
       if (!Array.isArray(rereadRows) || rereadRows.length !== 1) {
         throw new Error("Supabase no devolvio el producto despues de guardarlo.");
