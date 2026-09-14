@@ -2810,10 +2810,22 @@ function renderCatalogVariantControl(group) {
     <label class="variant-select-row" for="variant-${group.id}">
       <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="Elegir talle">
         <option value="">Elegir talle</option>
-        ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(variant.label)}</option>`).join("")}
+        ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(getCatalogVariantSelectLabel(variant))}</option>`).join("")}
       </select>
     </label>
   `;
+}
+
+function getCatalogVariantSelectLabel(variant) {
+  const rawLabel = String(variant?.label || "").trim();
+  const presentation = String(variant?.presentation || "").trim();
+  const label = /^surtido\b/i.test(rawLabel)
+    ? rawLabel
+    : rawLabel
+      ? rawLabel.replace(/^talle\s+/i, "Talle ")
+      : "Talle";
+  const variantLabel = /^surtido\b|^talle\b/i.test(label) ? label : `Talle ${label}`;
+  return presentation ? `${variantLabel} — ${presentation}` : variantLabel;
 }
 
 function hasCatalogVariantChoices(group) {
