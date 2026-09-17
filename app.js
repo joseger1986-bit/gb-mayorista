@@ -12,8 +12,8 @@ const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
 const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
+const STORAGE_INTERNAL_DEVICE_SECRET = "pxm_internal_device_secret";
 const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
-const INTERNAL_ADMIN_PROFILE_TOKEN = Symbol("internal-admin-profile");
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
@@ -297,6 +297,8 @@ let catalogImageFallbacks = new Map();
 let catalogImagePreloadTimer = null;
 let archivedProductsCache = [];
 let passwordRecoveryActive = false;
+let internalDeviceContext = null;
+let internalAuthContext = null;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -308,6 +310,7 @@ const els = {
   ordersView: document.querySelector("#ordersView"),
   clientsView: document.querySelector("#clientsView"),
   reportsView: document.querySelector("#reportsView"),
+  securityView: document.querySelector("#securityView"),
   productGrid: document.querySelector("#productGrid"),
   categoryFilters: document.querySelector("#categoryFilters"),
   searchInput: document.querySelector("#searchInput"),
@@ -437,6 +440,7 @@ const els = {
   internalLoginForm: document.querySelector("#internalLoginForm"),
   internalEmail: document.querySelector("#internalEmail"),
   internalPassword: document.querySelector("#internalPassword"),
+  internalPasswordToggle: document.querySelector("#internalPasswordToggle"),
   internalLoginSubmit: document.querySelector("#internalLoginSubmit"),
   internalLoginError: document.querySelector("#internalLoginError"),
   forgotPasswordButton: document.querySelector("#forgotPasswordButton"),
@@ -452,19 +456,18 @@ const els = {
   passwordResetConfirm: document.querySelector("#passwordResetConfirm"),
   passwordResetMessage: document.querySelector("#passwordResetMessage"),
   passwordResetSubmit: document.querySelector("#passwordResetSubmit"),
-  chooseAdminRole: document.querySelector("#chooseAdminRole"),
-  chooseEmployeeRole: document.querySelector("#chooseEmployeeRole"),
-  adminKeyForm: document.querySelector("#adminKeyForm"),
-  adminInternalKey: document.querySelector("#adminInternalKey"),
-  adminKeyError: document.querySelector("#adminKeyError"),
-  adminKeySubmit: document.querySelector("#adminKeySubmit"),
-  cancelAdminKey: document.querySelector("#cancelAdminKey"),
   roleLogout: document.querySelector("#roleLogout"),
   adminNav: document.querySelector("#adminNav"),
   adminNavManagement: document.querySelector("#adminNavManagement"),
   adminNavCatalog: document.querySelector("#adminNavCatalog"),
   adminLogout: document.querySelector("#adminLogout"),
   adminSwitchRole: document.querySelector("#adminSwitchRole"),
+  refreshSecurityButton: document.querySelector("#refreshSecurityButton"),
+  pendingDevicesList: document.querySelector("#pendingDevicesList"),
+  authorizedDevicesList: document.querySelector("#authorizedDevicesList"),
+  blockedDevicesList: document.querySelector("#blockedDevicesList"),
+  startMfaSetupButton: document.querySelector("#startMfaSetupButton"),
+  mfaSetupBox: document.querySelector("#mfaSetupBox"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
@@ -494,20 +497,19 @@ document.querySelectorAll("[data-view]").forEach((button) => {
 });
 
 els.internalLoginForm?.addEventListener("submit", handleInternalLogin);
+els.internalPasswordToggle?.addEventListener("click", toggleInternalPasswordVisibility);
 els.forgotPasswordButton?.addEventListener("click", showPasswordRecoveryForm);
 els.passwordRecoveryForm?.addEventListener("submit", handlePasswordRecoveryRequest);
 els.passwordRecoveryBack?.addEventListener("click", () => showInternalLogin(false));
 els.passwordResetForm?.addEventListener("submit", handlePasswordResetSubmit);
-els.chooseEmployeeRole?.addEventListener("click", () => selectInternalProfile("employee"));
-els.chooseAdminRole?.addEventListener("click", showAdminKeyForm);
-els.adminKeyForm?.addEventListener("submit", handleAdminKeySubmit);
-els.cancelAdminKey?.addEventListener("click", hideAdminKeyForm);
 els.roleLogout?.addEventListener("click", handleInternalLogout);
 els.adminNavManagement?.addEventListener("click", () => setView("admin"));
 els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
-els.adminSwitchRole?.addEventListener("click", showInternalRoleChoice);
+els.adminSwitchRole?.addEventListener("click", () => setView("seguridad"));
+els.refreshSecurityButton?.addEventListener("click", refreshInternalSecurityDevices);
+els.startMfaSetupButton?.addEventListener("click", startAdminMfaEnrollment);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -838,11 +840,12 @@ function getSupabaseAuthClient() {
   return client?.auth ? client : null;
 }
 
-function unlockInternalSession(session, profile = "") {
+function unlockInternalSession(session, context = null) {
   internalAuthenticated = Boolean(session?.user);
-  const selectedProfile = ["admin", "employee"].includes(profile) ? profile : sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "";
-  internalUnlocked = internalAuthenticated && ["admin", "employee"].includes(selectedProfile);
-  currentRole = internalUnlocked ? selectedProfile : "client";
+  const role = normalizeInternalRole(context?.role || "");
+  internalAuthContext = context || null;
+  internalUnlocked = internalAuthenticated && ["admin", "employee"].includes(role);
+  currentRole = internalUnlocked ? role : "client";
   if (internalAuthenticated) {
     sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, internalUnlocked ? "true" : "pending");
     if (internalUnlocked) sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
@@ -859,6 +862,8 @@ function lockInternalSession() {
   internalAuthenticated = false;
   internalUnlocked = false;
   currentRole = "client";
+  internalAuthContext = null;
+  internalDeviceContext = null;
   teardownSupabaseOrdersRealtime();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
   sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
@@ -877,7 +882,7 @@ async function initializeSupabaseAuth() {
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
     if (data?.session?.user) {
-      unlockInternalSession(data.session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
+      await completeInternalAccessAfterAuth(data.session, { silent: true });
       if (isPasswordRecoveryReturn()) showPasswordResetForm();
     }
     else lockInternalSession();
@@ -894,12 +899,13 @@ async function initializeSupabaseAuth() {
       return;
     }
     if (session?.user) {
-      unlockInternalSession(session, sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
-      if (isPrivateManagementRoute()) {
-        renderAll();
-        setView(getInitialView(), true, { replace: true });
-        refreshCatalogFromSupabase("auth-session", { silent: true });
-      }
+      completeInternalAccessAfterAuth(session, { silent: true }).then((allowed) => {
+        if (allowed && isPrivateManagementRoute()) {
+          renderAll();
+          setView(getInitialView(), true, { replace: true });
+          refreshCatalogFromSupabase("auth-session", { silent: true });
+        }
+      });
       return;
     }
     if (event === "SIGNED_OUT" || isPrivateManagementRoute()) {
@@ -1306,18 +1312,48 @@ async function loadCatalogFromSupabase() {
 
   if (categoryError) throw categoryError;
 
-  const { data: productRows, error: productError } = await client
-    .from("products")
-    .select("*, categories(name), product_variants(*)")
-    .eq("active", true)
-    .order("sort_order", { ascending: true });
-
-  if (productError) throw productError;
+  const productRows = await loadProductRowsFromSupabase(client);
 
   return {
     categories: mapSupabaseCategoriesToLocal(categoryRows || []),
     products: mapSupabaseProductsToLocal(productRows || [])
   };
+}
+
+async function loadProductRowsFromSupabase(client) {
+  const canReadCosts = isPrivateManagementRoute() && internalUnlocked && canAccess("admin");
+  let productRows = [];
+  if (canReadCosts && typeof client.rpc === "function") {
+    const { data, error } = await client.rpc("internal_admin_products_with_cost");
+    if (error) throw error;
+    productRows = data || [];
+  } else {
+    const { data, error } = await client
+      .from("products_safe_catalog")
+      .select("*")
+      .eq("active", true)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    productRows = data || [];
+  }
+
+  const productIds = productRows.map((row) => row.id).filter(Boolean);
+  if (!productIds.length) return productRows;
+  const { data: variantRows, error: variantError } = await client
+    .from("product_variants")
+    .select("*")
+    .in("product_id", productIds);
+  if (variantError) throw variantError;
+  const variantsByProduct = new Map();
+  (variantRows || []).forEach((variant) => {
+    const key = String(variant.product_id || "");
+    if (!variantsByProduct.has(key)) variantsByProduct.set(key, []);
+    variantsByProduct.get(key).push(variant);
+  });
+  return productRows.map((row) => ({
+    ...row,
+    product_variants: variantsByProduct.get(String(row.id || "")) || []
+  }));
 }
 
 function applyRemoteCatalog(remote, reason = "supabase-read") {
@@ -1507,7 +1543,7 @@ function withSupabaseTimeout(promise, message, timeoutMs = 10000) {
 async function detectSupabaseProductDescriptionSupport(client) {
   try {
     const { error } = await client
-      .from("products")
+      .from("products_safe_catalog")
       .select("description")
       .limit(1);
     return !error;
@@ -1519,7 +1555,7 @@ async function detectSupabaseProductDescriptionSupport(client) {
 async function detectSupabaseProductOptionSupport(client) {
   try {
     const { error } = await client
-      .from("products")
+      .from("products_safe_catalog")
       .select("base_name, option_name")
       .limit(1);
     return !error;
@@ -1531,7 +1567,7 @@ async function detectSupabaseProductOptionSupport(client) {
 async function detectSupabaseProductGallerySupport(client) {
   try {
     const { error } = await client
-      .from("products")
+      .from("products_safe_catalog")
       .select("gallery_images")
       .limit(1);
     return !error;
@@ -1543,7 +1579,7 @@ async function detectSupabaseProductGallerySupport(client) {
 async function detectSupabaseProductStockUnitSupport(client) {
   try {
     const { error } = await client
-      .from("products")
+      .from("products_safe_catalog")
       .select("stock_unit")
       .limit(1);
     return !error;
@@ -1555,7 +1591,7 @@ async function detectSupabaseProductStockUnitSupport(client) {
 async function detectSupabaseProductAssortmentSupport(client) {
   try {
     const { error } = await client
-      .from("products")
+      .from("products_safe_catalog")
       .select("assortment_name")
       .limit(1);
     return !error;
@@ -2203,13 +2239,13 @@ function mapSupabaseProductsToLocal(rows) {
       optionName: identity.optionName,
       surtidoName: identity.surtidoName,
       brand: row.brand || "",
-      category: row.categories?.name || defaultProductCategories[0],
+      category: row.category_name || row.categories?.name || defaultProductCategories[0],
       presentation,
       description: row.description || getDefinitiveProductDescription(row.name) || getLocalProductDescription(row.id),
       saleType: getSaleTypeFromPresentation(presentation),
       price: Math.max(0, Number(row.sale_price) || 0),
       packQuantity: getPackQuantityFromPresentation(presentation),
-      cost: Math.max(0, Number(row.cost_price) || 0),
+      cost: canAccess("admin") ? Math.max(0, Number(row.cost_price) || 0) : 0,
       stock: Math.max(0, Number(row.stock) || 0),
       stockUnit: normalizeStockUnit(row.stock_unit || inferDefaultStockUnitFromPresentation(presentation)),
       minimum: 1,
@@ -9809,6 +9845,7 @@ function getSavedInitialManagementView() {
   const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "admin";
   if (view === "reportes" && !hasPermission("reports")) return "admin";
   if (view === "importacion" && !hasPermission("importExport")) return "admin";
+  if (view === "seguridad" && !canAccess("admin")) return "admin";
   return view;
 }
 function setView(view, preserveRole = false, historyOptions = {}) {
@@ -9824,7 +9861,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     return;
   }
   if (isPrivateManagementRoute() && internalAuthenticated && !internalUnlocked) {
-    showInternalRoleChoice();
+    showInternalLogin();
     return;
   }
   if (isManagementView && !internalUnlocked) {
@@ -9839,6 +9876,11 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (view === "importacion" && !hasPermission("importExport")) {
     showToast("Importación Excel disponible solo para Administrador");
     view = currentView && currentView !== "importacion" ? currentView : "admin";
+    isManagementView = managementViews.includes(view);
+  }
+  if (view === "seguridad" && !canAccess("admin")) {
+    showToast("Seguridad disponible solo para Administrador");
+    view = currentView && currentView !== "seguridad" ? currentView : "admin";
     isManagementView = managementViews.includes(view);
   }
   if (!preserveRole) {
@@ -9866,6 +9908,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked) || Boolean(operationalWebOrderId && view === "pedidos"));
   els.adminNavManagement?.classList.toggle("active", isManagementView);
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
+  els.adminSwitchRole?.classList.toggle("active", view === "seguridad");
   els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
   els.catalogView.classList.toggle("hidden", view !== "catalogo");
   els.managementShell.classList.toggle("hidden", !isManagementView || Boolean(operationalWebOrderId && view === "pedidos"));
@@ -9875,6 +9918,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.ordersView.classList.toggle("hidden", view !== "pedidos");
   els.clientsView?.classList.toggle("hidden", view !== "clientes");
   els.reportsView.classList.toggle("hidden", view !== "reportes");
+  els.securityView?.classList.toggle("hidden", view !== "seguridad");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => {
     element.classList.toggle("hidden", view !== "catalogo");
   });
@@ -9887,6 +9931,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   if (view === "pedidos") {
     markOrdersNotificationsSeen();
+  }
+  if (view === "seguridad") {
+    refreshInternalSecurityDevices();
   }
   renderInternalWebPendingAccess();
   renderRole();
@@ -10086,116 +10133,181 @@ function normalizeRoutePath(pathname) {
   return normalized === "/" ? "/" : normalized.toLowerCase();
 }
 
-function showInternalRoleChoice() {
-  passwordRecoveryActive = false;
-  if (!internalAuthenticated) {
-    showInternalLogin(false);
-    return;
+function normalizeInternalUsername(value) {
+  const username = String(value || "").trim().toLowerCase();
+  return username === "empleado" ? "empleado" : username === "admin" ? "admin" : username;
+}
+
+function normalizeInternalRole(value) {
+  const role = String(value || "").trim().toLowerCase();
+  if (role === "admin") return "admin";
+  if (role === "employee" || role === "empleado") return "employee";
+  return "";
+}
+
+function getInternalDeviceSecret() {
+  let secret = localStorage.getItem(STORAGE_INTERNAL_DEVICE_SECRET);
+  if (!secret) {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    secret = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(STORAGE_INTERNAL_DEVICE_SECRET, secret);
   }
-  internalUnlocked = false;
-  currentRole = "client";
-  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
-  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
-  localStorage.setItem(STORAGE_ROLE, "client");
-  currentView = "gestion-login";
-  document.body.classList.add("private-management-mode");
-  document.documentElement.dataset.privateManagement = "true";
-  document.body.classList.remove("admin-catalog-preview");
-  els.topbar?.classList.add("hidden");
-  els.siteFooter?.classList.add("hidden");
-  els.internalLoginView?.classList.add("hidden");
-  els.passwordRecoveryView?.classList.add("hidden");
-  els.passwordResetView?.classList.add("hidden");
-  els.internalRoleView?.classList.remove("hidden");
-  els.adminNav?.classList.add("hidden");
-  els.backToManagement?.classList.add("hidden");
-  els.catalogView?.classList.add("hidden");
-  els.managementShell?.classList.add("hidden");
-  els.adminView?.classList.add("hidden");
-  els.stockView?.classList.add("hidden");
-  els.importView?.classList.add("hidden");
-  els.ordersView?.classList.add("hidden");
-  els.clientsView?.classList.add("hidden");
-  els.reportsView?.classList.add("hidden");
-  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
-  hideAdminKeyForm();
+  return secret;
 }
 
-function selectInternalProfile(profile, adminToken = null) {
-  if (!internalAuthenticated || !["admin", "employee"].includes(profile)) return;
-  if (profile === "admin" && adminToken !== INTERNAL_ADMIN_PROFILE_TOKEN) {
-    showAdminKeyForm();
-    return;
+async function sha256Hex(value) {
+  const encoded = new TextEncoder().encode(String(value || ""));
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function getInternalDevicePayload(username = "") {
+  const secret = getInternalDeviceSecret();
+  const userAgent = navigator.userAgent || "";
+  const base = `${location.origin}|${userAgent}|${secret}`;
+  return {
+    deviceHash: await sha256Hex(base),
+    deviceSecretHash: await sha256Hex(`${secret}|pxm-device-secret`),
+    deviceLabel: `${navigator.platform || "Dispositivo"} · ${new Date().getFullYear()}`,
+    userAgent,
+    username: normalizeInternalUsername(username)
+  };
+}
+
+async function rpcJson(name, params = {}, timeoutMessage = "Supabase tardó demasiado.") {
+  const client = getSupabaseAuthClient();
+  if (!client || typeof client.rpc !== "function") throw new Error("Supabase Auth no está disponible.");
+  const { data, error } = await withSupabaseTimeout(client.rpc(name, params), timeoutMessage, 12000);
+  if (error) throw new Error(error.message || `No se pudo ejecutar ${name}.`);
+  return data || {};
+}
+
+async function resolveInternalLoginUser(username) {
+  const data = await rpcJson(
+    "internal_resolve_login_user",
+    { p_username: normalizeInternalUsername(username) },
+    "No se pudo resolver el usuario a tiempo."
+  );
+  if (!data?.found || !data?.login_email) throw new Error("Usuario o contraseña incorrectos.");
+  return data;
+}
+
+async function getInternalLoginLock(username, deviceHash) {
+  return rpcJson(
+    "internal_get_login_lock",
+    { p_username: normalizeInternalUsername(username), p_device_hash: deviceHash || "" },
+    "No se pudo verificar el bloqueo temporal."
+  );
+}
+
+async function recordInternalFailedLogin(username, deviceHash) {
+  return rpcJson(
+    "internal_record_failed_login",
+    { p_username: normalizeInternalUsername(username), p_device_hash: deviceHash || "" },
+    "No se pudo registrar el intento fallido."
+  );
+}
+
+async function clearInternalLoginAttempts(username, deviceHash) {
+  try {
+    await rpcJson(
+      "internal_clear_login_attempts",
+      { p_username: normalizeInternalUsername(username), p_device_hash: deviceHash || "" },
+      "No se pudo limpiar el contador de intentos."
+    );
+  } catch (error) {
+    console.warn("Punto X Mayor clear login attempts:", error);
   }
-  internalUnlocked = true;
-  currentRole = profile;
-  sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "true");
-  sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, profile);
-  localStorage.setItem(STORAGE_ROLE, profile);
-  if (profile === "employee") clearAdminOnlyState();
-  els.internalRoleView?.classList.add("hidden");
-  renderAll();
-  setView(getSavedInitialManagementView(), true, { replace: true });
-  refreshOrdersFromSupabase("profile-selected", { silent: true });
-  restoreSavedScrollPosition();
 }
 
-function showAdminKeyForm() {
-  els.adminKeyForm?.classList.remove("hidden");
-  els.adminKeyError?.classList.add("hidden");
-  if (els.adminInternalKey) els.adminInternalKey.value = "";
-  window.setTimeout(() => els.adminInternalKey?.focus(), 0);
+function formatLoginLockMessage(lock) {
+  const lockedUntil = lock?.locked_until ? new Date(lock.locked_until) : null;
+  if (!lockedUntil || Number.isNaN(lockedUntil.getTime())) return "Demasiados intentos. Esperá 15 minutos.";
+  return `Demasiados intentos. Volvé a intentar a las ${lockedUntil.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}.`;
 }
 
-function hideAdminKeyForm() {
-  els.adminKeyForm?.classList.add("hidden");
-  els.adminKeyError?.classList.add("hidden");
-  if (els.adminInternalKey) els.adminInternalKey.value = "";
-}
-
-async function handleAdminKeySubmit(event) {
-  event.preventDefault();
-  const key = String(els.adminInternalKey?.value || "");
-  if (!key.trim()) {
-    showAdminKeyError("Ingresá la clave interna.");
-    return;
-  }
-  if (els.adminKeySubmit) {
-    els.adminKeySubmit.disabled = true;
-    els.adminKeySubmit.textContent = "Validando...";
+async function completeInternalAccessAfterAuth(session, options = {}) {
+  const client = getSupabaseAuthClient();
+  if (!client || !session?.user) {
+    lockInternalSession();
+    return false;
   }
   try {
-    const valid = await verifyAdminInternalKey(key);
-    if (!valid) throw new Error("Clave interna incorrecta.");
-    hideAdminKeyForm();
-    selectInternalProfile("admin", INTERNAL_ADMIN_PROFILE_TOKEN);
-  } catch (error) {
-    console.error("Punto X Mayor admin profile validation:", error);
-    showAdminKeyError(error.message || "No se pudo validar la clave interna.");
-  } finally {
-    if (els.adminKeySubmit) {
-      els.adminKeySubmit.disabled = false;
-      els.adminKeySubmit.textContent = "Validar";
+    const context = await rpcJson("internal_current_user", {}, "No se pudo validar el usuario interno.");
+    if (!context?.allowed) throw new Error("Este usuario no está habilitado para Gestión Interna.");
+    const device = await getInternalDevicePayload(context.username);
+    const deviceContext = await rpcJson(
+      "internal_check_device",
+      {
+        p_device_hash: device.deviceHash,
+        p_device_secret_hash: device.deviceSecretHash,
+        p_device_label: device.deviceLabel,
+        p_user_agent: device.userAgent
+      },
+      "No se pudo validar el dispositivo."
+    );
+    internalDeviceContext = deviceContext;
+    if (!deviceContext?.allowed) {
+      await client.auth.signOut();
+      lockInternalSession();
+      const status = deviceContext?.device_status || "pending";
+      const message = status === "pending"
+        ? "Dispositivo pendiente de autorización. Un administrador debe aprobarlo."
+        : status === "revoked"
+          ? "Este dispositivo fue revocado."
+          : status === "rejected"
+            ? "Este dispositivo fue rechazado."
+            : "Este dispositivo no está autorizado.";
+      if (!options.silent) showInternalLogin(true, message);
+      return false;
     }
+    if (context.mfa_required) {
+      const mfaOk = await ensureInternalMfa(client);
+      if (!mfaOk) {
+        await client.auth.signOut();
+        lockInternalSession();
+        if (!options.silent) showInternalLogin(true, "Se requiere 2FA para Administrador.");
+        return false;
+      }
+    }
+    unlockInternalSession(session, context);
+    return true;
+  } catch (error) {
+    console.error("Punto X Mayor internal access:", error);
+    await client.auth.signOut();
+    lockInternalSession();
+    if (!options.silent) showInternalLogin(true, error.message || "No se pudo validar el acceso interno.");
+    return false;
   }
 }
 
-function showAdminKeyError(message) {
-  if (!els.adminKeyError) return;
-  els.adminKeyError.textContent = message;
-  els.adminKeyError.classList.remove("hidden");
+async function ensureInternalMfa(client) {
+  if (!client?.auth?.mfa) return false;
+  const aalResult = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aalResult?.data?.currentLevel === "aal2") return true;
+  const factorsResult = await client.auth.mfa.listFactors();
+  const factor = factorsResult?.data?.totp?.find((entry) => entry.status === "verified");
+  if (!factor) return false;
+  const code = window.prompt("Ingresá el código 2FA de tu app autenticadora");
+  if (!code) return false;
+  const challenge = await client.auth.mfa.challenge({ factorId: factor.id });
+  if (challenge.error) throw challenge.error;
+  const verify = await client.auth.mfa.verify({
+    factorId: factor.id,
+    challengeId: challenge.data.id,
+    code: String(code).trim()
+  });
+  if (verify.error) throw verify.error;
+  return true;
 }
 
-async function verifyAdminInternalKey(key) {
-  const client = getSupabaseAuthClient();
-  if (!client) throw new Error("Supabase Auth no está disponible.");
-  const { data, error } = await withSupabaseTimeout(
-    client.rpc("verify_internal_admin_key", { admin_key: key }),
-    "No se pudo validar la clave interna a tiempo.",
-    10000
-  );
-  if (error) throw new Error(error.message || "No se pudo validar la clave interna en Supabase.");
-  return data === true || data?.valid === true;
+function toggleInternalPasswordVisibility() {
+  if (!els.internalPassword || !els.internalPasswordToggle) return;
+  const show = els.internalPassword.type === "password";
+  els.internalPassword.type = show ? "text" : "password";
+  els.internalPasswordToggle.setAttribute("aria-pressed", show ? "true" : "false");
+  els.internalPasswordToggle.setAttribute("aria-label", show ? "Ocultar contraseña" : "Mostrar contraseña");
 }
 
 function clearAdminOnlyState() {
@@ -10223,6 +10335,7 @@ function showInternalLogin(showError = false, message = "", isSuccess = false) {
   els.ordersView?.classList.add("hidden");
   els.clientsView?.classList.add("hidden");
   els.reportsView?.classList.add("hidden");
+  els.securityView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
   els.internalRoleView?.classList.add("hidden");
   els.passwordRecoveryView?.classList.add("hidden");
@@ -10261,6 +10374,7 @@ function showPasswordRecoveryForm() {
   els.ordersView?.classList.add("hidden");
   els.clientsView?.classList.add("hidden");
   els.reportsView?.classList.add("hidden");
+  els.securityView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
@@ -10291,6 +10405,7 @@ function showPasswordResetForm() {
   els.ordersView?.classList.add("hidden");
   els.clientsView?.classList.add("hidden");
   els.reportsView?.classList.add("hidden");
+  els.securityView?.classList.add("hidden");
   document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
@@ -10305,13 +10420,13 @@ function showPasswordResetForm() {
 async function handlePasswordRecoveryRequest(event) {
   event.preventDefault();
   const client = getSupabaseAuthClient();
-  const email = String(els.passwordRecoveryEmail?.value || "").trim();
+  const username = normalizeInternalUsername(els.passwordRecoveryEmail?.value || "");
   if (!client) {
     setLoginMessage(els.passwordRecoveryMessage, "Supabase Auth no está disponible.", true);
     return;
   }
-  if (!email) {
-    setLoginMessage(els.passwordRecoveryMessage, "Ingresá tu email.", true);
+  if (!username) {
+    setLoginMessage(els.passwordRecoveryMessage, "Ingresá el usuario.", true);
     return;
   }
   if (els.passwordRecoverySubmit) {
@@ -10319,12 +10434,21 @@ async function handlePasswordRecoveryRequest(event) {
     els.passwordRecoverySubmit.textContent = "Enviando...";
   }
   try {
+    const recovery = await rpcJson(
+      "internal_admin_recovery_email",
+      { p_username: username },
+      "No se pudo validar el usuario de recuperación."
+    );
+    if (!recovery?.allowed || !recovery?.email) {
+      setLoginMessage(els.passwordRecoveryMessage, "Si el usuario tiene recuperación habilitada, se envió el enlace.", false);
+      return;
+    }
     const { error } = await withSupabaseTimeout(
-      client.auth.resetPasswordForEmail(email, { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL }),
+      client.auth.resetPasswordForEmail(recovery.email, { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL }),
       "No se pudo enviar el correo de recuperación a tiempo."
     );
     if (error) throw error;
-    setLoginMessage(els.passwordRecoveryMessage, "Si el correo existe, se envió el enlace para restablecer la contraseña.", false);
+    setLoginMessage(els.passwordRecoveryMessage, "Si el usuario tiene recuperación habilitada, se envió el enlace.", false);
   } catch (error) {
     console.error("Punto X Mayor password recovery:", error);
     setLoginMessage(els.passwordRecoveryMessage, error.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.", true);
@@ -10380,14 +10504,14 @@ async function handlePasswordResetSubmit(event) {
 async function handleInternalLogin(event) {
   event.preventDefault();
   const client = getSupabaseAuthClient();
-  const email = String(els.internalEmail?.value || "").trim();
+  const username = normalizeInternalUsername(els.internalEmail?.value || "");
   const password = String(els.internalPassword?.value || "");
   if (!client) {
     showInternalLogin(true, "Supabase Auth no está disponible.");
     return;
   }
-  if (!email || !password) {
-    showInternalLogin(true, "Ingresá email y contraseña.");
+  if (!username || !password) {
+    showInternalLogin(true, "Ingresá usuario y contraseña.");
     return;
   }
 
@@ -10396,18 +10520,35 @@ async function handleInternalLogin(event) {
     els.internalLoginSubmit.textContent = "Ingresando...";
   }
   try {
-    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    const device = await getInternalDevicePayload(username);
+    const lock = await getInternalLoginLock(username, device.deviceHash);
+    if (lock?.locked) throw new Error(formatLoginLockMessage(lock));
+    const loginUser = await resolveInternalLoginUser(username);
+    const { data, error } = await client.auth.signInWithPassword({ email: loginUser.login_email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    unlockInternalSession(data.session, "");
+    await clearInternalLoginAttempts(username, device.deviceHash);
     els.internalLoginError?.classList.add("hidden");
     if (els.internalPassword) els.internalPassword.value = "";
+    const allowed = await completeInternalAccessAfterAuth(data.session);
+    if (!allowed) return;
     await refreshCatalogFromSupabase("gestion-login", { silent: true });
-    showInternalRoleChoice();
+    renderAll();
+    setView(getSavedInitialManagementView(), true, { replace: true });
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth login:", error);
+    try {
+      const device = await getInternalDevicePayload(username);
+      const fail = await recordInternalFailedLogin(username, device.deviceHash);
+      if (fail?.locked) {
+        showInternalLogin(true, formatLoginLockMessage(fail));
+        return;
+      }
+    } catch (failError) {
+      console.warn("Punto X Mayor failed login counter:", failError);
+    }
     if (els.internalPassword) els.internalPassword.value = "";
-    showInternalLogin(true, error.message || "No se pudo iniciar sesión.");
+    showInternalLogin(true, error.message || "Usuario o contraseña incorrectos.");
   } finally {
     if (els.internalLoginSubmit) {
       els.internalLoginSubmit.disabled = false;
@@ -10432,8 +10573,139 @@ async function handleInternalLogout() {
   }
 }
 
+async function refreshInternalSecurityDevices() {
+  if (!canAccess("admin")) return;
+  try {
+    const devices = await rpcJson("internal_admin_list_devices", {}, "No se pudieron leer los dispositivos.");
+    renderInternalSecurityDevices(Array.isArray(devices) ? devices : []);
+  } catch (error) {
+    console.error("Punto X Mayor security devices:", error);
+    renderInternalSecurityDevices([]);
+    showToast(error.message || "No se pudieron cargar los dispositivos");
+  }
+}
+
+function renderInternalSecurityDevices(devices) {
+  const groups = {
+    pending: devices.filter((device) => device.status === "pending"),
+    authorized: devices.filter((device) => device.status === "authorized"),
+    blocked: devices.filter((device) => ["rejected", "revoked"].includes(device.status))
+  };
+  if (els.pendingDevicesList) els.pendingDevicesList.innerHTML = renderDeviceRows(groups.pending, "pending");
+  if (els.authorizedDevicesList) els.authorizedDevicesList.innerHTML = renderDeviceRows(groups.authorized, "authorized");
+  if (els.blockedDevicesList) els.blockedDevicesList.innerHTML = renderDeviceRows(groups.blocked, "blocked");
+  bindInternalSecurityDeviceActions();
+}
+
+function renderDeviceRows(devices, group) {
+  if (!devices.length) return `<p class="empty-state">Sin dispositivos.</p>`;
+  return devices.map((device) => `
+    <article class="security-device-row">
+      <strong>${escapeHtml(device.device_label || "Dispositivo")}</strong>
+      <span>${escapeHtml(device.username || "")} · ${escapeHtml(formatDeviceStatus(device.status))}</span>
+      <small>Solicitud: ${escapeHtml(formatCompactDateTime(device.requested_at))}</small>
+      <small>Último acceso: ${escapeHtml(device.last_seen_at ? formatCompactDateTime(device.last_seen_at) : "Sin accesos")}</small>
+      <div class="security-device-actions">
+        ${group === "pending" ? `<button class="primary-button small-button" type="button" data-device-action="authorized" data-device-id="${escapeHtml(device.id)}">Autorizar</button>` : ""}
+        ${group === "pending" ? `<button class="secondary-button small-button" type="button" data-device-action="rejected" data-device-id="${escapeHtml(device.id)}">Rechazar</button>` : ""}
+        ${group === "authorized" ? `<button class="danger-button small-button" type="button" data-device-action="revoked" data-device-id="${escapeHtml(device.id)}">Revocar</button>` : ""}
+      </div>
+    </article>
+  `).join("");
+}
+
+function formatDeviceStatus(status) {
+  const labels = {
+    pending: "Pendiente",
+    authorized: "Autorizado",
+    rejected: "Rechazado",
+    revoked: "Revocado"
+  };
+  return labels[status] || status || "Sin estado";
+}
+
+function bindInternalSecurityDeviceActions() {
+  document.querySelectorAll("[data-device-action][data-device-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!canAccess("admin")) return;
+      button.disabled = true;
+      try {
+        await rpcJson(
+          "internal_admin_set_device_status",
+          { p_device_id: button.dataset.deviceId, p_status: button.dataset.deviceAction },
+          "No se pudo actualizar el dispositivo."
+        );
+        await refreshInternalSecurityDevices();
+        showToast("Dispositivo actualizado", "success");
+      } catch (error) {
+        console.error("Punto X Mayor set device status:", error);
+        showToast(error.message || "No se pudo actualizar el dispositivo");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function startAdminMfaEnrollment() {
+  if (!canAccess("admin")) return;
+  const client = getSupabaseAuthClient();
+  if (!client?.auth?.mfa) {
+    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error">Supabase MFA no está disponible en este cliente.</p>`;
+    return;
+  }
+  if (els.startMfaSetupButton) els.startMfaSetupButton.disabled = true;
+  try {
+    const { data, error } = await client.auth.mfa.enroll({ factorType: "totp" });
+    if (error) throw error;
+    const qr = data?.totp?.qr_code || "";
+    const factorId = data?.id || "";
+    if (!factorId) throw new Error("Supabase no devolvió el factor 2FA.");
+    if (els.mfaSetupBox) {
+      els.mfaSetupBox.innerHTML = `
+        <div class="security-device-row">
+          <strong>Escaneá el QR con tu app autenticadora</strong>
+          ${qr ? `<img alt="QR 2FA" src="${escapeHtml(qr)}" style="max-width:180px;width:100%;height:auto;">` : ""}
+          <label>Código 2FA<input type="text" inputmode="numeric" autocomplete="one-time-code" data-mfa-code></label>
+          <button class="primary-button small-button" type="button" data-verify-mfa="${escapeHtml(factorId)}">Verificar 2FA</button>
+        </div>
+      `;
+      els.mfaSetupBox.querySelector("[data-verify-mfa]")?.addEventListener("click", verifyAdminMfaEnrollment);
+    }
+  } catch (error) {
+    console.error("Punto X Mayor MFA enroll:", error);
+    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error">${escapeHtml(error.message || "No se pudo configurar 2FA.")}</p>`;
+  } finally {
+    if (els.startMfaSetupButton) els.startMfaSetupButton.disabled = false;
+  }
+}
+
+async function verifyAdminMfaEnrollment(event) {
+  const client = getSupabaseAuthClient();
+  const factorId = event.currentTarget?.dataset.verifyMfa || "";
+  const code = String(els.mfaSetupBox?.querySelector("[data-mfa-code]")?.value || "").trim();
+  if (!client?.auth?.mfa || !factorId || !code) return;
+  event.currentTarget.disabled = true;
+  try {
+    const challenge = await client.auth.mfa.challenge({ factorId });
+    if (challenge.error) throw challenge.error;
+    const verify = await client.auth.mfa.verify({
+      factorId,
+      challengeId: challenge.data.id,
+      code
+    });
+    if (verify.error) throw verify.error;
+    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error login-success">2FA activado correctamente.</p>`;
+  } catch (error) {
+    console.error("Punto X Mayor MFA verify:", error);
+    if (els.mfaSetupBox) els.mfaSetupBox.insertAdjacentHTML("beforeend", `<p class="login-error">${escapeHtml(error.message || "No se pudo verificar 2FA.")}</p>`);
+  } finally {
+    event.currentTarget.disabled = false;
+  }
+}
+
 function getManagementViews() {
-  return ["admin", "pedidos", "clientes", "reportes", "importacion"];
+  return ["admin", "pedidos", "clientes", "reportes", "importacion", "seguridad"];
 }
 
 function applyRoleVisibility() {

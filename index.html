@@ -68,7 +68,7 @@
         <nav>
           <button class="ghost-button" id="adminNavManagement" type="button">Gestión</button>
           <button class="ghost-button" id="adminNavCatalog" type="button">Ver Catálogo</button>
-          <button class="ghost-button" id="adminSwitchRole" type="button">Cambiar perfil</button>
+          <button class="ghost-button" id="adminSwitchRole" type="button" data-admin-only>Seguridad</button>
           <button class="ghost-button" id="adminLogout" type="button">Cerrar sesión</button>
         </nav>
       </section>
@@ -112,12 +112,15 @@
           <p class="eyebrow">Acceso privado</p>
           <h2 id="internalLoginTitle">Gestión interna</h2>
           <label>
-            Email
-            <input id="internalEmail" name="email" type="email" autocomplete="username" required>
+            Usuario
+            <input id="internalEmail" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" spellcheck="false" required>
           </label>
-          <label>
+          <label class="password-field">
             Contraseña
-            <input id="internalPassword" name="password" type="password" autocomplete="current-password" required>
+            <span>
+              <input id="internalPassword" name="password" type="password" autocomplete="current-password" required>
+              <button class="password-toggle" id="internalPasswordToggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false">👁</button>
+            </span>
           </label>
           <p class="login-error hidden" id="internalLoginError" role="alert">No se pudo iniciar sesión.</p>
           <button class="primary-button full" id="internalLoginSubmit" type="submit">Ingresar</button>
@@ -130,10 +133,10 @@
           <div class="brand-mark login-brand">PX</div>
           <p class="eyebrow">Recuperar acceso</p>
           <h2 id="passwordRecoveryTitle">Restablecer contraseña</h2>
-          <p class="login-help">Ingresá tu email y te enviaremos un enlace para crear una nueva contraseña.</p>
+          <p class="login-help">Ingresá el usuario administrador y enviaremos el enlace al contacto de recuperación asociado.</p>
           <label>
-            Email
-            <input id="passwordRecoveryEmail" name="email" type="email" autocomplete="username" required>
+            Usuario
+            <input id="passwordRecoveryEmail" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           </label>
           <p class="login-error hidden" id="passwordRecoveryMessage" role="alert"></p>
           <button class="primary-button full" id="passwordRecoverySubmit" type="submit">Enviar enlace</button>
@@ -159,30 +162,7 @@
         </form>
       </section>
 
-      <section id="internalRoleView" class="internal-login-view hidden" aria-labelledby="internalRoleTitle">
-        <div class="internal-login-card internal-role-card">
-          <div class="brand-mark login-brand">PX</div>
-          <p class="eyebrow">Acceso interno</p>
-          <h2 id="internalRoleTitle">Elegir perfil</h2>
-          <p class="role-choice-copy">Ingresá al panel según el trabajo que vas a realizar.</p>
-          <div class="internal-role-actions">
-            <button class="primary-button full" id="chooseAdminRole" type="button">Entrar como Administrador</button>
-            <button class="secondary-button full" id="chooseEmployeeRole" type="button">Entrar como Empleado</button>
-          </div>
-          <form class="admin-key-form hidden" id="adminKeyForm">
-            <label>
-              Clave interna de administrador
-              <input id="adminInternalKey" name="adminInternalKey" type="password" autocomplete="off" required>
-            </label>
-            <p class="login-error hidden" id="adminKeyError" role="alert">No se pudo validar la clave.</p>
-            <div class="stock-modal-actions">
-              <button class="secondary-button small-button" id="cancelAdminKey" type="button">Cancelar</button>
-              <button class="primary-button small-button" id="adminKeySubmit" type="submit">Validar</button>
-            </div>
-          </form>
-          <button class="ghost-button full" id="roleLogout" type="button">Cerrar sesión</button>
-        </div>
-      </section>
+      <section id="internalRoleView" class="internal-login-view hidden" aria-hidden="true"></section>
 
       <section id="managementShell" class="management-shell hidden">
         <div>
@@ -452,6 +432,36 @@
           </div>
           </div>
         <div class="report-grid" id="reportGrid"></div>
+      </section>
+
+      <section id="securityView" class="content-view hidden" data-admin-only>
+        <div class="section-head">
+          <div>
+            <h2>Seguridad</h2>
+            <p>Dispositivos autorizados para usar Gestión Interna.</p>
+          </div>
+          <button class="secondary-button" id="refreshSecurityButton" type="button">Actualizar</button>
+        </div>
+        <div class="security-panel-grid">
+          <article class="security-card">
+            <h3>2FA Administrador</h3>
+            <p class="login-help">Configurá una app autenticadora para el usuario admin.</p>
+            <button class="secondary-button small-button" id="startMfaSetupButton" type="button">Configurar 2FA</button>
+            <div id="mfaSetupBox" class="security-device-list"></div>
+          </article>
+          <article class="security-card">
+            <h3>Dispositivos pendientes</h3>
+            <div id="pendingDevicesList" class="security-device-list"></div>
+          </article>
+          <article class="security-card">
+            <h3>Dispositivos autorizados</h3>
+            <div id="authorizedDevicesList" class="security-device-list"></div>
+          </article>
+          <article class="security-card">
+            <h3>Dispositivos rechazados / revocados</h3>
+            <div id="blockedDevicesList" class="security-device-list"></div>
+          </article>
+        </div>
       </section>
     </main>
 

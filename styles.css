@@ -521,6 +521,68 @@ html[data-private-management="true"] .public-catalog-header + .minimum-banner,
   color: var(--ink);
 }
 
+.password-field span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.password-toggle {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.security-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.security-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.security-card h3 {
+  margin: 0;
+}
+
+.security-device-list {
+  display: grid;
+  gap: 8px;
+}
+
+.security-device-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.security-device-row strong,
+.security-device-row span,
+.security-device-row small {
+  overflow-wrap: anywhere;
+}
+
+.security-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .footer-lock {
   display: none !important;
 }
