@@ -883,21 +883,22 @@ async function initializeSupabaseAuth() {
 
   try {
     const recoveryReturn = isPasswordRecoveryReturn();
-    if (recoveryReturn) showPasswordResetForm();
-    const { data, error } = await client.auth.getSession();
-    if (error) throw error;
-    if (data?.session?.user) {
-      if (recoveryReturn || passwordRecoveryActive) {
-        showPasswordResetForm();
-        return;
-      }
-      await completeInternalAccessAfterAuth(data.session, { silent: !isPrivateManagementRoute() });
+    if (recoveryReturn) {
+      await ensurePasswordRecoverySession(client);
+      showPasswordResetForm();
+    } else {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      if (data?.session?.user) await completeInternalAccessAfterAuth(data.session, { silent: !isPrivateManagementRoute() });
+      else lockInternalSession();
     }
-    else if (!recoveryReturn) lockInternalSession();
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth session:", error);
-    if (passwordRecoveryActive || isPasswordRecoveryReturn()) showPasswordResetForm();
-    else {
+    if (isPasswordRecoveryReturn()) {
+      passwordRecoveryActive = false;
+      if (window.history?.replaceState) window.history.replaceState({}, "", PRIVATE_MANAGEMENT_PATH);
+      showInternalLogin(true, getPasswordResetErrorMessage(error));
+    } else {
       lockInternalSession();
       if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
     }
@@ -10315,6 +10316,23 @@ function isPrivateManagementRoute() {
   return normalizeRoutePath(window.location.pathname) === PRIVATE_MANAGEMENT_PATH;
 }
 
+async function ensurePasswordRecoverySession(client) {
+  if (!client?.auth) throw new Error("Supabase Auth no está disponible.");
+  const query = new URLSearchParams(window.location.search || "");
+  const hash = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+  const urlError = query.get("error_description") || hash.get("error_description") || query.get("error") || hash.get("error");
+  if (urlError) throw new Error(urlError);
+  const code = query.get("code");
+  if (code) {
+    if (typeof client.auth.exchangeCodeForSession !== "function") throw new Error("Este enlace de recuperación no puede validarse en este navegador.");
+    const { error } = await client.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+  }
+  const { data, error } = await client.auth.getSession();
+  if (error) throw error;
+  if (data?.session?.user) return data.session;
+  throw new Error("El enlace de recuperación venció, ya fue utilizado o no pudo validarse. Pedí un enlace nuevo desde Gestión.");
+}
 function isPasswordRecoveryReturn() {
   const query = new URLSearchParams(window.location.search || "");
   return query.get("reset-password") === "1" || String(window.location.hash || "").includes("type=recovery");
@@ -10682,6 +10700,13 @@ function setLoginMessage(element, message = "", isError = false) {
   element.classList.toggle("login-success", Boolean(message && !isError));
 }
 
+function getPasswordResetErrorMessage(error) {
+  const raw = `${error?.code || ""} ${error?.message || ""} ${error?.status || ""}`.toLowerCase();
+  if (raw.includes("auth session missing") || raw.includes("session missing") || raw.includes("invalid") || raw.includes("expired") || raw.includes("venció") || raw.includes("used")) {
+    return "El enlace de recuperación venció, ya fue utilizado o no pudo validarse. Pedí un enlace nuevo desde Gestión.";
+  }
+  return error?.message || "No se pudo validar el enlace de recuperación. Pedí un enlace nuevo desde Gestión.";
+}
 function getPasswordRecoveryErrorMessage(error) {
   const raw = `${error?.code || ""} ${error?.message || ""} ${error?.status || ""}`.toLowerCase();
   if (raw.includes("rate limit") || raw.includes("too many") || raw.includes("over_email_send_rate_limit") || String(error?.status || "") === "429") {
@@ -10820,7 +10845,7 @@ async function handlePasswordResetSubmit(event) {
     showInternalLogin(true, "Contraseña actualizada. Iniciá sesión nuevamente.", true);
   } catch (error) {
     console.error("Punto X Mayor password reset:", error);
-    setLoginMessage(els.passwordResetMessage, error.message || "No se pudo actualizar la contraseña. Intentá nuevamente.", true);
+    setLoginMessage(els.passwordResetMessage, getPasswordResetErrorMessage(error), true);
   } finally {
     if (els.passwordResetSubmit) {
       els.passwordResetSubmit.disabled = false;
