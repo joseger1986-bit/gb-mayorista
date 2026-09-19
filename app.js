@@ -10682,6 +10682,16 @@ function setLoginMessage(element, message = "", isError = false) {
   element.classList.toggle("login-success", Boolean(message && !isError));
 }
 
+function getPasswordRecoveryErrorMessage(error) {
+  const raw = `${error?.code || ""} ${error?.message || ""} ${error?.status || ""}`.toLowerCase();
+  if (raw.includes("rate limit") || raw.includes("too many") || raw.includes("over_email_send_rate_limit") || String(error?.status || "") === "429") {
+    return "Se alcanzó el límite temporal de correos de recuperación. Esperá unos minutos antes de pedir otro enlace. Si necesitás probar muchas veces, hay que configurar SMTP propio en Supabase.";
+  }
+  if (raw.includes("email address not authorized")) {
+    return "Supabase no está autorizado a enviar correos a ese email. Revisá la configuración SMTP o los destinatarios permitidos del proyecto.";
+  }
+  return error?.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.";
+}
 function showPasswordRecoveryForm() {
   passwordRecoveryActive = false;
   currentView = "gestion-login";
@@ -10768,7 +10778,7 @@ async function handlePasswordRecoveryRequest(event) {
     setLoginMessage(els.passwordRecoveryMessage, "Si el correo existe, se envió el enlace para restablecer la contraseña.", false);
   } catch (error) {
     console.error("Punto X Mayor password recovery:", error);
-    setLoginMessage(els.passwordRecoveryMessage, error.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.", true);
+    setLoginMessage(els.passwordRecoveryMessage, getPasswordRecoveryErrorMessage(error), true);
   } finally {
     if (els.passwordRecoverySubmit) {
       els.passwordRecoverySubmit.disabled = false;
