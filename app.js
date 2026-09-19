@@ -19,7 +19,7 @@ const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
-const PASSWORD_RECOVERY_REDIRECT_URL = "https://gb-mayorista.vercel.app/gestion?reset-password=1";
+const PASSWORD_RECOVERY_REDIRECT_URL = "https://mayorista.vercel.app/gestion?reset-password=1";
 const DEFAULT_PRODUCT_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='675' viewBox='0 0 900 675'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f7f8f2'/%3E%3Cstop offset='1' stop-color='%23e8efe3'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='900' height='675' fill='url(%23bg)'/%3E%3Crect x='72' y='58' width='756' height='559' rx='30' fill='%23ffffff' stroke='%23dbe2d8' stroke-width='4'/%3E%3Cpath d='M360 168 L411 128 H489 L540 168 L598 220 L548 286 L520 262 V478 H380 V262 L352 286 L302 220 Z' fill='%23edf4e8' stroke='%234b7a3e' stroke-width='12' stroke-linejoin='round'/%3E%3Cpath d='M411 128 C424 170 476 170 489 128' fill='none' stroke='%234b7a3e' stroke-width='12' stroke-linecap='round'/%3E%3Ctext x='450' y='548' text-anchor='middle' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='%232b332d'%3EPunto X Mayor%3C/text%3E%3Ctext x='450' y='594' text-anchor='middle' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='%23717c72'%3EImagen de prueba%3C/text%3E%3C/svg%3E";
 const LODY_742_IMAGE = "https://acdn-us.mitiendanube.com/stores/941/776/products/742-f8db079bccbf04a99a17447222071825-1024-1024.webp";
 let processedProductImage = "";
@@ -47,7 +47,8 @@ const catalogCategoryOrder = [
 
 const statuses = [
   "En revisión",
-  "Pagado"
+  "Pagado",
+  "Cancelado"
 ];
 
 const confirmedStatuses = ["Pagado"];
@@ -211,7 +212,7 @@ let currentPrintOrderId = "";
 let openOrderId = "";
 let operationalWebOrderId = "";
 let orderListSearch = "";
-let orderListFilter = "Hoy";
+let orderListFilter = "Todas";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
 let completedQuickSaleOrderId = "";
 let orderDetailHistoryActive = false;
@@ -298,6 +299,8 @@ let catalogImagePreloadTimer = null;
 let archivedProductsCache = [];
 let passwordRecoveryActive = false;
 let internalDeviceContext = null;
+let internalProfileSelection = "";
+let internalProfileSubmitting = false;
 let internalAuthContext = null;
 
 const els = {
@@ -882,7 +885,7 @@ async function initializeSupabaseAuth() {
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
     if (data?.session?.user) {
-      await completeInternalAccessAfterAuth(data.session, { silent: true });
+      await completeInternalAccessAfterAuth(data.session, { silent: !isPrivateManagementRoute() });
       if (isPasswordRecoveryReturn()) showPasswordResetForm();
     }
     else lockInternalSession();
@@ -899,7 +902,7 @@ async function initializeSupabaseAuth() {
       return;
     }
     if (session?.user) {
-      completeInternalAccessAfterAuth(session, { silent: true }).then((allowed) => {
+      completeInternalAccessAfterAuth(session, { silent: !isPrivateManagementRoute() }).then((allowed) => {
         if (allowed && isPrivateManagementRoute()) {
           renderAll();
           setView(getInitialView(), true, { replace: true });
@@ -1023,17 +1026,15 @@ async function refreshOrdersFromSupabase(reason = "manual", options = {}) {
   try {
     const remoteOrders = await withSupabaseTimeout(loadOrdersFromSupabase(), "No se pudieron leer los pedidos de Supabase a tiempo.");
     supabaseOrdersBootstrapped = true;
-    if (remoteOrders.length) {
-      mergeRemoteOrders(remoteOrders);
-      if (currentView === "pedidos") markOrdersNotificationsSeen();
-      syncClientsFromOrders();
-      saveOrders();
-      renderAll();
-    }
+    mergeRemoteOrders(remoteOrders);
+    if (currentView === "pedidos") markOrdersNotificationsSeen();
+    syncClientsFromOrders();
+    saveOrders();
+    renderAll();
     return { ok: true, orders: remoteOrders.length, reason };
   } catch (error) {
     console.error("Punto X Mayor Supabase orders read:", error);
-    if (!options.silent) showToast(error.message || "No se pudieron actualizar los pedidos.");
+    if (!options.silent || currentView === "pedidos") showToast(error.message || "No se pudieron actualizar los pedidos.");
     return { ok: false, message: error.message || "No se pudieron leer los pedidos." };
   } finally {
     supabaseOrdersRemoteRefreshing = false;
@@ -1158,6 +1159,132 @@ async function saveOrderToSupabase(order) {
   return remoteOrder;
 }
 
+async function saveLocalSaleToSupabase(order) {
+  const client = getSupabaseCatalogClient();
+  if (!client) throw new Error("No se pudo conectar con Supabase para registrar la venta.");
+  recalculateBudget(order);
+  const orderId = String(order.remoteId || order.id || crypto.randomUUID());
+  order.id = orderId;
+  const orderRow = {
+    id: orderId,
+    customer_name: order.customerName || order.customer || "",
+    customer_phone: order.customerPhone || "",
+    customer_location: order.customerLocation || "",
+    status: "Pagado",
+    origin: "local",
+    subtotal: Number(order.subtotal) || 0,
+    total: Number(order.total) || 0,
+    discount_type: order.discountType || "fixed",
+    discount_value: Number(order.discountValue) || 0,
+    discount_amount: Number(order.discountAmount) || 0,
+    payment_method: order.paymentMethod || "Transferencia",
+    delivery_notes: order.deliveryNotes || "",
+    stock_applied: Boolean(order.stockApplied),
+    paid_at: order.paidAt || new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  const { data: savedOrder, error: orderError } = await client
+    .from("orders")
+    .insert(orderRow)
+    .select("*")
+    .single();
+  if (orderError) throw new Error(`No se pudo guardar la venta en Supabase: ${orderError.message || orderError.code || "error desconocido"}`);
+  const itemRows = order.items.map((item) => ({
+    order_id: savedOrder.id,
+    product_id: item.id,
+    product_name: item.name || "Producto",
+    variant_name: item.variant || "",
+    presentation: getBudgetItemPresentation(item),
+    stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
+    quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    unit_price: Number(item.price) || 0,
+    unit_cost: Number(item.cost) || 0,
+    subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
+  }));
+  const { data: savedItems, error: itemsError } = await client
+    .from("order_items")
+    .insert(itemRows)
+    .select("*");
+  if (itemsError) throw new Error(`La venta se creó, pero no se pudieron guardar sus productos: ${itemsError.message || itemsError.code || "error desconocido"}`);
+  const remoteOrder = mapSupabaseOrderToLocal({ ...savedOrder, order_items: savedItems || [] });
+  if (!remoteOrder?.number) throw new Error("Supabase creó la venta, pero no devolvió un número correlativo.");
+  return remoteOrder;
+}
+
+function getRemoteOrderId(order) {
+  return String(order?.remoteId || order?.id || "").trim();
+}
+
+function buildSupabaseOrderPayload(order) {
+  recalculateBudget(order);
+  return {
+    customer_name: order.customerName || order.customer || "",
+    customer_phone: order.customerPhone || "",
+    customer_location: order.customerLocation || "",
+    status: order.status || "En revisión",
+    origin: normalizeOrderOrigin(order.origin || "web"),
+    subtotal: Number(order.subtotal) || 0,
+    total: Number(order.total) || 0,
+    discount_type: order.discountType || "fixed",
+    discount_value: Number(order.discountValue) || 0,
+    discount_amount: Number(order.discountAmount) || 0,
+    payment_method: order.paymentMethod || "Transferencia",
+    delivery_notes: order.deliveryNotes || "",
+    stock_applied: Boolean(order.stockApplied),
+    paid_at: order.paidAt || null,
+    updated_at: new Date().toISOString()
+  };
+}
+
+function buildSupabaseOrderItemRows(order, orderId) {
+  return (order.items || []).map((item) => ({
+    order_id: orderId,
+    product_id: item.id,
+    product_name: item.name || "Producto",
+    variant_name: item.variant || "",
+    presentation: getBudgetItemPresentation(item),
+    stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
+    quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    unit_price: Number(item.price) || 0,
+    unit_cost: Number(item.cost) || 0,
+    subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
+  }));
+}
+
+async function persistOrderToSupabase(order, options = {}) {
+  const client = getSupabaseCatalogClient();
+  const orderId = getRemoteOrderId(order);
+  if (!client || !orderId) return null;
+  const payload = buildSupabaseOrderPayload(order);
+  const { data: savedOrder, error: orderError } = await client
+    .from("orders")
+    .update(payload)
+    .eq("id", orderId)
+    .select("*")
+    .single();
+  if (orderError) throw new Error(`No se pudo actualizar el pedido en Supabase: ${orderError.message || orderError.code || "error desconocido"}`);
+  let savedItems = null;
+  if (options.replaceItems) {
+    const { error: deleteError } = await client.from("order_items").delete().eq("order_id", orderId);
+    if (deleteError) throw new Error(`No se pudieron actualizar los productos del pedido: ${deleteError.message || deleteError.code || "error desconocido"}`);
+    const itemRows = buildSupabaseOrderItemRows(order, orderId);
+    if (itemRows.length) {
+      const { data, error: itemsError } = await client.from("order_items").insert(itemRows).select("*");
+      if (itemsError) throw new Error(`No se pudieron guardar los productos del pedido: ${itemsError.message || itemsError.code || "error desconocido"}`);
+      savedItems = data || [];
+    } else {
+      savedItems = [];
+    }
+  }
+  const remoteOrder = mapSupabaseOrderToLocal({ ...savedOrder, order_items: savedItems || order.items || [] });
+  if (remoteOrder) {
+    order.remoteId = remoteOrder.remoteId || remoteOrder.id;
+    order.number = remoteOrder.number || order.number;
+    order.createdAt = remoteOrder.createdAt || order.createdAt;
+    order.updatedAt = remoteOrder.updatedAt || order.updatedAt;
+  }
+  return remoteOrder;
+}
 function saveStockHistory() {
   localStorage.setItem(STORAGE_STOCK_HISTORY, JSON.stringify(stockHistory));
 }
@@ -5126,6 +5253,7 @@ function getOrderSearchText(order) {
 }
 
 function normalizeConsultationStatus(status) {
+  if (String(status || "").trim() === "Cancelado") return "Cancelado";
   return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisión";
 }
 function matchesOrderListFilter(order, filter) {
@@ -5774,7 +5902,7 @@ function createManualConsultation() {
   openOrderDetail(draft.id);
 }
 
-function saveManualConsultation(order) {
+async function saveManualConsultation(order) {
   if (!order.items.length) {
     openOrderId = order.id;
     renderOrders();
@@ -5790,6 +5918,23 @@ function saveManualConsultation(order) {
   delete order.quickSaleSearch;
   order.updatedAt = new Date().toISOString();
   recalculateBudget(order);
+  let remoteOrder = null;
+  if (!order.remoteId) {
+    try {
+      remoteOrder = await withSupabaseTimeout(saveLocalSaleToSupabase(order), "Supabase tardó demasiado en registrar la venta.");
+      order.remoteId = remoteOrder.remoteId || remoteOrder.id;
+      order.number = remoteOrder.number;
+      order.createdAt = remoteOrder.createdAt || order.createdAt;
+      order.origin = "local";
+    } catch (error) {
+      console.error("Punto X Mayor local sale save:", error);
+      order.manualDraft = true;
+      showToast(error.message || "No se pudo registrar la venta.");
+      openOrderId = order.id;
+      renderOrders();
+      return false;
+    }
+  }
   if (!order.stockApplied) {
     applyBudgetStock(order, -1);
     order.stockApplied = true;
@@ -5966,7 +6111,7 @@ function bindBudgetEditor() {
 
   els.ordersList.querySelector("[data-new-consultation]")?.addEventListener("click", createManualConsultation);
   els.ordersList.querySelectorAll("[data-record-status]").forEach((select) => {
-    select.addEventListener("change", () => updateRecordStatus(select.dataset.recordStatus, select.value));
+    select.addEventListener("change", async () => updateRecordStatus(select.dataset.recordStatus, select.value));
   });
 
   els.ordersList.querySelectorAll("[data-build-order]").forEach((button) => {
@@ -6179,14 +6324,19 @@ function bindBudgetEditor() {
   });
 
   els.ordersList.querySelectorAll("[data-save-order]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const order = orders.find((item) => item.id === button.dataset.saveOrder);
       if (!order) return;
       if (!canEditOrder(order)) return;
       openOrderId = button.dataset.saveOrder;
       readOrderDraftFieldsFromDom(order.id);
       if (order.manualDraft) {
-        saveManualConsultation(order);
+        button.disabled = true;
+        try {
+          await saveManualConsultation(order);
+        } finally {
+          button.disabled = false;
+        }
         return;
       }
       order.updatedAt = new Date().toISOString();
@@ -7241,7 +7391,7 @@ function updateInternalSaleTotals() {
   if (finish) finish.textContent = `FINALIZAR VENTA ${formatMoney(internalCatalogSale.total || 0)}`;
 }
 
-function finalizeInternalCatalogSale() {
+async function finalizeInternalCatalogSale() {
   if (!internalCatalogSale?.items?.length) return;
   const sale = internalCatalogSale;
   sale.manualDraft = true;
@@ -7249,7 +7399,7 @@ function finalizeInternalCatalogSale() {
   sale.status = "Pagado";
   recalculateBudget(sale);
   if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
-  const saved = saveManualConsultation(sale);
+  const saved = await saveManualConsultation(sale);
   if (!saved) return;
   collapseInternalSaleDetail({ fromHistory: true });
   internalCatalogSale = null;
@@ -8084,13 +8234,13 @@ function updateBudget(id, changes) {
   showToast("Presupuesto actualizado");
 }
 
-function updateRecordStatus(id, status) {
+async function updateRecordStatus(id, status) {
   const order = orders.find((item) => item.id === id);
   if (!order || !statuses.includes(status)) return;
   const currentStatus = normalizeConsultationStatus(order.status);
   if (currentStatus === "Pagado") return;
   if (status === "Pagado" && !order.stockApplied) {
-    markOrderPaidAndDiscountStock(id, "Pagado");
+    await markOrderPaidAndDiscountStock(id, "Pagado");
     return;
   }
   if (status === "En revisión" && order.stockApplied) {
@@ -8098,8 +8248,18 @@ function updateRecordStatus(id, status) {
     renderOrders();
     return;
   }
+  const previousStatus = order.status;
   order.status = status;
   if (currentStatus !== status) order.updatedAt = new Date().toISOString();
+  try {
+    await persistOrderToSupabase(order);
+  } catch (error) {
+    order.status = previousStatus;
+    console.error("Punto X Mayor order status save:", error);
+    showToast(error.message || "No se pudo guardar el estado en Supabase.");
+    renderOrders();
+    return;
+  }
   syncClientsFromOrders();
   saveOrders();
   saveClients();
@@ -8444,12 +8604,19 @@ function renderBudgetPreview(order) {
     </div>
   `;
 }
-function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
+async function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   if (order.stockApplied) {
     order.status = "Pagado";
+    try {
+      await persistOrderToSupabase(order);
+    } catch (error) {
+      console.error("Punto X Mayor paid order save:", error);
+      showToast(error.message || "No se pudo guardar el estado pagado.");
+      return;
+    }
     saveOrders();
     showToast("El stock de este pedido ya fue descontado");
     renderAll();
@@ -8466,10 +8633,17 @@ function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   saveOrders();
   saveClients();
   saveStockHistory();
+  try {
+    await persistOrderToSupabase(order);
+  } catch (error) {
+    console.error("Punto X Mayor paid order save:", error);
+    showToast(error.message || "No se pudo guardar el pago en Supabase.");
+    renderAll();
+    return;
+  }
   renderAll();
   showToast("Pedido pagado, stock descontado y venta registrada");
 }
-
 function openBudgetCustomerChat(id) {
   const order = orders.find((item) => item.id === id);
   if (!order) return;
@@ -8725,7 +8899,8 @@ function getOrderDocumentTitle(order) {
 
 function formatOrderDocumentNumber(order) {
   const number = Math.max(1, Number(order?.number) || 1);
-  return `Pedido #${String(number).padStart(4, "0")}`;
+  const prefix = getOrderOrigin(order) === "local" ? "VENTA" : "PEDIDO";
+  return `${prefix} #${String(number).padStart(4, "0")}`;
 }
 
 function printOrder(id) {
@@ -9200,7 +9375,8 @@ function getWinAnsiByte(char) {
 function buildPdfFilename(prefix, order) {
   const number = String(Math.max(1, Number(order?.number) || 1)).padStart(4, "0");
   const customer = formatPdfCustomerFilenameSegment(getOrderCustomerName(order));
-  return `Pedido-${number}-${customer}.pdf`;
+  const type = getOrderOrigin(order) === "local" ? "Venta" : "Pedido";
+  return `${type}-${number}-${customer}.pdf`;
 }
 
 function formatPdfCustomerFilenameSegment(value) {
@@ -9270,12 +9446,13 @@ async function cancelOrder(id) {
   if (!order) return;
   if (!canEditOrder(order)) return;
   await requestDeleteConfirmation({
-    text: `Vas a cancelar el Pedido #${String(order.number || "").padStart(4, "0")}. Esta acción no se puede deshacer desde esta pantalla.`,
+    text: `Vas a cancelar ${formatRecordNumber(order)}. Esta acción no se puede deshacer desde esta pantalla.`,
     confirmText: "Sí, cancelar",
     loadingText: "Cancelando...",
     action: async () => {
       order.status = "Cancelado";
       order.updatedAt = new Date().toISOString();
+      await persistOrderToSupabase(order);
       if (previewOrderId === id) previewOrderId = "";
       saveOrders();
       renderAll();
@@ -9931,6 +10108,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   }
   if (view === "pedidos") {
     markOrdersNotificationsSeen();
+    refreshOrdersFromSupabase("view-pedidos", { silent: false });
   }
   if (view === "seguridad") {
     refreshInternalSecurityDevices();
@@ -10262,23 +10440,157 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
       if (!options.silent) showInternalLogin(true, message);
       return false;
     }
-    if (context.mfa_required) {
-      const mfaOk = await ensureInternalMfa(client);
-      if (!mfaOk) {
-        await client.auth.signOut();
-        lockInternalSession();
-        if (!options.silent) showInternalLogin(true, "Se requiere 2FA para Administrador.");
-        return false;
-      }
-    }
-    unlockInternalSession(session, context);
-    return true;
+    internalAuthenticated = true;
+    internalUnlocked = false;
+    internalAuthContext = context;
+    currentRole = "client";
+    sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.setItem(STORAGE_ROLE, "client");
+    internalProfileSelection = "";
+    if (!options.silent) showInternalRoleChoice();
+    return false;
   } catch (error) {
     console.error("Punto X Mayor internal access:", error);
     await client.auth.signOut();
     lockInternalSession();
     if (!options.silent) showInternalLogin(true, error.message || "No se pudo validar el acceso interno.");
     return false;
+  }
+}
+
+function getInternalUsernameForRole(role) {
+  return normalizeInternalRole(role) === "admin" ? "admin" : "empleado";
+}
+
+function getInternalRoleLabel(role) {
+  return normalizeInternalRole(role) === "admin" ? "Administrador" : "Empleado";
+}
+
+function showInternalRoleChoice(message = "", isError = false) {
+  passwordRecoveryActive = false;
+  currentView = "gestion-login";
+  document.body.classList.add("private-management-mode");
+  document.documentElement.dataset.privateManagement = "true";
+  document.body.classList.remove("admin-catalog-preview");
+  els.topbar?.classList.add("hidden");
+  els.siteFooter?.classList.add("hidden");
+  els.adminNav?.classList.add("hidden");
+  els.backToManagement?.classList.add("hidden");
+  els.catalogView?.classList.add("hidden");
+  els.managementShell?.classList.add("hidden");
+  els.adminView?.classList.add("hidden");
+  els.stockView?.classList.add("hidden");
+  els.importView?.classList.add("hidden");
+  els.ordersView?.classList.add("hidden");
+  els.clientsView?.classList.add("hidden");
+  els.reportsView?.classList.add("hidden");
+  els.securityView?.classList.add("hidden");
+  document.querySelectorAll("[data-catalog-only]").forEach((element) => element.classList.add("hidden"));
+  els.internalLoginView?.classList.add("hidden");
+  els.passwordRecoveryView?.classList.add("hidden");
+  els.passwordResetView?.classList.add("hidden");
+  if (!els.internalRoleView) return;
+  const selected = normalizeInternalRole(internalProfileSelection);
+  els.internalRoleView.innerHTML = `
+    <form class="internal-login-card internal-role-card" id="internalProfileForm">
+      <div class="brand-mark login-brand">PX</div>
+      <p class="eyebrow">Elegir perfil</p>
+      <h2>Gestión interna</h2>
+      <p class="role-choice-copy">Seleccioná el perfil e ingresá su contraseña para completar el acceso.</p>
+      <div class="internal-role-actions">
+        <button class="secondary-button full ${selected === "admin" ? "active" : ""}" type="button" data-profile-role="admin">Entrar como Administrador</button>
+        <button class="secondary-button full ${selected === "employee" ? "active" : ""}" type="button" data-profile-role="employee">Entrar como Empleado</button>
+      </div>
+      <label class="password-field ${selected ? "" : "hidden"}">
+        Contraseña de ${escapeHtml(getInternalRoleLabel(selected))}
+        <span>
+          <input id="internalProfilePassword" name="profilePassword" type="password" autocomplete="current-password" ${selected ? "required" : ""}>
+          <button class="password-toggle" id="internalProfilePasswordToggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false">👁</button>
+        </span>
+      </label>
+      <p class="login-error ${message ? "" : "hidden"} ${message && !isError ? "login-success" : ""}" id="internalProfileError" role="alert">${escapeHtml(message)}</p>
+      <button class="primary-button full ${selected ? "" : "hidden"}" id="internalProfileSubmit" type="submit">Ingresar</button>
+      <button class="login-link-button" id="internalProfileLogout" type="button">Cerrar sesión</button>
+    </form>
+  `;
+  els.internalRoleView.classList.remove("hidden");
+  els.internalRoleView.setAttribute("aria-hidden", "false");
+  bindInternalRoleChoice();
+  window.setTimeout(() => {
+    if (selected) document.querySelector("#internalProfilePassword")?.focus();
+  }, 0);
+}
+
+function bindInternalRoleChoice() {
+  els.internalRoleView?.querySelectorAll("[data-profile-role]").forEach((button) => {
+    button.addEventListener("click", () => {
+      internalProfileSelection = normalizeInternalRole(button.dataset.profileRole);
+      showInternalRoleChoice();
+    });
+  });
+  els.internalRoleView?.querySelector("#internalProfilePasswordToggle")?.addEventListener("click", () => {
+    const input = document.querySelector("#internalProfilePassword");
+    const toggle = document.querySelector("#internalProfilePasswordToggle");
+    if (!input || !toggle) return;
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    toggle.setAttribute("aria-pressed", show ? "true" : "false");
+    toggle.setAttribute("aria-label", show ? "Ocultar contraseña" : "Mostrar contraseña");
+  });
+  els.internalRoleView?.querySelector("#internalProfileLogout")?.addEventListener("click", handleInternalLogout);
+  els.internalRoleView?.querySelector("#internalProfileForm")?.addEventListener("submit", handleInternalProfileSubmit);
+}
+
+async function handleInternalProfileSubmit(event) {
+  event.preventDefault();
+  if (internalProfileSubmitting) return;
+  const client = getSupabaseAuthClient();
+  const role = normalizeInternalRole(internalProfileSelection);
+  const password = String(document.querySelector("#internalProfilePassword")?.value || "");
+  if (!client || !role || !password) {
+    showInternalRoleChoice("Ingresá la contraseña del perfil.", true);
+    return;
+  }
+  internalProfileSubmitting = true;
+  const submit = document.querySelector("#internalProfileSubmit");
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = "Validando...";
+  }
+  try {
+    const loginUser = await resolveInternalLoginUser(getInternalUsernameForRole(role));
+    const { data, error } = await client.auth.signInWithPassword({ email: loginUser.login_email, password });
+    if (error) throw error;
+    if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
+    const context = await rpcJson("internal_current_user", {}, "No se pudo validar el perfil interno.");
+    if (!context?.allowed || normalizeInternalRole(context.role) !== role) throw new Error("El perfil seleccionado no coincide con el usuario autenticado.");
+    if (!internalDeviceContext?.allowed) {
+      await client.auth.signOut();
+      lockInternalSession();
+      showInternalLogin(true, "Este dispositivo no está autorizado.");
+      return;
+    }
+    if (context.mfa_required) {
+      const mfaOk = await ensureInternalMfa(client);
+      if (!mfaOk) {
+        await client.auth.signOut();
+        lockInternalSession();
+        showInternalLogin(true, "Se requiere 2FA para Administrador.");
+        return;
+      }
+    }
+    internalProfileSelection = "";
+    unlockInternalSession(data.session, context);
+    await refreshCatalogFromSupabase("profile-login", { silent: true });
+    await refreshOrdersFromSupabase("profile-login", { silent: true });
+    renderAll();
+    setView(getSavedInitialManagementView(), true, { replace: true });
+  } catch (error) {
+    console.error("Punto X Mayor profile access:", error);
+    showInternalRoleChoice(error.message || "Contraseña incorrecta.", true);
+  } finally {
+    internalProfileSubmitting = false;
   }
 }
 
@@ -10420,13 +10732,13 @@ function showPasswordResetForm() {
 async function handlePasswordRecoveryRequest(event) {
   event.preventDefault();
   const client = getSupabaseAuthClient();
-  const username = normalizeInternalUsername(els.passwordRecoveryEmail?.value || "");
+  const email = String(els.passwordRecoveryEmail?.value || "").trim().toLowerCase();
   if (!client) {
     setLoginMessage(els.passwordRecoveryMessage, "Supabase Auth no está disponible.", true);
     return;
   }
-  if (!username) {
-    setLoginMessage(els.passwordRecoveryMessage, "Ingresá el usuario.", true);
+  if (!email) {
+    setLoginMessage(els.passwordRecoveryMessage, "Ingresá el email.", true);
     return;
   }
   if (els.passwordRecoverySubmit) {
@@ -10434,21 +10746,12 @@ async function handlePasswordRecoveryRequest(event) {
     els.passwordRecoverySubmit.textContent = "Enviando...";
   }
   try {
-    const recovery = await rpcJson(
-      "internal_admin_recovery_email",
-      { p_username: username },
-      "No se pudo validar el usuario de recuperación."
-    );
-    if (!recovery?.allowed || !recovery?.email) {
-      setLoginMessage(els.passwordRecoveryMessage, "Si el usuario tiene recuperación habilitada, se envió el enlace.", false);
-      return;
-    }
     const { error } = await withSupabaseTimeout(
-      client.auth.resetPasswordForEmail(recovery.email, { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL }),
+      client.auth.resetPasswordForEmail(email, { redirectTo: PASSWORD_RECOVERY_REDIRECT_URL }),
       "No se pudo enviar el correo de recuperación a tiempo."
     );
     if (error) throw error;
-    setLoginMessage(els.passwordRecoveryMessage, "Si el usuario tiene recuperación habilitada, se envió el enlace.", false);
+    setLoginMessage(els.passwordRecoveryMessage, "Si el correo existe, se envió el enlace para restablecer la contraseña.", false);
   } catch (error) {
     console.error("Punto X Mayor password recovery:", error);
     setLoginMessage(els.passwordRecoveryMessage, error.message || "No se pudo enviar el correo de recuperación. Revisá la conexión.", true);
@@ -10459,7 +10762,6 @@ async function handlePasswordRecoveryRequest(event) {
     }
   }
 }
-
 async function handlePasswordResetSubmit(event) {
   event.preventDefault();
   const client = getSupabaseAuthClient();
@@ -10504,14 +10806,14 @@ async function handlePasswordResetSubmit(event) {
 async function handleInternalLogin(event) {
   event.preventDefault();
   const client = getSupabaseAuthClient();
-  const username = normalizeInternalUsername(els.internalEmail?.value || "");
+  const email = String(els.internalEmail?.value || "").trim().toLowerCase();
   const password = String(els.internalPassword?.value || "");
   if (!client) {
     showInternalLogin(true, "Supabase Auth no está disponible.");
     return;
   }
-  if (!username || !password) {
-    showInternalLogin(true, "Ingresá usuario y contraseña.");
+  if (!email || !password) {
+    showInternalLogin(true, "Ingresá email y contraseña.");
     return;
   }
 
@@ -10520,26 +10822,21 @@ async function handleInternalLogin(event) {
     els.internalLoginSubmit.textContent = "Ingresando...";
   }
   try {
-    const device = await getInternalDevicePayload(username);
-    const lock = await getInternalLoginLock(username, device.deviceHash);
+    const device = await getInternalDevicePayload(email);
+    const lock = await getInternalLoginLock(email, device.deviceHash);
     if (lock?.locked) throw new Error(formatLoginLockMessage(lock));
-    const loginUser = await resolveInternalLoginUser(username);
-    const { data, error } = await client.auth.signInWithPassword({ email: loginUser.login_email, password });
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    await clearInternalLoginAttempts(username, device.deviceHash);
+    await clearInternalLoginAttempts(email, device.deviceHash);
     els.internalLoginError?.classList.add("hidden");
     if (els.internalPassword) els.internalPassword.value = "";
-    const allowed = await completeInternalAccessAfterAuth(data.session);
-    if (!allowed) return;
-    await refreshCatalogFromSupabase("gestion-login", { silent: true });
-    renderAll();
-    setView(getSavedInitialManagementView(), true, { replace: true });
+    await completeInternalAccessAfterAuth(data.session);
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth login:", error);
     try {
-      const device = await getInternalDevicePayload(username);
-      const fail = await recordInternalFailedLogin(username, device.deviceHash);
+      const device = await getInternalDevicePayload(email);
+      const fail = await recordInternalFailedLogin(email, device.deviceHash);
       if (fail?.locked) {
         showInternalLogin(true, formatLoginLockMessage(fail));
         return;
@@ -10548,7 +10845,7 @@ async function handleInternalLogin(event) {
       console.warn("Punto X Mayor failed login counter:", failError);
     }
     if (els.internalPassword) els.internalPassword.value = "";
-    showInternalLogin(true, error.message || "Usuario o contraseña incorrectos.");
+    showInternalLogin(true, error.message || "Email o contraseña incorrectos.");
   } finally {
     if (els.internalLoginSubmit) {
       els.internalLoginSubmit.disabled = false;
@@ -10556,7 +10853,6 @@ async function handleInternalLogin(event) {
     }
   }
 }
-
 async function handleInternalLogout() {
   const client = getSupabaseAuthClient();
   try {
@@ -10726,6 +11022,9 @@ function applyRoleVisibility() {
   });
   document.querySelectorAll("[data-import-export-only]").forEach((element) => {
     element.classList.toggle("hidden", !hasPermission("importExport"));
+  });
+  document.querySelectorAll("[data-security-only]").forEach((element) => {
+    element.classList.toggle("hidden", !canAccess("admin"));
   });
   if (!canAccess("admin")) closeArchivedProductsPanel();
 }
@@ -10967,12 +11266,16 @@ function getNextConsultationNumber() {
 
 function formatConsultationNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
-  return `Pedido #${String(number).padStart(4, "0")}`;
+  return `${getRecordNumberPrefix(order)} #${String(number).padStart(4, "0")}`;
 }
 
 function formatRecordNumber(order) {
   const number = Math.max(1, Number(order.number) || 1);
-  return `Pedido #${String(number).padStart(4, "0")}`;
+  return `${getRecordNumberPrefix(order)} #${String(number).padStart(4, "0")}`;
+}
+
+function getRecordNumberPrefix(order) {
+  return getOrderOrigin(order) === "local" ? "Venta" : "Pedido";
 }
 
 function normalizeOrderOrigin(value) {
@@ -11698,3 +12001,14 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
+
+
+
+
+
+
+
+
+
+

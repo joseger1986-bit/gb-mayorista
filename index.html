@@ -112,8 +112,8 @@
           <p class="eyebrow">Acceso privado</p>
           <h2 id="internalLoginTitle">Gestión interna</h2>
           <label>
-            Usuario
-            <input id="internalEmail" name="username" type="text" autocomplete="username" inputmode="text" autocapitalize="none" spellcheck="false" required>
+            Email
+            <input id="internalEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required>
           </label>
           <label class="password-field">
             Contraseña
@@ -133,10 +133,10 @@
           <div class="brand-mark login-brand">PX</div>
           <p class="eyebrow">Recuperar acceso</p>
           <h2 id="passwordRecoveryTitle">Restablecer contraseña</h2>
-          <p class="login-help">Ingresá el usuario administrador y enviaremos el enlace al contacto de recuperación asociado.</p>
+          <p class="login-help">Ingresá tu email y enviaremos el enlace para restablecer la contraseña.</p>
           <label>
-            Usuario
-            <input id="passwordRecoveryEmail" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+            Email
+            <input id="passwordRecoveryEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required>
           </label>
           <p class="login-error hidden" id="passwordRecoveryMessage" role="alert"></p>
           <button class="primary-button full" id="passwordRecoverySubmit" type="submit">Enviar enlace</button>
@@ -712,6 +712,8 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=internal-catalog-button-1"></script>
+    <script src="/app.js?v=security-persistence-1"></script>
   </body>
 </html>
+
+
