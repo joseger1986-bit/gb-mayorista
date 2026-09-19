@@ -882,22 +882,36 @@ async function initializeSupabaseAuth() {
   }
 
   try {
+    const recoveryReturn = isPasswordRecoveryReturn();
+    if (recoveryReturn) showPasswordResetForm();
     const { data, error } = await client.auth.getSession();
     if (error) throw error;
     if (data?.session?.user) {
+      if (recoveryReturn || passwordRecoveryActive) {
+        showPasswordResetForm();
+        return;
+      }
       await completeInternalAccessAfterAuth(data.session, { silent: !isPrivateManagementRoute() });
-      if (isPasswordRecoveryReturn()) showPasswordResetForm();
     }
-    else lockInternalSession();
+    else if (!recoveryReturn) lockInternalSession();
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth session:", error);
-    lockInternalSession();
-    if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
+    if (passwordRecoveryActive || isPasswordRecoveryReturn()) showPasswordResetForm();
+    else {
+      lockInternalSession();
+      if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
+    }
   }
 
   client.auth.onAuthStateChange((event, session) => {
-    if (event === "PASSWORD_RECOVERY") {
-      unlockInternalSession(session, "");
+    if (event === "PASSWORD_RECOVERY" || passwordRecoveryActive || isPasswordRecoveryReturn()) {
+      passwordRecoveryActive = true;
+      internalAuthenticated = false;
+      internalUnlocked = false;
+      currentRole = "client";
+      sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
+      sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+      localStorage.setItem(STORAGE_ROLE, "client");
       showPasswordResetForm();
       return;
     }
@@ -10789,6 +10803,8 @@ async function handlePasswordResetSubmit(event) {
       "No se pudo actualizar la contraseña a tiempo."
     );
     if (error) throw error;
+    passwordRecoveryActive = false;
+    if (window.history?.replaceState) window.history.replaceState({}, "", PRIVATE_MANAGEMENT_PATH);
     await client.auth.signOut();
     lockInternalSession();
     showInternalLogin(true, "Contraseña actualizada. Iniciá sesión nuevamente.", true);
