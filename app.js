@@ -301,6 +301,7 @@ let passwordRecoveryActive = false;
 let internalDeviceContext = null;
 let internalProfileSelection = "";
 let internalProfileSubmitting = false;
+let internalProfileAuthBypassUntil = 0;
 let internalAuthContext = null;
 
 const els = {
@@ -917,6 +918,7 @@ async function initializeSupabaseAuth() {
       return;
     }
     if (session?.user) {
+      if (internalProfileSubmitting || Date.now() < internalProfileAuthBypassUntil) return;
       completeInternalAccessAfterAuth(session, { silent: !isPrivateManagementRoute() }).then((allowed) => {
         if (allowed && isPrivateManagementRoute()) {
           renderAll();
@@ -10592,6 +10594,7 @@ async function handleInternalProfileSubmit(event) {
   }
   try {
     const loginUser = await resolveInternalLoginUser(getInternalUsernameForRole(role));
+    internalProfileAuthBypassUntil = Date.now() + 8000;
     const { data, error } = await client.auth.signInWithPassword({ email: loginUser.login_email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
@@ -10613,6 +10616,7 @@ async function handleInternalProfileSubmit(event) {
       }
     }
     internalProfileSelection = "";
+    internalProfileAuthBypassUntil = Date.now() + 3000;
     unlockInternalSession(data.session, context);
     await refreshCatalogFromSupabase("profile-login", { silent: true });
     await refreshOrdersFromSupabase("profile-login", { silent: true });
@@ -10620,7 +10624,9 @@ async function handleInternalProfileSubmit(event) {
     setView(getSavedInitialManagementView(), true, { replace: true });
   } catch (error) {
     console.error("Punto X Mayor profile access:", error);
-    showInternalRoleChoice(error.message || "Contraseña incorrecta.", true);
+    internalProfileAuthBypassUntil = 0;
+    const message = String(error?.message || "").toLowerCase().includes("invalid login credentials") ? "Contraseña incorrecta." : (error.message || "Contraseña incorrecta.");
+    showInternalRoleChoice(message, true);
   } finally {
     internalProfileSubmitting = false;
   }
