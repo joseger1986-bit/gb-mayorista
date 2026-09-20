@@ -3098,7 +3098,7 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
     imageEl.dataset.catalogImage = groupId;
     if (imageEl.getAttribute("src") !== nextImage) imageEl.src = nextImage;
   }
-  const quantityLabel = displayVariant ? getQuantityLabelForPresentation(displayVariant.presentation) : getCatalogQuantityLabel(group);
+  const quantityLabel = getCatalogQuantityLabelForPresentation(displayVariant?.presentation || group?.presentation || "");
   if (quantityLabelEl) quantityLabelEl.textContent = quantityLabel;
   if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${quantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
@@ -3217,7 +3217,16 @@ function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
 }
 
 function getCatalogQuantityLabel(group) {
-  return getQuantityLabelForPresentation(group?.variants?.[0]?.presentation || group?.presentation || "");
+  const variant = getSelectedVariantForGroup(group) || group?.variants?.[0] || {};
+  const presentation = variant.presentation || group?.presentation || "";
+  return getCatalogQuantityLabelForPresentation(presentation);
+}
+
+function getCatalogQuantityLabelForPresentation(presentation) {
+  const type = getPresentationQuantityType(presentation);
+  const packAmount = getPackAmountFromPresentation(presentation);
+  if (type === "packs" && packAmount > 1) return `¿Cuántos packs de ${packAmount} querés?`;
+  return getQuantityLabelForPresentation(presentation);
 }
 
 function getProductSalePriceForPresentation(product) {
