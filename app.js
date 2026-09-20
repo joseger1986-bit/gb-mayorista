@@ -8,6 +8,7 @@ const STORAGE_CLIENTS = "gb_mayorista_clients";
 const STORAGE_CATEGORIES = "gb_mayorista_categories";
 const STORAGE_ROLE = "gb_mayorista_role";
 const STORAGE_SCHEMA = "gb_mayorista_schema";
+const STORAGE_SUPABASE_CATALOG_SOURCE = "gb_mayorista_supabase_catalog_source";
 const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
 const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
@@ -16,6 +17,7 @@ const STORAGE_INTERNAL_PROFILE_USER = "gb_mayorista_internal_profile_user";
 const STORAGE_INTERNAL_DEVICE_SECRET = "pxm_internal_device_secret";
 const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
+const SUPABASE_CATALOG_SOURCE_VERSION = "products_safe_catalog_v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
@@ -843,11 +845,11 @@ async function initializeApp() {
   restoreUiStateBeforeInitialView();
   renderAll();
   await initializeSupabaseAuth();
+  await initializeSupabaseCatalog();
   if (!passwordRecoveryActive) setView(getInitialView(), false, { skipHistory: true });
   restoreSavedScrollPosition();
   initializeAppHistory();
   document.documentElement.dataset.gbApp = "loaded";
-  initializeSupabaseCatalog();
   initializeSupabaseOrders();
 }
 
@@ -960,15 +962,25 @@ async function initializeSupabaseAuth() {
 }
 function clearLocalCatalogCacheWhenSupabaseConfigured() {
   if (!isSupabaseConfiguredForCatalog()) return;
+  if (localStorage.getItem(STORAGE_SUPABASE_CATALOG_SOURCE) === SUPABASE_CATALOG_SOURCE_VERSION) return;
   localStorage.removeItem(STORAGE_PRODUCTS);
   localStorage.removeItem(STORAGE_CATEGORIES);
   localStorage.removeItem(STORAGE_SCHEMA);
+  localStorage.removeItem(STORAGE_SUPABASE_CATALOG_SOURCE);
+}
+
+function hasTrustedSupabaseCatalogCache() {
+  return localStorage.getItem(STORAGE_SUPABASE_CATALOG_SOURCE) === SUPABASE_CATALOG_SOURCE_VERSION;
 }
 
 function loadProducts() {
-  if (isSupabaseConfiguredForCatalog()) return [];
+  if (isSupabaseConfiguredForCatalog()) {
+    clearLocalCatalogCacheWhenSupabaseConfigured();
+    if (!hasTrustedSupabaseCatalogCache()) return [];
+  }
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
   if (stored) return JSON.parse(stored);
+  if (isSupabaseConfiguredForCatalog()) return [];
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(sampleProducts));
   return sampleProducts;
 }
@@ -1010,7 +1022,10 @@ function loadClients() {
 }
 
 function loadCategories() {
-  if (isSupabaseConfiguredForCatalog()) return [];
+  if (isSupabaseConfiguredForCatalog()) {
+    clearLocalCatalogCacheWhenSupabaseConfigured();
+    if (!hasTrustedSupabaseCatalogCache()) return [];
+  }
   const stored = localStorage.getItem(STORAGE_CATEGORIES);
   return stored ? JSON.parse(stored) : defaultProductCategories;
 }
@@ -1502,12 +1517,15 @@ async function loadProductRowsFromSupabase(client) {
 
   if (canReadCosts && typeof client.rpc === "function" && productRows.length) {
     const { data: costRows, error: costError } = await client.rpc("internal_admin_products_with_cost");
-    if (costError) throw costError;
-    const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
-    productRows = productRows.map((row) => ({
-      ...row,
-      cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
-    }));
+    if (costError) {
+      console.warn("Punto X Mayor costos admin:", costError);
+    } else {
+      const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
+      productRows = productRows.map((row) => ({
+        ...row,
+        cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
+      }));
+    }
   }
   const productIds = productRows.map((row) => row.id).filter(Boolean);
   if (!productIds.length) return productRows;
@@ -1533,6 +1551,7 @@ function applyRemoteCatalog(remote, reason = "supabase-read") {
   products = normalizeProducts(remote.products);
   localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
+  localStorage.setItem(STORAGE_SUPABASE_CATALOG_SOURCE, SUPABASE_CATALOG_SOURCE_VERSION);
   renderAll();
   updateSupabaseCatalogStatus({
     ok: true,
