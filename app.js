@@ -1453,16 +1453,11 @@ async function initializeSupabaseCatalog() {
   } catch (error) {
     supabaseCatalogBootstrapped = true;
     supabaseCatalogReadyForWrites = false;
-    if (isPrivateManagementRoute()) {
-      products = [];
-      categories = normalizeCategories([]);
-      renderAll();
-    }
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "supabase-error",
       message: error.message || "No se pudo conectar con Supabase.",
-      hint: "Gestión no usa datos locales cuando Supabase no responde, para evitar mostrar productos archivados u obsoletos."
+      hint: "Revisar conexion, RLS o Realtime. Los productos en pantalla se conservan sin reemplazarlos por datos locales obsoletos."
     });
     console.warn("Punto X Mayor Supabase catalog init:", error);
   }
@@ -1578,18 +1573,13 @@ async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
     return { ok: true, products: products.length, categories: categories.length };
   } catch (error) {
     supabaseCatalogReadyForWrites = false;
-    if (isPrivateManagementRoute()) {
-      products = [];
-      categories = normalizeCategories([]);
-      renderAll();
-    }
     updateSupabaseCatalogStatus({
       ok: false,
       mode: "supabase-error",
       message: error.message || "No se pudo actualizar Gestion desde Supabase.",
       reason,
       code: error.code || null,
-      hint: error.hint || error.details || "Gestión no usa datos locales cuando Supabase no responde, para evitar mostrar productos archivados u obsoletos."
+      hint: error.hint || error.details || "Revisar conexion, RLS o Realtime. Los productos en pantalla se conservan sin reemplazarlos por datos locales obsoletos."
     });
     console.warn("Punto X Mayor Supabase catalog refresh:", error);
     logSupabaseSyncDebug("read-error", {
