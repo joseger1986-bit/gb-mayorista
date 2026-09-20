@@ -190,7 +190,7 @@ resetLegacyData();
 
 let categories = normalizeCategories(loadCategories());
 let products = normalizeProducts(loadProducts());
-ensureRequestedProductCatalog();
+if (!isSupabaseConfiguredForCatalog()) ensureRequestedProductCatalog();
 let cart = loadCart();
 let orders = normalizeBudgets(loadOrders());
 let stockHistory = loadStockHistory();
@@ -649,7 +649,7 @@ els.productForm.addEventListener("submit", async (event) => {
 els.resetProducts.addEventListener("click", () => {
   if (!canAccess("admin")) return;
   products = freshSampleProducts();
-  ensureRequestedProductCatalog();
+  if (!isSupabaseConfiguredForCatalog()) ensureRequestedProductCatalog();
   cart = [];
   orders = sampleBudgets(products);
   stockHistory = [];
@@ -1823,7 +1823,7 @@ async function syncCatalogToSupabase(reason = "manual") {
         stock: Math.max(0, Number(product.stock) || 0),
         show_in_catalog: product.showInCatalog !== false,
         image_path: getSupabaseImagePath(product.image),
-        active: product.active !== false,
+        active: !isArchivedProductRow(product),
         sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
       };
       if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
@@ -4708,6 +4708,10 @@ function getStockUnitLabel(product, quantity = 0) {
   return getStockUnitLabelFromUnit(product?.stockUnit || inferDefaultStockUnitFromPresentation(getProductPresentation(product)), quantity);
 }
 
+function isSupabaseConfiguredForCatalog() {
+  const config = window.GB_SUPABASE_CONFIG || {};
+  return Boolean(config.url && config.publishableKey);
+}
 function isLody742Product(product) {
   return /boxer\s+adulto\s+lody\s+art\.\s*742/i.test(String(product?.name || ""));
 }
@@ -11515,7 +11519,7 @@ function normalizeProducts(productList) {
       cost: Number.isFinite(Number(product.cost)) ? Number(product.cost) : 0,
       image: productImages[0] || "",
       images: productImages,
-      active: product.active !== false,
+      active: !isArchivedProductRow(product),
       showInCatalog: product.showInCatalog !== false,
       sortOrder: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
     };
