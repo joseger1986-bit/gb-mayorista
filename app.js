@@ -1489,21 +1489,24 @@ async function loadCatalogFromSupabase() {
 
 async function loadProductRowsFromSupabase(client) {
   const canReadCosts = isPrivateManagementRoute() && internalUnlocked && canAccess("admin");
-  let productRows = [];
-  if (canReadCosts && typeof client.rpc === "function") {
-    const { data, error } = await client.rpc("internal_admin_products_with_cost");
-    if (error) throw error;
-    productRows = (data || []).filter((row) => !isArchivedProductRow(row));
-  } else {
-    const { data, error } = await client
-      .from("products_safe_catalog")
-      .select("*")
-      .eq("active", true)
-      .order("sort_order", { ascending: true });
-    if (error) throw error;
-    productRows = (data || []).filter((row) => !isArchivedProductRow(row));
-  }
+  const { data, error } = await client
+    .from("products_safe_catalog")
+    .select("*")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
 
+  let productRows = (data || []).filter((row) => !isArchivedProductRow(row));
+
+  if (canReadCosts && typeof client.rpc === "function" && productRows.length) {
+    const { data: costRows, error: costError } = await client.rpc("internal_admin_products_with_cost");
+    if (costError) throw costError;
+    const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
+    productRows = productRows.map((row) => ({
+      ...row,
+      cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
+    }));
+  }
   const productIds = productRows.map((row) => row.id).filter(Boolean);
   if (!productIds.length) return productRows;
   const { data: variantRows, error: variantError } = await client
