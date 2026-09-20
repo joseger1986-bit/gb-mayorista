@@ -958,7 +958,15 @@ async function initializeSupabaseAuth() {
     }
   });
 }
+function clearLocalCatalogCacheWhenSupabaseConfigured() {
+  if (!isSupabaseConfiguredForCatalog()) return;
+  localStorage.removeItem(STORAGE_PRODUCTS);
+  localStorage.removeItem(STORAGE_CATEGORIES);
+  localStorage.removeItem(STORAGE_SCHEMA);
+}
+
 function loadProducts() {
+  if (isSupabaseConfiguredForCatalog()) return [];
   const stored = localStorage.getItem(STORAGE_PRODUCTS);
   if (stored) return JSON.parse(stored);
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(sampleProducts));
@@ -966,6 +974,10 @@ function loadProducts() {
 }
 
 function resetLegacyData() {
+  if (isSupabaseConfiguredForCatalog()) {
+    clearLocalCatalogCacheWhenSupabaseConfigured();
+    return;
+  }
   if (localStorage.getItem(STORAGE_SCHEMA) === APP_DATA_VERSION) return;
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(sampleProducts));
   localStorage.setItem(STORAGE_CART, JSON.stringify([]));
@@ -998,6 +1010,7 @@ function loadClients() {
 }
 
 function loadCategories() {
+  if (isSupabaseConfiguredForCatalog()) return [];
   const stored = localStorage.getItem(STORAGE_CATEGORIES);
   return stored ? JSON.parse(stored) : defaultProductCategories;
 }
@@ -1437,19 +1450,8 @@ async function initializeSupabaseCatalog() {
       return;
     }
 
-    document.documentElement.dataset.gbSupabaseCatalog = "syncing-local";
-    supabaseCatalogReadyForWrites = true;
-    const syncResult = await syncCatalogToSupabase("initial-local-migration");
-    if (!syncResult?.ok) return;
-    setupSupabaseCatalogRealtime();
-    updateSupabaseCatalogStatus({
-      ok: true,
-      mode: "local-to-supabase",
-      message: "Supabase no tenia productos. Se envio una copia inicial desde localStorage.",
-      products: products.length,
-      variants: syncResult.variants || 0,
-      categories: categories.length
-    });
+    supabaseCatalogReadyForWrites = false;
+    throw new Error("Supabase no devolvio productos activos para Gestion.");
   } catch (error) {
     supabaseCatalogBootstrapped = true;
     supabaseCatalogReadyForWrites = false;
