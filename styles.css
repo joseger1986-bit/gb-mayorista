@@ -412,6 +412,16 @@ html[data-private-management="true"] .public-catalog-header + .minimum-banner,
   display: none !important;
 }
 
+html[data-private-management="true"] .floating-cart-button,
+.private-management-mode .floating-cart-button {
+  display: none !important;
+}
+
+html[data-private-management="true"] body.internal-catalog-cart-mode .floating-cart-button,
+.private-management-mode.internal-catalog-cart-mode .floating-cart-button {
+  display: inline-flex !important;
+}
+
 .admin-private-nav {
   margin: 10px 0 0;
   display: flex;

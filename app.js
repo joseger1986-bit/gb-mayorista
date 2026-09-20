@@ -6990,6 +6990,7 @@ function renderCart() {
   if (els.floatingCartCount) els.floatingCartCount.textContent = totalUnits;
   els.floatingCartButton?.classList.toggle("has-items", totalUnits > 0);
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
+  updateFloatingCartVisibility();
   els.cartTotal.textContent = formatMoney(totalPrice);
   const cartCountSummary = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} unidad${totalUnits === 1 ? "" : "es"} totales` : "Sin productos";
   els.cartSubtitle.textContent = cartCountSummary;
@@ -7073,6 +7074,21 @@ function renderCart() {
       renderCart();
     }
   };
+}
+
+function shouldShowFloatingCart() {
+  if (currentView !== "catalogo") return false;
+  if (!isPrivateManagementRoute()) return true;
+  return internalUnlocked;
+}
+
+function updateFloatingCartVisibility() {
+  const visible = shouldShowFloatingCart();
+  els.floatingCartButton?.classList.toggle("hidden", !visible);
+  els.floatingCartButton?.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (els.floatingCartButton) {
+    els.floatingCartButton.tabIndex = visible ? 0 : -1;
+  }
 }
 
 function getCartTotalQuantity(items = cart) {
@@ -7205,7 +7221,7 @@ function renderInternalCatalogSale(options = {}) {
   els.internalSaleDock.classList.toggle("hidden", !active);
   document.body.classList.toggle("internal-sale-active", Boolean(active));
   document.body.classList.toggle("internal-sale-detail-open", Boolean(active && (internalCatalogSaleExpanded || completedSale)));
-  els.floatingCartButton?.classList.toggle("hidden", isInternalCatalogQuickSaleMode());
+  updateFloatingCartVisibility();
   if (!active) {
     els.internalSaleDock.innerHTML = "";
     return;
@@ -10147,6 +10163,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
   document.documentElement.dataset.privateManagement = isPrivateManagementRoute() ? "true" : "false";
   document.body.classList.toggle("admin-catalog-preview", isPrivateManagementRoute() && internalUnlocked && view === "catalogo");
+  document.body.classList.toggle("internal-catalog-cart-mode", shouldShowFloatingCart() && isPrivateManagementRoute());
   updateOperationalWebDetailModeClass();
   if (isInternalCatalogQuickSaleMode()) {
     renderCatalog();
@@ -10189,6 +10206,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   renderInternalWebPendingAccess();
   renderRole();
   renderNav();
+  updateFloatingCartVisibility();
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
     updateAppHistory(view, historyOptions);
   }
