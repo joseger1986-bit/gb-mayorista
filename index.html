@@ -440,7 +440,6 @@
             <h2>Seguridad</h2>
             <p>Dispositivos autorizados para usar Gestión Interna.</p>
           </div>
-          <button class="secondary-button" id="refreshSecurityButton" type="button">Actualizar</button>
         </div>
         <div class="security-panel-grid">
           <article class="security-card security-password-card">
@@ -478,8 +477,9 @@
             <button class="secondary-button small-button" id="startMfaSetupButton" type="button">Configurar 2FA</button>
             <div id="mfaSetupBox" class="security-device-list"></div>
           </article>
-          <article class="security-card">
+          <article class="security-card security-devices-card">
             <h3>Dispositivos pendientes</h3>
+            <button class="secondary-button small-button" id="refreshSecurityButton" type="button">Actualizar dispositivos</button>
             <div id="pendingDevicesList" class="security-device-list"></div>
           </article>
           <article class="security-card">
@@ -741,7 +741,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=internal-profile-passwords-1"></script>
+    <script src="/app.js?v=security-navigation-1"></script>
   </body>
 </html>
 

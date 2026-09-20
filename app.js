@@ -12,6 +12,7 @@ const STORAGE_SUPABASE_CATALOG_STATUS = "gb_mayorista_supabase_catalog_status";
 const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
+const STORAGE_INTERNAL_PROFILE_USER = "gb_mayorista_internal_profile_user";
 const STORAGE_INTERNAL_DEVICE_SECRET = "pxm_internal_device_secret";
 const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
@@ -865,12 +866,21 @@ function unlockInternalSession(session, context = null) {
   currentRole = internalUnlocked ? role : "client";
   if (internalAuthenticated) {
     sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, internalUnlocked ? "true" : "pending");
-    if (internalUnlocked) sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
-    else sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    if (internalUnlocked) {
+      sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
+      localStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
+      localStorage.setItem(STORAGE_INTERNAL_PROFILE_USER, session.user.id);
+    } else {
+      sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+      localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+      localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+    }
     localStorage.setItem(STORAGE_ROLE, currentRole);
   } else {
     sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
     sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
     localStorage.setItem(STORAGE_ROLE, "client");
   }
 }
@@ -884,6 +894,8 @@ function lockInternalSession() {
   teardownSupabaseOrdersRealtime();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
   sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+  localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+  localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
   localStorage.setItem(STORAGE_ROLE, "client");
 }
 
@@ -10488,11 +10500,25 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
       return false;
     }
     internalAuthenticated = true;
+    const backendRole = normalizeInternalRole(context.role);
+    const savedProfile = normalizeInternalRole(localStorage.getItem(STORAGE_INTERNAL_PROFILE) || sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
+    const savedProfileUser = localStorage.getItem(STORAGE_INTERNAL_PROFILE_USER) || "";
+    if (["admin", "employee"].includes(savedProfile) && savedProfile === backendRole && savedProfileUser === session.user.id) {
+      const restoredContext = {
+        ...context,
+        allowed: true,
+        role: backendRole
+      };
+      unlockInternalSession(session, restoredContext);
+      return true;
+    }
     internalUnlocked = false;
     internalAuthContext = context;
     currentRole = "client";
     sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
     sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
     localStorage.setItem(STORAGE_ROLE, "client");
     internalProfileSelection = "";
     if (!options.silent) showInternalRoleChoice();
@@ -11180,6 +11206,7 @@ function applyRoleVisibility() {
     element.classList.toggle("hidden", !canAccess("admin"));
   });
   document.querySelectorAll("[data-admin-only]").forEach((element) => {
+    if (element.classList.contains("content-view")) return;
     element.classList.toggle("hidden", !canAccess("admin"));
   });
   document.querySelectorAll("[data-manage-products-only]").forEach((element) => {
