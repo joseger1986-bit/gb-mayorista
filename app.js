@@ -1493,7 +1493,7 @@ async function loadProductRowsFromSupabase(client) {
   if (canReadCosts && typeof client.rpc === "function") {
     const { data, error } = await client.rpc("internal_admin_products_with_cost");
     if (error) throw error;
-    productRows = data || [];
+    productRows = (data || []).filter((row) => !isArchivedProductRow(row));
   } else {
     const { data, error } = await client
       .from("products_safe_catalog")
@@ -1501,7 +1501,7 @@ async function loadProductRowsFromSupabase(client) {
       .eq("active", true)
       .order("sort_order", { ascending: true });
     if (error) throw error;
-    productRows = data || [];
+    productRows = (data || []).filter((row) => !isArchivedProductRow(row));
   }
 
   const productIds = productRows.map((row) => row.id).filter(Boolean);
@@ -2387,6 +2387,10 @@ function mapSupabaseCategoriesToLocal(rows) {
   }));
 }
 
+function isArchivedProductRow(row) {
+  const value = row?.active;
+  return value === false || value === "false" || value === 0 || value === "0";
+}
 function mapSupabaseProductsToLocal(rows) {
   return rows.map((row, index) => {
     const variantRows = [...(row.product_variants || [])].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -2420,7 +2424,7 @@ function mapSupabaseProductsToLocal(rows) {
       images: productImages,
       variants: variantRows.map((variant) => variant.name).join("\n"),
       variantStock,
-      active: row.active !== false,
+      active: !isArchivedProductRow(row),
       showInCatalog: row.show_in_catalog !== false,
       sortOrder: Number.isFinite(row.sort_order) ? row.sort_order : index + 1
     };
