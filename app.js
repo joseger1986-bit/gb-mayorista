@@ -471,7 +471,6 @@ const els = {
   pendingDevicesList: document.querySelector("#pendingDevicesList"),
   authorizedDevicesList: document.querySelector("#authorizedDevicesList"),
   blockedDevicesList: document.querySelector("#blockedDevicesList"),
-  startMfaSetupButton: document.querySelector("#startMfaSetupButton"),
   adminProfilePasswordForm: document.querySelector("#adminProfilePasswordForm"),
   adminProfileCurrentPassword: document.querySelector("#adminProfileCurrentPassword"),
   adminProfileNewPassword: document.querySelector("#adminProfileNewPassword"),
@@ -483,7 +482,6 @@ const els = {
   employeeProfileConfirmPassword: document.querySelector("#employeeProfileConfirmPassword"),
   employeeProfilePasswordMessage: document.querySelector("#employeeProfilePasswordMessage"),
   employeeProfilePasswordSubmit: document.querySelector("#employeeProfilePasswordSubmit"),
-  mfaSetupBox: document.querySelector("#mfaSetupBox"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
   siteFooter: document.querySelector(".site-footer"),
@@ -525,7 +523,7 @@ els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
 els.adminSwitchRole?.addEventListener("click", () => setView("seguridad"));
 els.refreshSecurityButton?.addEventListener("click", refreshInternalSecurityDevices);
-els.startMfaSetupButton?.addEventListener("click", startAdminMfaEnrollment);
+
 els.adminProfilePasswordForm?.addEventListener("submit", handleAdminProfilePasswordChange);
 els.employeeProfilePasswordForm?.addEventListener("submit", handleEmployeeProfilePasswordSet);
 
@@ -2566,9 +2564,10 @@ function renderRole() {
 
 function renderNav() {
   const isManagementView = getManagementViews().includes(currentView);
+  const isSecurityView = currentView === "seguridad";
   document.querySelectorAll("[data-view]").forEach((button) => {
     const isManagementEntry = button.dataset.managementEntry === "true";
-    button.classList.toggle("active", isManagementEntry ? isManagementView : button.dataset.view === currentView);
+    button.classList.toggle("active", isManagementEntry ? isManagementView && !isSecurityView : button.dataset.view === currentView);
   });
 }
 
@@ -10061,10 +10060,10 @@ function restoreSavedScrollPosition() {
 function getSavedInitialManagementView() {
   const state = getSavedUiState();
   const managementViews = getManagementViews();
-  const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "admin";
-  if (view === "reportes" && !hasPermission("reports")) return "admin";
-  if (view === "importacion" && !hasPermission("importExport")) return "admin";
-  if (view === "seguridad" && !canAccess("admin")) return "admin";
+  const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "pedidos";
+  if (view === "reportes" && !hasPermission("reports")) return "pedidos";
+  if (view === "importacion" && !hasPermission("importExport")) return "pedidos";
+  if (view === "seguridad" && !canAccess("admin")) return "pedidos";
   return view;
 }
 function setView(view, preserveRole = false, historyOptions = {}) {
@@ -10125,7 +10124,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.passwordRecoveryView?.classList.add("hidden");
   els.passwordResetView?.classList.add("hidden");
   els.adminNav?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked) || Boolean(operationalWebOrderId && view === "pedidos"));
-  els.adminNavManagement?.classList.toggle("active", isManagementView);
+  els.adminNavManagement?.classList.toggle("active", isManagementView && view !== "seguridad");
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
   els.adminSwitchRole?.classList.toggle("active", view === "seguridad");
   els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
@@ -10654,20 +10653,12 @@ async function handleInternalProfileSubmit(event) {
     }
     const verifiedRole = normalizeInternalRole(verification.role);
     if (verifiedRole !== role) throw new Error("El perfil seleccionado no coincide con el perfil validado.");
-    if (verification.mfa_required) {
-      const mfaOk = await ensureInternalMfa(client);
-      if (!mfaOk) {
-        lockInternalSession();
-        showInternalLogin(true, "Se requiere 2FA para Administrador.");
-        return;
-      }
-    }
     const context = {
       ...(internalAuthContext || {}),
       allowed: true,
       username: verification.username || username,
       role: verifiedRole,
-      mfa_required: Boolean(verification.mfa_required),
+      mfa_required: false,
       profile_password_must_change: Boolean(verification.must_change)
     };
     internalProfileSelection = "";
@@ -10675,7 +10666,7 @@ async function handleInternalProfileSubmit(event) {
     await refreshCatalogFromSupabase("profile-login", { silent: true });
     await refreshOrdersFromSupabase("profile-login", { silent: true });
     renderAll();
-    setView(getSavedInitialManagementView(), true, { replace: true });
+    setView("pedidos", true, { replace: true });
   } catch (error) {
     console.error("Punto X Mayor profile access:", error);
     const message = error?.message || "Contraseña incorrecta.";
@@ -10683,26 +10674,6 @@ async function handleInternalProfileSubmit(event) {
   } finally {
     internalProfileSubmitting = false;
   }
-}
-
-async function ensureInternalMfa(client) {
-  if (!client?.auth?.mfa) return false;
-  const aalResult = await client.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aalResult?.data?.currentLevel === "aal2") return true;
-  const factorsResult = await client.auth.mfa.listFactors();
-  const factor = factorsResult?.data?.totp?.find((entry) => entry.status === "verified");
-  if (!factor) return false;
-  const code = window.prompt("Ingresá el código 2FA de tu app autenticadora");
-  if (!code) return false;
-  const challenge = await client.auth.mfa.challenge({ factorId: factor.id });
-  if (challenge.error) throw challenge.error;
-  const verify = await client.auth.mfa.verify({
-    factorId: factor.id,
-    challengeId: challenge.data.id,
-    code: String(code).trim()
-  });
-  if (verify.error) throw verify.error;
-  return true;
 }
 
 function toggleInternalPasswordVisibility() {
@@ -11135,63 +11106,6 @@ function bindInternalSecurityDeviceActions() {
       }
     });
   });
-}
-
-async function startAdminMfaEnrollment() {
-  if (!canAccess("admin")) return;
-  const client = getSupabaseAuthClient();
-  if (!client?.auth?.mfa) {
-    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error">Supabase MFA no está disponible en este cliente.</p>`;
-    return;
-  }
-  if (els.startMfaSetupButton) els.startMfaSetupButton.disabled = true;
-  try {
-    const { data, error } = await client.auth.mfa.enroll({ factorType: "totp" });
-    if (error) throw error;
-    const qr = data?.totp?.qr_code || "";
-    const factorId = data?.id || "";
-    if (!factorId) throw new Error("Supabase no devolvió el factor 2FA.");
-    if (els.mfaSetupBox) {
-      els.mfaSetupBox.innerHTML = `
-        <div class="security-device-row">
-          <strong>Escaneá el QR con tu app autenticadora</strong>
-          ${qr ? `<img alt="QR 2FA" src="${escapeHtml(qr)}" style="max-width:180px;width:100%;height:auto;">` : ""}
-          <label>Código 2FA<input type="text" inputmode="numeric" autocomplete="one-time-code" data-mfa-code></label>
-          <button class="primary-button small-button" type="button" data-verify-mfa="${escapeHtml(factorId)}">Verificar 2FA</button>
-        </div>
-      `;
-      els.mfaSetupBox.querySelector("[data-verify-mfa]")?.addEventListener("click", verifyAdminMfaEnrollment);
-    }
-  } catch (error) {
-    console.error("Punto X Mayor MFA enroll:", error);
-    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error">${escapeHtml(error.message || "No se pudo configurar 2FA.")}</p>`;
-  } finally {
-    if (els.startMfaSetupButton) els.startMfaSetupButton.disabled = false;
-  }
-}
-
-async function verifyAdminMfaEnrollment(event) {
-  const client = getSupabaseAuthClient();
-  const factorId = event.currentTarget?.dataset.verifyMfa || "";
-  const code = String(els.mfaSetupBox?.querySelector("[data-mfa-code]")?.value || "").trim();
-  if (!client?.auth?.mfa || !factorId || !code) return;
-  event.currentTarget.disabled = true;
-  try {
-    const challenge = await client.auth.mfa.challenge({ factorId });
-    if (challenge.error) throw challenge.error;
-    const verify = await client.auth.mfa.verify({
-      factorId,
-      challengeId: challenge.data.id,
-      code
-    });
-    if (verify.error) throw verify.error;
-    if (els.mfaSetupBox) els.mfaSetupBox.innerHTML = `<p class="login-error login-success">2FA activado correctamente.</p>`;
-  } catch (error) {
-    console.error("Punto X Mayor MFA verify:", error);
-    if (els.mfaSetupBox) els.mfaSetupBox.insertAdjacentHTML("beforeend", `<p class="login-error">${escapeHtml(error.message || "No se pudo verificar 2FA.")}</p>`);
-  } finally {
-    event.currentTarget.disabled = false;
-  }
 }
 
 function getManagementViews() {
@@ -12196,14 +12110,4 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
-
-
-
-
-
-
-
-
-
-
 

@@ -438,58 +438,73 @@
         <div class="section-head">
           <div>
             <h2>Seguridad</h2>
-            <p>Dispositivos autorizados para usar Gestión Interna.</p>
+            <p>Contraseñas internas y dispositivos autorizados de Gestión.</p>
           </div>
         </div>
-        <div class="security-panel-grid">
-          <article class="security-card security-password-card">
-            <h3>Contraseñas internas</h3>
-            <p class="login-help">Gestioná las claves independientes de Administrador y Empleado.</p>
-            <form class="security-password-form" id="adminProfilePasswordForm">
-              <strong>Cambiar contraseña de Administrador</strong>
-              <label>Contraseña actual
-                <input id="adminProfileCurrentPassword" type="password" autocomplete="current-password" required>
-              </label>
-              <label>Nueva contraseña
-                <input id="adminProfileNewPassword" type="password" autocomplete="new-password" minlength="6" required>
-              </label>
-              <label>Repetir nueva contraseña
-                <input id="adminProfileConfirmPassword" type="password" autocomplete="new-password" minlength="6" required>
-              </label>
-              <p class="login-error hidden" id="adminProfilePasswordMessage" role="alert"></p>
-              <button class="primary-button small-button" id="adminProfilePasswordSubmit" type="submit">Guardar clave admin</button>
-            </form>
-            <form class="security-password-form" id="employeeProfilePasswordForm">
-              <strong>Restablecer contraseña de Empleado</strong>
-              <label>Nueva contraseña
-                <input id="employeeProfileNewPassword" type="password" autocomplete="new-password" minlength="6" required>
-              </label>
-              <label>Repetir nueva contraseña
-                <input id="employeeProfileConfirmPassword" type="password" autocomplete="new-password" minlength="6" required>
-              </label>
-              <p class="login-error hidden" id="employeeProfilePasswordMessage" role="alert"></p>
-              <button class="secondary-button small-button" id="employeeProfilePasswordSubmit" type="submit">Guardar clave empleado</button>
-            </form>
-          </article>
-          <article class="security-card">
-            <h3>2FA Administrador</h3>
-            <p class="login-help">Configurá una app autenticadora para el usuario admin.</p>
-            <button class="secondary-button small-button" id="startMfaSetupButton" type="button">Configurar 2FA</button>
-            <div id="mfaSetupBox" class="security-device-list"></div>
-          </article>
-          <article class="security-card security-devices-card">
-            <h3>Dispositivos pendientes</h3>
+        <div class="security-section">
+          <div class="security-section-head">
+            <h3>Contraseñas</h3>
+          </div>
+          <div class="security-panel-grid security-password-grid">
+            <article class="security-card security-password-card">
+              <div>
+                <h3>Contraseña de Administrador</h3>
+                <p class="login-help">Cambiá la contraseña interna del perfil administrador.</p>
+                <form id="adminProfilePasswordForm" class="security-password-form">
+                  <label>
+                    Actual
+                    <input type="password" id="adminProfileCurrentPassword" autocomplete="current-password" required>
+                  </label>
+                  <label>
+                    Nueva
+                    <input type="password" id="adminProfileNewPassword" autocomplete="new-password" minlength="6" required>
+                  </label>
+                  <label>
+                    Repetir nueva
+                    <input type="password" id="adminProfileConfirmPassword" autocomplete="new-password" minlength="6" required>
+                  </label>
+                  <button class="primary-button small-button" id="adminProfilePasswordSubmit" type="submit">Guardar clave admin</button>
+                </form>
+                <p class="login-error hidden" id="adminProfilePasswordMessage" role="alert"></p>
+              </div>
+              <div>
+                <h3>Contraseña de Empleado</h3>
+                <p class="login-help">Restablecé la contraseña interna del perfil empleado.</p>
+                <form id="employeeProfilePasswordForm" class="security-password-form">
+                  <label>
+                    Nueva contraseña
+                    <input type="password" id="employeeProfileNewPassword" autocomplete="new-password" minlength="6" required>
+                  </label>
+                  <label>
+                    Repetir contraseña
+                    <input type="password" id="employeeProfileConfirmPassword" autocomplete="new-password" minlength="6" required>
+                  </label>
+                  <button class="secondary-button small-button" id="employeeProfilePasswordSubmit" type="submit">Guardar clave empleado</button>
+                </form>
+                <p class="login-error hidden" id="employeeProfilePasswordMessage" role="alert"></p>
+              </div>
+            </article>
+          </div>
+        </div>
+        <div class="security-section security-devices-section">
+          <div class="security-section-head">
+            <h3>Dispositivos</h3>
             <button class="secondary-button small-button" id="refreshSecurityButton" type="button">Actualizar dispositivos</button>
-            <div id="pendingDevicesList" class="security-device-list"></div>
-          </article>
-          <article class="security-card">
-            <h3>Dispositivos autorizados</h3>
-            <div id="authorizedDevicesList" class="security-device-list"></div>
-          </article>
-          <article class="security-card">
-            <h3>Dispositivos rechazados / revocados</h3>
-            <div id="blockedDevicesList" class="security-device-list"></div>
-          </article>
+          </div>
+          <div class="security-panel-grid security-devices-grid">
+            <article class="security-card security-devices-card">
+              <h3>Dispositivos pendientes</h3>
+              <div id="pendingDevicesList" class="security-device-list"></div>
+            </article>
+            <article class="security-card security-devices-card">
+              <h3>Dispositivos autorizados</h3>
+              <div id="authorizedDevicesList" class="security-device-list"></div>
+            </article>
+            <article class="security-card security-devices-card">
+              <h3>Dispositivos rechazados/revocados</h3>
+              <div id="blockedDevicesList" class="security-device-list"></div>
+            </article>
+          </div>
         </div>
       </section>
     </main>
@@ -741,8 +756,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=security-navigation-1"></script>
+    <script src="/app.js?v=gestion-final-1"></script>
   </body>
 </html>
-
 

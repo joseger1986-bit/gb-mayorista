@@ -538,6 +538,50 @@ html[data-private-management="true"] .public-catalog-header + .minimum-banner,
   cursor: pointer;
 }
 
+
+.security-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.security-section:first-of-type {
+  margin-top: 0;
+}
+
+.security-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.security-section-head h3 {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-size: 1rem;
+}
+
+.security-password-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.security-devices-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .security-devices-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .security-panel-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
