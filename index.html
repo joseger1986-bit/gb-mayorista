@@ -443,6 +443,35 @@
           <button class="secondary-button" id="refreshSecurityButton" type="button">Actualizar</button>
         </div>
         <div class="security-panel-grid">
+          <article class="security-card security-password-card">
+            <h3>Contraseñas internas</h3>
+            <p class="login-help">Gestioná las claves independientes de Administrador y Empleado.</p>
+            <form class="security-password-form" id="adminProfilePasswordForm">
+              <strong>Cambiar contraseña de Administrador</strong>
+              <label>Contraseña actual
+                <input id="adminProfileCurrentPassword" type="password" autocomplete="current-password" required>
+              </label>
+              <label>Nueva contraseña
+                <input id="adminProfileNewPassword" type="password" autocomplete="new-password" minlength="6" required>
+              </label>
+              <label>Repetir nueva contraseña
+                <input id="adminProfileConfirmPassword" type="password" autocomplete="new-password" minlength="6" required>
+              </label>
+              <p class="login-error hidden" id="adminProfilePasswordMessage" role="alert"></p>
+              <button class="primary-button small-button" id="adminProfilePasswordSubmit" type="submit">Guardar clave admin</button>
+            </form>
+            <form class="security-password-form" id="employeeProfilePasswordForm">
+              <strong>Restablecer contraseña de Empleado</strong>
+              <label>Nueva contraseña
+                <input id="employeeProfileNewPassword" type="password" autocomplete="new-password" minlength="6" required>
+              </label>
+              <label>Repetir nueva contraseña
+                <input id="employeeProfileConfirmPassword" type="password" autocomplete="new-password" minlength="6" required>
+              </label>
+              <p class="login-error hidden" id="employeeProfilePasswordMessage" role="alert"></p>
+              <button class="secondary-button small-button" id="employeeProfilePasswordSubmit" type="submit">Guardar clave empleado</button>
+            </form>
+          </article>
           <article class="security-card">
             <h3>2FA Administrador</h3>
             <p class="login-help">Configurá una app autenticadora para el usuario admin.</p>
@@ -712,7 +741,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=profile-login-loop-1"></script>
+    <script src="/app.js?v=internal-profile-passwords-1"></script>
   </body>
 </html>
 

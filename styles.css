@@ -568,6 +568,42 @@ html[data-private-management="true"] .public-catalog-header + .minimum-banner,
 .security-card h3 {
   margin: 0;
 }
+.security-password-card {
+  align-content: start;
+}
+
+.security-password-form {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.security-password-form + .security-password-form {
+  margin-top: 10px;
+}
+
+.security-password-form strong {
+  color: var(--ink);
+}
+
+.security-password-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.security-password-form input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--ink);
+}
+
 
 .security-device-list {
   display: grid;

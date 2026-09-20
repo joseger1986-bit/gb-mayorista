@@ -471,6 +471,17 @@ const els = {
   authorizedDevicesList: document.querySelector("#authorizedDevicesList"),
   blockedDevicesList: document.querySelector("#blockedDevicesList"),
   startMfaSetupButton: document.querySelector("#startMfaSetupButton"),
+  adminProfilePasswordForm: document.querySelector("#adminProfilePasswordForm"),
+  adminProfileCurrentPassword: document.querySelector("#adminProfileCurrentPassword"),
+  adminProfileNewPassword: document.querySelector("#adminProfileNewPassword"),
+  adminProfileConfirmPassword: document.querySelector("#adminProfileConfirmPassword"),
+  adminProfilePasswordMessage: document.querySelector("#adminProfilePasswordMessage"),
+  adminProfilePasswordSubmit: document.querySelector("#adminProfilePasswordSubmit"),
+  employeeProfilePasswordForm: document.querySelector("#employeeProfilePasswordForm"),
+  employeeProfileNewPassword: document.querySelector("#employeeProfileNewPassword"),
+  employeeProfileConfirmPassword: document.querySelector("#employeeProfileConfirmPassword"),
+  employeeProfilePasswordMessage: document.querySelector("#employeeProfilePasswordMessage"),
+  employeeProfilePasswordSubmit: document.querySelector("#employeeProfilePasswordSubmit"),
   mfaSetupBox: document.querySelector("#mfaSetupBox"),
   backToManagement: document.querySelector("#backToManagement"),
   topbar: document.querySelector(".topbar"),
@@ -514,6 +525,8 @@ els.adminLogout?.addEventListener("click", handleInternalLogout);
 els.adminSwitchRole?.addEventListener("click", () => setView("seguridad"));
 els.refreshSecurityButton?.addEventListener("click", refreshInternalSecurityDevices);
 els.startMfaSetupButton?.addEventListener("click", startAdminMfaEnrollment);
+els.adminProfilePasswordForm?.addEventListener("submit", handleAdminProfilePasswordChange);
+els.employeeProfilePasswordForm?.addEventListener("submit", handleEmployeeProfilePasswordSet);
 
 els.searchInput.addEventListener("input", renderCatalog);
 els.customerName.addEventListener("input", renderCart);
@@ -10593,39 +10606,53 @@ async function handleInternalProfileSubmit(event) {
     submit.textContent = "Validando...";
   }
   try {
-    const loginUser = await resolveInternalLoginUser(getInternalUsernameForRole(role));
-    internalProfileAuthBypassUntil = Date.now() + 8000;
-    const { data, error } = await client.auth.signInWithPassword({ email: loginUser.login_email, password });
-    if (error) throw error;
-    if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    const context = await rpcJson("internal_current_user", {}, "No se pudo validar el perfil interno.");
-    if (!context?.allowed || normalizeInternalRole(context.role) !== role) throw new Error("El perfil seleccionado no coincide con el usuario autenticado.");
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!sessionData?.session?.user) throw new Error("La sesión general ya no está disponible. Iniciá sesión nuevamente.");
     if (!internalDeviceContext?.allowed) {
-      await client.auth.signOut();
       lockInternalSession();
       showInternalLogin(true, "Este dispositivo no está autorizado.");
       return;
     }
-    if (context.mfa_required) {
+    const username = getInternalUsernameForRole(role);
+    const verification = await rpcJson(
+      "internal_verify_profile_password",
+      { p_username: username, p_password: password },
+      "No se pudo validar la contraseña del perfil."
+    );
+    if (!verification?.ok) {
+      const reason = verification?.reason === "profile_password_not_configured"
+        ? "La contraseña de este perfil todavía no está configurada."
+        : "Contraseña incorrecta.";
+      throw new Error(reason);
+    }
+    const verifiedRole = normalizeInternalRole(verification.role);
+    if (verifiedRole !== role) throw new Error("El perfil seleccionado no coincide con el perfil validado.");
+    if (verification.mfa_required) {
       const mfaOk = await ensureInternalMfa(client);
       if (!mfaOk) {
-        await client.auth.signOut();
         lockInternalSession();
         showInternalLogin(true, "Se requiere 2FA para Administrador.");
         return;
       }
     }
+    const context = {
+      ...(internalAuthContext || {}),
+      allowed: true,
+      username: verification.username || username,
+      role: verifiedRole,
+      mfa_required: Boolean(verification.mfa_required),
+      profile_password_must_change: Boolean(verification.must_change)
+    };
     internalProfileSelection = "";
-    internalProfileAuthBypassUntil = Date.now() + 3000;
-    unlockInternalSession(data.session, context);
+    unlockInternalSession(sessionData.session, context);
     await refreshCatalogFromSupabase("profile-login", { silent: true });
     await refreshOrdersFromSupabase("profile-login", { silent: true });
     renderAll();
     setView(getSavedInitialManagementView(), true, { replace: true });
   } catch (error) {
     console.error("Punto X Mayor profile access:", error);
-    internalProfileAuthBypassUntil = 0;
-    const message = String(error?.message || "").toLowerCase().includes("invalid login credentials") ? "Contraseña incorrecta." : (error.message || "Contraseña incorrecta.");
+    const message = error?.message || "Contraseña incorrecta.";
     showInternalRoleChoice(message, true);
   } finally {
     internalProfileSubmitting = false;
@@ -10926,6 +10953,90 @@ async function handleInternalLogout() {
   }
 }
 
+function setProfilePasswordMessage(element, message = "", isError = false) {
+  if (!element) return;
+  element.textContent = message;
+  element.classList.toggle("hidden", !message);
+  element.classList.toggle("login-success", Boolean(message) && !isError);
+}
+
+function validateInternalPasswordPair(newPassword, confirmPassword) {
+  if (!newPassword || !confirmPassword) throw new Error("Completá la nueva contraseña y su repetición.");
+  if (newPassword.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres.");
+  if (newPassword !== confirmPassword) throw new Error("Las contraseñas nuevas no coinciden.");
+}
+
+function clearInternalPasswordInputs(...inputs) {
+  inputs.forEach((input) => {
+    if (input) input.value = "";
+  });
+}
+
+async function handleAdminProfilePasswordChange(event) {
+  event.preventDefault();
+  if (!canAccess("admin")) return;
+  const currentPassword = String(els.adminProfileCurrentPassword?.value || "");
+  const newPassword = String(els.adminProfileNewPassword?.value || "");
+  const confirmPassword = String(els.adminProfileConfirmPassword?.value || "");
+  setProfilePasswordMessage(els.adminProfilePasswordMessage);
+  try {
+    if (!currentPassword) throw new Error("Ingresá la contraseña actual de Administrador.");
+    validateInternalPasswordPair(newPassword, confirmPassword);
+    if (els.adminProfilePasswordSubmit) {
+      els.adminProfilePasswordSubmit.disabled = true;
+      els.adminProfilePasswordSubmit.textContent = "Guardando...";
+    }
+    const result = await rpcJson(
+      "internal_change_admin_profile_password",
+      { p_current_password: currentPassword, p_new_password: newPassword },
+      "No se pudo cambiar la contraseña de Administrador."
+    );
+    if (!result?.ok) throw new Error("No se pudo cambiar la contraseña de Administrador.");
+    clearInternalPasswordInputs(els.adminProfileCurrentPassword, els.adminProfileNewPassword, els.adminProfileConfirmPassword);
+    setProfilePasswordMessage(els.adminProfilePasswordMessage, "Contraseña de Administrador actualizada.");
+    showToast("Contraseña de Administrador actualizada", "success");
+  } catch (error) {
+    console.error("Punto X Mayor admin profile password:", error);
+    setProfilePasswordMessage(els.adminProfilePasswordMessage, error.message || "No se pudo cambiar la contraseña.", true);
+  } finally {
+    if (els.adminProfilePasswordSubmit) {
+      els.adminProfilePasswordSubmit.disabled = false;
+      els.adminProfilePasswordSubmit.textContent = "Guardar clave admin";
+    }
+  }
+}
+
+async function handleEmployeeProfilePasswordSet(event) {
+  event.preventDefault();
+  if (!canAccess("admin")) return;
+  const newPassword = String(els.employeeProfileNewPassword?.value || "");
+  const confirmPassword = String(els.employeeProfileConfirmPassword?.value || "");
+  setProfilePasswordMessage(els.employeeProfilePasswordMessage);
+  try {
+    validateInternalPasswordPair(newPassword, confirmPassword);
+    if (els.employeeProfilePasswordSubmit) {
+      els.employeeProfilePasswordSubmit.disabled = true;
+      els.employeeProfilePasswordSubmit.textContent = "Guardando...";
+    }
+    const result = await rpcJson(
+      "internal_admin_set_employee_profile_password",
+      { p_new_password: newPassword },
+      "No se pudo cambiar la contraseña de Empleado."
+    );
+    if (!result?.ok) throw new Error("No se pudo cambiar la contraseña de Empleado.");
+    clearInternalPasswordInputs(els.employeeProfileNewPassword, els.employeeProfileConfirmPassword);
+    setProfilePasswordMessage(els.employeeProfilePasswordMessage, "Contraseña de Empleado actualizada.");
+    showToast("Contraseña de Empleado actualizada", "success");
+  } catch (error) {
+    console.error("Punto X Mayor employee profile password:", error);
+    setProfilePasswordMessage(els.employeeProfilePasswordMessage, error.message || "No se pudo cambiar la contraseña.", true);
+  } finally {
+    if (els.employeeProfilePasswordSubmit) {
+      els.employeeProfilePasswordSubmit.disabled = false;
+      els.employeeProfilePasswordSubmit.textContent = "Guardar clave empleado";
+    }
+  }
+}
 async function refreshInternalSecurityDevices() {
   if (!canAccess("admin")) return;
   try {
