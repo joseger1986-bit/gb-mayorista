@@ -13834,3 +13834,16 @@ body.internal-sale-detail-open {
   }
 }
 
+/* Visibilidad interna definitiva: el banner publico nunca aparece dentro de Gestion. */
+html[data-private-management="true"] .topbar.public-catalog-header,
+html[data-private-management="true"] .public-catalog-header,
+html[data-private-management="true"] .public-catalog-header + .minimum-banner,
+body.private-management-mode .topbar.public-catalog-header,
+body.private-management-mode .public-catalog-header,
+body.private-management-mode .public-catalog-header + .minimum-banner,
+body.admin-catalog-preview .topbar.public-catalog-header,
+body.admin-catalog-preview .public-catalog-header,
+body.admin-catalog-preview .public-catalog-header + .minimum-banner {
+  display: none !important;
+}
+
