@@ -3217,7 +3217,7 @@ function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
 }
 
 function getCatalogQuantityLabel(group) {
-  const variant = getSelectedVariantForGroup(group) || group?.variants?.[0] || {};
+  const variant = group?.variants?.[0] || {};
   const presentation = variant.presentation || group?.presentation || "";
   return getCatalogQuantityLabelForPresentation(presentation);
 }
