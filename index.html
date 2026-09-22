@@ -7,9 +7,15 @@
     <link rel="preconnect" href="https://wcnxwjqfmpmoyzbdovqp.supabase.co" crossorigin>
     <link rel="dns-prefetch" href="//wcnxwjqfmpmoyzbdovqp.supabase.co">
     <script>
-      if (window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() === "gestion") {
-        document.documentElement.dataset.privateManagement = "true";
-      }
+      (function () {
+        var hostname = String(window.location.hostname || "").toLowerCase();
+        var path = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+        var managementHosts = ["gestion.puntoxmayor.com.ar"];
+        var publicHosts = ["www.puntoxmayor.com.ar", "puntoxmayor.com.ar"];
+        if (managementHosts.indexOf(hostname) !== -1 || (publicHosts.indexOf(hostname) === -1 && path === "gestion")) {
+          document.documentElement.dataset.privateManagement = "true";
+        }
+      })();
     </script>
     <link rel="stylesheet" href="/styles.css?v=visual-internal-2">
   </head>
@@ -756,7 +762,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=quantity-label-2"></script>
+    <script src="/app.js?v=domains-final-1"></script>
   </body>
 </html>
 
