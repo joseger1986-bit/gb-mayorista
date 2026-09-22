@@ -1015,6 +1015,7 @@ function loadCart() {
 function loadOrders() {
   const stored = localStorage.getItem(STORAGE_ORDERS);
   if (stored) return JSON.parse(stored);
+  if (isSupabaseConfiguredForCatalog()) return [];
   const initialOrders = sampleBudgets(products.length ? products : sampleProducts);
   localStorage.setItem(STORAGE_ORDERS, JSON.stringify(initialOrders));
   return initialOrders;
