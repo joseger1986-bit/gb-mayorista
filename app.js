@@ -22,7 +22,6 @@ const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
 const WHOLESALE_MINIMUM = 100000;
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
-const PUBLIC_CATALOG_URL = "https://www.puntoxmayor.com.ar/";
 const MANAGEMENT_HOSTNAMES = ["gestion.puntoxmayor.com.ar"];
 const PUBLIC_CATALOG_HOSTNAMES = ["www.puntoxmayor.com.ar", "puntoxmayor.com.ar"];
 const PASSWORD_RECOVERY_REDIRECT_URL = "https://gestion.puntoxmayor.com.ar/?reset-password=1";
@@ -524,13 +523,7 @@ els.passwordRecoveryBack?.addEventListener("click", () => showInternalLogin(fals
 els.passwordResetForm?.addEventListener("submit", handlePasswordResetSubmit);
 els.roleLogout?.addEventListener("click", handleInternalLogout);
 els.adminNavManagement?.addEventListener("click", () => setView("admin"));
-els.adminNavCatalog?.addEventListener("click", () => {
-  if (isPrivateManagementRoute()) {
-    window.location.assign(PUBLIC_CATALOG_URL);
-    return;
-  }
-  setView("catalogo");
-});
+els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
 els.adminSwitchRole?.addEventListener("click", () => setView("seguridad"));
