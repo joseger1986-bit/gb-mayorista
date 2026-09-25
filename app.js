@@ -14,7 +14,6 @@ const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
 const STORAGE_INTERNAL_PROFILE_USER = "gb_mayorista_internal_profile_user";
-const STORAGE_INTERNAL_DEVICE_SECRET = "pxm_internal_device_secret";
 const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const SUPABASE_CATALOG_SOURCE_VERSION = "products_safe_catalog_v1";
@@ -304,7 +303,6 @@ let catalogImageFallbacks = new Map();
 let catalogImagePreloadTimer = null;
 let archivedProductsCache = [];
 let passwordRecoveryActive = false;
-let internalDeviceContext = null;
 let internalProfileSelection = "";
 let internalProfileSubmitting = false;
 let internalProfileAuthBypassUntil = 0;
@@ -472,10 +470,6 @@ const els = {
   adminNavCatalog: document.querySelector("#adminNavCatalog"),
   adminLogout: document.querySelector("#adminLogout"),
   adminSwitchRole: document.querySelector("#adminSwitchRole"),
-  refreshSecurityButton: document.querySelector("#refreshSecurityButton"),
-  pendingDevicesList: document.querySelector("#pendingDevicesList"),
-  authorizedDevicesList: document.querySelector("#authorizedDevicesList"),
-  blockedDevicesList: document.querySelector("#blockedDevicesList"),
   adminProfilePasswordForm: document.querySelector("#adminProfilePasswordForm"),
   adminProfileCurrentPassword: document.querySelector("#adminProfileCurrentPassword"),
   adminProfileNewPassword: document.querySelector("#adminProfileNewPassword"),
@@ -527,7 +521,6 @@ els.adminNavCatalog?.addEventListener("click", () => setView("catalogo"));
 els.backToManagement?.addEventListener("click", () => setView("admin"));
 els.adminLogout?.addEventListener("click", handleInternalLogout);
 els.adminSwitchRole?.addEventListener("click", () => setView("seguridad"));
-els.refreshSecurityButton?.addEventListener("click", refreshInternalSecurityDevices);
 
 els.adminProfilePasswordForm?.addEventListener("submit", handleAdminProfilePasswordChange);
 els.employeeProfilePasswordForm?.addEventListener("submit", handleEmployeeProfilePasswordSet);
@@ -893,7 +886,6 @@ function lockInternalSession() {
   internalUnlocked = false;
   currentRole = "client";
   internalAuthContext = null;
-  internalDeviceContext = null;
   teardownSupabaseOrdersRealtime();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
   sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
@@ -10217,9 +10209,6 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     markOrdersNotificationsSeen();
     refreshOrdersFromSupabase("view-pedidos", { silent: false });
   }
-  if (view === "seguridad") {
-    refreshInternalSecurityDevices();
-  }
   renderInternalWebPendingAccess();
   renderRole();
   renderNav();
@@ -10460,36 +10449,6 @@ function normalizeInternalRole(value) {
   return "";
 }
 
-function getInternalDeviceSecret() {
-  let secret = localStorage.getItem(STORAGE_INTERNAL_DEVICE_SECRET);
-  if (!secret) {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    secret = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(STORAGE_INTERNAL_DEVICE_SECRET, secret);
-  }
-  return secret;
-}
-
-async function sha256Hex(value) {
-  const encoded = new TextEncoder().encode(String(value || ""));
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function getInternalDevicePayload(username = "") {
-  const secret = getInternalDeviceSecret();
-  const userAgent = navigator.userAgent || "";
-  const base = `${location.origin}|${userAgent}|${secret}`;
-  return {
-    deviceHash: await sha256Hex(base),
-    deviceSecretHash: await sha256Hex(`${secret}|pxm-device-secret`),
-    deviceLabel: `${navigator.platform || "Dispositivo"} · ${new Date().getFullYear()}`,
-    userAgent,
-    username: normalizeInternalUsername(username)
-  };
-}
-
 async function rpcJson(name, params = {}, timeoutMessage = "Supabase tardó demasiado.") {
   const client = getSupabaseAuthClient();
   if (!client || typeof client.rpc !== "function") throw new Error("Supabase Auth no está disponible.");
@@ -10551,32 +10510,6 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
   try {
     const context = await rpcJson("internal_current_user", {}, "No se pudo validar el usuario interno.");
     if (!context?.allowed) throw new Error("Este usuario no está habilitado para Gestión Interna.");
-    const device = await getInternalDevicePayload(context.username);
-    const deviceContext = await rpcJson(
-      "internal_check_device",
-      {
-        p_device_hash: device.deviceHash,
-        p_device_secret_hash: device.deviceSecretHash,
-        p_device_label: device.deviceLabel,
-        p_user_agent: device.userAgent
-      },
-      "No se pudo validar el dispositivo."
-    );
-    internalDeviceContext = deviceContext;
-    if (!deviceContext?.allowed) {
-      await client.auth.signOut();
-      lockInternalSession();
-      const status = deviceContext?.device_status || "pending";
-      const message = status === "pending"
-        ? "Dispositivo pendiente de autorización. Un administrador debe aprobarlo."
-        : status === "revoked"
-          ? "Este dispositivo fue revocado."
-          : status === "rejected"
-            ? "Este dispositivo fue rechazado."
-            : "Este dispositivo no está autorizado.";
-      if (!options.silent) showInternalLogin(true, message);
-      return false;
-    }
     internalAuthenticated = true;
     const backendRole = normalizeInternalRole(context.role);
     const savedProfile = normalizeInternalRole(localStorage.getItem(STORAGE_INTERNAL_PROFILE) || sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
@@ -10713,11 +10646,6 @@ async function handleInternalProfileSubmit(event) {
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
     if (sessionError) throw sessionError;
     if (!sessionData?.session?.user) throw new Error("La sesión general ya no está disponible. Iniciá sesión nuevamente.");
-    if (!internalDeviceContext?.allowed) {
-      lockInternalSession();
-      showInternalLogin(true, "Este dispositivo no está autorizado.");
-      return;
-    }
     const username = getInternalUsernameForRole(role);
     const verification = await rpcJson(
       "internal_verify_profile_password",
@@ -10982,21 +10910,19 @@ async function handleInternalLogin(event) {
     els.internalLoginSubmit.textContent = "Ingresando...";
   }
   try {
-    const device = await getInternalDevicePayload(email);
-    const lock = await getInternalLoginLock(email, device.deviceHash);
+    const lock = await getInternalLoginLock(email, "");
     if (lock?.locked) throw new Error(formatLoginLockMessage(lock));
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (!data?.session?.user) throw new Error("Supabase no devolvió una sesión válida.");
-    await clearInternalLoginAttempts(email, device.deviceHash);
+    await clearInternalLoginAttempts(email, "");
     els.internalLoginError?.classList.add("hidden");
     if (els.internalPassword) els.internalPassword.value = "";
     await completeInternalAccessAfterAuth(data.session);
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth login:", error);
     try {
-      const device = await getInternalDevicePayload(email);
-      const fail = await recordInternalFailedLogin(email, device.deviceHash);
+      const fail = await recordInternalFailedLogin(email, "");
       if (fail?.locked) {
         showInternalLogin(true, formatLoginLockMessage(fail));
         return;
@@ -11113,80 +11039,6 @@ async function handleEmployeeProfilePasswordSet(event) {
     }
   }
 }
-async function refreshInternalSecurityDevices() {
-  if (!canAccess("admin")) return;
-  try {
-    const devices = await rpcJson("internal_admin_list_devices", {}, "No se pudieron leer los dispositivos.");
-    renderInternalSecurityDevices(Array.isArray(devices) ? devices : []);
-  } catch (error) {
-    console.error("Punto X Mayor security devices:", error);
-    renderInternalSecurityDevices([]);
-    showToast(error.message || "No se pudieron cargar los dispositivos");
-  }
-}
-
-function renderInternalSecurityDevices(devices) {
-  const groups = {
-    pending: devices.filter((device) => device.status === "pending"),
-    authorized: devices.filter((device) => device.status === "authorized"),
-    blocked: devices.filter((device) => ["rejected", "revoked"].includes(device.status))
-  };
-  if (els.pendingDevicesList) els.pendingDevicesList.innerHTML = renderDeviceRows(groups.pending, "pending");
-  if (els.authorizedDevicesList) els.authorizedDevicesList.innerHTML = renderDeviceRows(groups.authorized, "authorized");
-  if (els.blockedDevicesList) els.blockedDevicesList.innerHTML = renderDeviceRows(groups.blocked, "blocked");
-  bindInternalSecurityDeviceActions();
-}
-
-function renderDeviceRows(devices, group) {
-  if (!devices.length) return `<p class="empty-state">Sin dispositivos.</p>`;
-  return devices.map((device) => `
-    <article class="security-device-row">
-      <strong>${escapeHtml(device.device_label || "Dispositivo")}</strong>
-      <span>${escapeHtml(device.username || "")} · ${escapeHtml(formatDeviceStatus(device.status))}</span>
-      <small>Solicitud: ${escapeHtml(formatCompactDateTime(device.requested_at))}</small>
-      <small>Último acceso: ${escapeHtml(device.last_seen_at ? formatCompactDateTime(device.last_seen_at) : "Sin accesos")}</small>
-      <div class="security-device-actions">
-        ${group === "pending" ? `<button class="primary-button small-button" type="button" data-device-action="authorized" data-device-id="${escapeHtml(device.id)}">Autorizar</button>` : ""}
-        ${group === "pending" ? `<button class="secondary-button small-button" type="button" data-device-action="rejected" data-device-id="${escapeHtml(device.id)}">Rechazar</button>` : ""}
-        ${group === "authorized" ? `<button class="danger-button small-button" type="button" data-device-action="revoked" data-device-id="${escapeHtml(device.id)}">Revocar</button>` : ""}
-      </div>
-    </article>
-  `).join("");
-}
-
-function formatDeviceStatus(status) {
-  const labels = {
-    pending: "Pendiente",
-    authorized: "Autorizado",
-    rejected: "Rechazado",
-    revoked: "Revocado"
-  };
-  return labels[status] || status || "Sin estado";
-}
-
-function bindInternalSecurityDeviceActions() {
-  document.querySelectorAll("[data-device-action][data-device-id]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      if (!canAccess("admin")) return;
-      button.disabled = true;
-      try {
-        await rpcJson(
-          "internal_admin_set_device_status",
-          { p_device_id: button.dataset.deviceId, p_status: button.dataset.deviceAction },
-          "No se pudo actualizar el dispositivo."
-        );
-        await refreshInternalSecurityDevices();
-        showToast("Dispositivo actualizado", "success");
-      } catch (error) {
-        console.error("Punto X Mayor set device status:", error);
-        showToast(error.message || "No se pudo actualizar el dispositivo");
-      } finally {
-        button.disabled = false;
-      }
-    });
-  });
-}
-
 function getManagementViews() {
   return ["admin", "pedidos", "clientes", "reportes", "importacion", "seguridad"];
 }

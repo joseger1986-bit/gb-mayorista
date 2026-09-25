@@ -492,26 +492,6 @@
             </article>
           </div>
         </div>
-        <div class="security-section security-devices-section">
-          <div class="security-section-head">
-            <h3>Dispositivos</h3>
-            <button class="secondary-button small-button" id="refreshSecurityButton" type="button">Actualizar dispositivos</button>
-          </div>
-          <div class="security-panel-grid security-devices-grid">
-            <article class="security-card security-devices-card">
-              <h3>Dispositivos pendientes</h3>
-              <div id="pendingDevicesList" class="security-device-list"></div>
-            </article>
-            <article class="security-card security-devices-card">
-              <h3>Dispositivos autorizados</h3>
-              <div id="authorizedDevicesList" class="security-device-list"></div>
-            </article>
-            <article class="security-card security-devices-card">
-              <h3>Dispositivos rechazados/revocados</h3>
-              <div id="blockedDevicesList" class="security-device-list"></div>
-            </article>
-          </div>
-        </div>
       </section>
     </main>
 
@@ -762,7 +742,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=internal-catalog-1"></script>
+    <script src="/app.js?v=no-device-auth-1"></script>
   </body>
 </html>
 
