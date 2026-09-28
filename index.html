@@ -213,7 +213,7 @@
                 <button class="secondary-button" id="downloadProductsTemplate" type="button" data-import-export-only>Descargar plantilla Excel</button>
           </div>
             </details>
-            <input class="hidden" id="importProductsInput" type="file" accept=".csv,.txt">
+            <input class="hidden" id="importProductsInput" type="file" accept=".xlsx,.csv,.txt">
           </div>
           <div class="stock-modal-overlay hidden" id="addProductOverlay" aria-hidden="true">
           <form id="productForm" class="stock-modal product-edit-modal product-create-modal">
@@ -742,7 +742,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=export-costs-1"></script>
+    <script src="/app.js?v=product-excel-roundtrip-1"></script>
   </body>
 </html>
 

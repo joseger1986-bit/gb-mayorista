@@ -11554,8 +11554,7 @@ async function importProductsFromFile(event) {
   if (!file) return;
 
   try {
-    const text = await file.text();
-    const rows = parseDelimitedRows(text);
+    const rows = await readProductImportRows(file);
     const newCategories = getNewCategoriesFromImportRows(rows);
     if (newCategories.length) {
       const shouldCreate = window.confirm(`Se detectó una categoría nueva. ¿Desea crearla?\n\n${newCategories.join("\n")}`);
@@ -11565,95 +11564,116 @@ async function importProductsFromFile(event) {
       }
       newCategories.forEach((category) => addCategory(category, { makeVisible: true }));
     }
-    const imported = buildImportedProducts(rows);
+    const { updates, skipped } = buildImportedProductUpdates(rows);
 
-    if (!imported.length) {
-      showToast("No se encontraron productos para importar");
+    if (!updates.length) {
+      showToast(skipped ? "No se encontró ningún ID de producto existente para actualizar" : "No se encontraron productos para importar");
       return;
     }
 
-    products.push(...imported);
+    const updatesById = new Map(updates.map((product) => [String(product.id || ""), product]));
+    products = products.map((product) => updatesById.get(String(product.id || "")) || product);
     saveProducts();
-    currentAdminCategory = imported[0].category;
+    currentAdminCategory = updates[0].category;
     renderAll();
-    showToast(`${imported.length} producto(s) importados`);
+    showToast(`${updates.length} producto(s) actualizado(s)${skipped ? ` · ${skipped} fila(s) omitida(s)` : ""}`);
   } catch (error) {
+    console.error("Punto X Mayor import products:", error);
     showToast("No se pudo importar la planilla");
   } finally {
     event.target.value = "";
   }
 }
 
-function buildImportedProducts(rows) {
-  if (!rows.length) return [];
+async function readProductImportRows(file) {
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".xlsx")) return parseXlsxRows(await file.arrayBuffer());
+  return parseDelimitedRows(await file.text());
+}
+
+function buildImportedProductUpdates(rows) {
+  if (!rows.length) return { updates: [], skipped: 0 };
   const headers = rows[0].map(normalizeHeader);
+  const idIndex = findImportHeaderIndex(headers, ["id", "id producto", "producto id"]);
   const productIndex = headers.indexOf("producto");
   const optionIndex = headers.indexOf("talle");
   const legacyOptionIndex = headers.indexOf("opcion");
   const assortmentIndex = headers.indexOf("surtido");
   const categoryIndex = headers.indexOf("categoria");
-  const costIndex = headers.indexOf("precio costo");
-  const priceIndex = headers.indexOf("precio venta");
+  const costIndex = findImportHeaderIndex(headers, ["precio de costo", "precio costo"]);
+  const priceIndex = findImportHeaderIndex(headers, ["precio de venta", "precio venta"]);
   const presentationIndex = headers.indexOf("presentacion");
   const stockUnitIndex = headers.indexOf("unidad de stock");
   const stockIndex = headers.indexOf("stock");
   const showInCatalogIndex = headers.indexOf("mostrar catalogo");
-  let nextSortOrder = getNextSortOrder();
-
-  return rows.slice(1).map((row) => {
-    const rawName = String(row[productIndex] || "").trim();
+  let skipped = 0;
+  const updates = rows.slice(1).map((row) => {
+    const id = idIndex >= 0 ? String(row[idIndex] || "").trim() : "";
+    const existing = id ? products.find((product) => String(product.id || "") === id) : null;
+    if (!existing) {
+      skipped += 1;
+      return null;
+    }
+    const rawName = productIndex >= 0 ? String(row[productIndex] || "").trim() : getProductBaseName(existing);
     const rawOption = optionIndex >= 0
       ? String(row[optionIndex] || "").trim()
       : legacyOptionIndex >= 0
         ? String(row[legacyOptionIndex] || "").trim()
-        : "";
-    const rawSurtido = assortmentIndex >= 0 ? String(row[assortmentIndex] || "").trim() : "";
-    const identity = getProductIdentityFromName(rawName, rawOption, rawSurtido);
+        : getProductTalleValue(existing);
+    const rawSurtido = assortmentIndex >= 0 ? String(row[assortmentIndex] || "").trim() : getProductSurtidoValue(existing);
+    const identity = getProductIdentityFromName(rawName || getProductBaseName(existing), rawOption, rawSurtido);
     const name = identity.baseName;
-    const category = String(row[categoryIndex] || "").trim();
-    const presentation = String(row[presentationIndex] || "").trim() || "1 Docena";
-    const price = getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation);
-    const cost = getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation);
-    if (!name || !category || price <= 0) return null;
+    const category = categoryIndex >= 0 ? String(row[categoryIndex] || "").trim() : existing.category;
+    const presentation = presentationIndex >= 0 ? String(row[presentationIndex] || "").trim() || getProductPresentation(existing) : getProductPresentation(existing);
+    const price = priceIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation) : existing.price;
+    const cost = costIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation) : existing.cost;
+    if (!name || !category || price <= 0) {
+      skipped += 1;
+      return null;
+    }
 
     return {
-      id: crypto.randomUUID(),
-      image: DEFAULT_PRODUCT_IMAGE,
+      ...existing,
       name,
       baseName: identity.baseName,
       optionName: identity.optionName,
       surtidoName: identity.surtidoName,
-      brand: "",
       category: normalizeCategory(category),
       presentation,
-      description: "",
-      saleType: "pack",
+      saleType: getSaleTypeFromPresentation(presentation),
       price,
       packQuantity: getPackQuantityFromPresentation(presentation),
-      variants: "",
-      variantStock: {},
-      stock: Math.max(0, parseImportNumber(row[stockIndex])),
+      stock: stockIndex >= 0 ? Math.max(0, parseImportNumber(row[stockIndex])) : existing.stock,
       stockUnit: stockUnitIndex >= 0
         ? normalizeStockUnit(row[stockUnitIndex])
-        : inferDefaultStockUnitFromPresentation(presentation),
-      minimum: 1,
-      cost,
-      active: true,
-      showInCatalog: parseImportCatalogVisibility(row[showInCatalogIndex], true),
-      sortOrder: nextSortOrder++
+        : normalizeStockUnit(existing.stockUnit || inferDefaultStockUnitFromPresentation(presentation)),
+      cost: canAccess("admin") ? cost : existing.cost,
+      active: existing.active !== false,
+      showInCatalog: showInCatalogIndex >= 0 ? parseImportCatalogVisibility(row[showInCatalogIndex], existing.showInCatalog !== false) : existing.showInCatalog !== false
     };
   }).filter(Boolean);
+  return { updates, skipped };
 }
 
 function getNewCategoriesFromImportRows(rows) {
   if (!rows.length) return [];
   const headers = rows[0].map(normalizeHeader);
+  const idIndex = findImportHeaderIndex(headers, ["id", "id producto", "producto id"]);
   const categoryIndex = headers.indexOf("categoria");
+  if (categoryIndex < 0) return [];
   const known = new Set(categories.map((category) => normalizeCategoryNameForCompare(category.name)));
   return [...new Set(rows.slice(1)
+    .filter((row) => {
+      const id = idIndex >= 0 ? String(row[idIndex] || "").trim() : "";
+      return id && products.some((product) => String(product.id || "") === id);
+    })
     .map((row) => String(row[categoryIndex] || "").trim())
     .filter(Boolean)
     .filter((category) => !known.has(normalizeCategoryNameForCompare(category))))];
+}
+
+function findImportHeaderIndex(headers, aliases) {
+  return aliases.map(normalizeHeader).map((alias) => headers.indexOf(alias)).find((index) => index >= 0) ?? -1;
 }
 
 function parseDelimitedRows(text) {
@@ -11663,6 +11683,89 @@ function parseDelimitedRows(text) {
     .split(/\r?\n/)
     .map((line) => parseDelimitedLine(line, delimiter).map((cell) => cell.trim()))
     .filter((row) => row.some(Boolean));
+}
+
+async function parseXlsxRows(arrayBuffer) {
+  const sheetXml = await extractZipText(arrayBuffer, "xl/worksheets/sheet1.xml");
+  const sharedStringsXml = await extractZipText(arrayBuffer, "xl/sharedStrings.xml").catch(() => "");
+  const sharedStrings = parseXlsxSharedStrings(sharedStringsXml);
+  const rowMatches = [...sheetXml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)];
+  return rowMatches.map((rowMatch) => {
+    const cells = [];
+    [...rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)].forEach((cellMatch) => {
+      const attrs = cellMatch[1] || "";
+      const body = cellMatch[2] || "";
+      const ref = attrs.match(/\br="([A-Z]+)\d+"/i)?.[1] || "";
+      const index = ref ? excelColumnNameToIndex(ref) - 1 : cells.length;
+      const type = attrs.match(/\bt="([^"]+)"/i)?.[1] || "";
+      const value = parseXlsxCellValue(body, type, sharedStrings);
+      cells[index] = value;
+    });
+    return cells.map((cell) => String(cell ?? "").trim());
+  }).filter((row) => row.some(Boolean));
+}
+
+async function extractZipText(arrayBuffer, wantedName) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  let eocdOffset = -1;
+  for (let offset = bytes.length - 22; offset >= 0; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) throw new Error("No se pudo leer el archivo Excel.");
+  const entries = view.getUint16(eocdOffset + 10, true);
+  let centralOffset = view.getUint32(eocdOffset + 16, true);
+  const decoder = new TextDecoder();
+  for (let index = 0; index < entries; index += 1) {
+    if (view.getUint32(centralOffset, true) !== 0x02014b50) throw new Error("Excel inválido.");
+    const method = view.getUint16(centralOffset + 10, true);
+    const compressedSize = view.getUint32(centralOffset + 20, true);
+    const filenameLength = view.getUint16(centralOffset + 28, true);
+    const extraLength = view.getUint16(centralOffset + 30, true);
+    const commentLength = view.getUint16(centralOffset + 32, true);
+    const localOffset = view.getUint32(centralOffset + 42, true);
+    const filename = decoder.decode(bytes.slice(centralOffset + 46, centralOffset + 46 + filenameLength));
+    if (filename === wantedName) {
+      const localNameLength = view.getUint16(localOffset + 26, true);
+      const localExtraLength = view.getUint16(localOffset + 28, true);
+      const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+      const data = method === 0 ? compressed : await inflateZipEntry(compressed, method);
+      return decoder.decode(data);
+    }
+    centralOffset += 46 + filenameLength + extraLength + commentLength;
+  }
+  throw new Error(`No se encontró ${wantedName} en el Excel.`);
+}
+
+async function inflateZipEntry(bytes, method) {
+  if (method !== 8 || typeof DecompressionStream !== "function") {
+    throw new Error("Este archivo Excel usa una compresión no soportada por el navegador.");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function parseXlsxSharedStrings(xml) {
+  if (!xml) return [];
+  return [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)]
+    .map((match) => [...match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)]
+      .map((textMatch) => decodeXml(textMatch[1] || ""))
+      .join(""));
+}
+
+function parseXlsxCellValue(body, type, sharedStrings) {
+  if (type === "inlineStr") return decodeXml(body.match(/<t\b[^>]*>([\s\S]*?)<\/t>/)?.[1] || "");
+  const value = decodeXml(body.match(/<v>([\s\S]*?)<\/v>/)?.[1] || "");
+  if (type === "s") return sharedStrings[Number(value) || 0] || "";
+  return value;
+}
+
+function excelColumnNameToIndex(name) {
+  return String(name || "").toUpperCase().split("").reduce((sum, char) => (sum * 26) + char.charCodeAt(0) - 64, 0);
 }
 
 function parseDelimitedLine(line, delimiter) {
@@ -11759,6 +11862,7 @@ async function exportProductsToExcel() {
     return;
   }
   const headers = [
+    "ID",
     "Producto",
     "Talle",
     "Surtido",
@@ -11773,6 +11877,7 @@ async function exportProductsToExcel() {
   try {
     const costById = await getAdminProductCostMapForExport();
     const rows = getProductsForProductExport().map((product) => [
+      product.id || "",
       getProductBaseName(product),
       getProductTalleValue(product),
       getProductSurtidoValue(product),
@@ -11785,8 +11890,8 @@ async function exportProductsToExcel() {
       formatCatalogVisibility(product.showInCatalog)
     ]);
     downloadXlsxWorkbook(`productos-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
-      numericColumns: [5, 6, 8],
-      moneyColumns: [5, 6]
+      numericColumns: [6, 7, 9],
+      moneyColumns: [6, 7]
     });
     showToast("Productos exportados en Excel");
   } catch (error) {
@@ -11922,6 +12027,12 @@ function escapeXml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function decodeXml(value) {
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = String(value ?? "");
+  return textarea.value;
 }
 
 function createZipArchive(files) {
