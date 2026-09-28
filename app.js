@@ -7938,6 +7938,15 @@ function getProductsForProductExport() {
   });
 }
 
+async function getAdminProductCostMapForExport() {
+  if (!canAccess("admin")) throw new Error("Solo Administrador puede exportar costos.");
+  const client = getSupabaseAuthClient();
+  if (!client || typeof client.rpc !== "function") throw new Error("Supabase Auth no está disponible para leer costos.");
+  const { data, error } = await client.rpc("internal_admin_products_with_cost");
+  if (error) throw new Error(error.message || "No se pudieron leer los costos reales.");
+  return new Map((data || []).map((row) => [String(row.id || ""), Math.max(0, Number(row.cost_price) || 0)]));
+}
+
 function getExportCategoryRank(category) {
   const normalized = normalizeProductSearchText(category);
   const index = catalogCategoryOrder.findIndex((aliases) => aliases.some((alias) => normalizeProductSearchText(alias) === normalized));
@@ -11743,8 +11752,12 @@ function downloadImportTemplate() {
   showToast("Plantilla CSV lista para Excel");
 }
 
-function exportProductsToExcel() {
+async function exportProductsToExcel() {
   if (!hasPermission("importExport")) return;
+  if (!canAccess("admin")) {
+    showToast("Exportación Excel disponible solo para Administrador");
+    return;
+  }
   const headers = [
     "Producto",
     "Talle",
@@ -11757,23 +11770,29 @@ function exportProductsToExcel() {
     "Unidad de stock",
     `Mostrar cat${String.fromCharCode(225)}logo`
   ];
-  const rows = getProductsForProductExport().map((product) => [
-    getProductBaseName(product),
-    getProductTalleValue(product),
-    getProductSurtidoValue(product),
-    product.category,
-    product.cost || 0,
-    product.price || 0,
-    getProductPresentation(product),
-    getProductTotalStock(product),
-    getStockUnitLabelFromUnit(product.stockUnit, 2),
-    formatCatalogVisibility(product.showInCatalog)
-  ]);
-  downloadXlsxWorkbook(`productos-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
-    numericColumns: [5, 6, 8],
-    moneyColumns: [5, 6]
-  });
-  showToast("Productos exportados en Excel");
+  try {
+    const costById = await getAdminProductCostMapForExport();
+    const rows = getProductsForProductExport().map((product) => [
+      getProductBaseName(product),
+      getProductTalleValue(product),
+      getProductSurtidoValue(product),
+      product.category,
+      costById.has(String(product.id || "")) ? costById.get(String(product.id || "")) : product.cost || 0,
+      product.price || 0,
+      getProductPresentation(product),
+      getProductTotalStock(product),
+      getStockUnitLabelFromUnit(product.stockUnit, 2),
+      formatCatalogVisibility(product.showInCatalog)
+    ]);
+    downloadXlsxWorkbook(`productos-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
+      numericColumns: [5, 6, 8],
+      moneyColumns: [5, 6]
+    });
+    showToast("Productos exportados en Excel");
+  } catch (error) {
+    console.error("Punto X Mayor export products:", error);
+    showToast(error.message || "No se pudo exportar productos con costos reales");
+  }
 }
 
 function exportSalesToExcel() {
