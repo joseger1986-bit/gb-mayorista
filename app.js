@@ -3772,10 +3772,20 @@ function setupEnterToNextField(form) {
   });
 }
 
-function openEditProductModal(productId) {
+async function openEditProductModal(productId) {
   if (!hasPermission("manageProducts")) return;
   const product = products.find((item) => item.id === productId);
   if (!product || !els.editProductOverlay || !els.editProductForm) return;
+  if (canAccess("admin")) {
+    try {
+      const realCost = await getAdminProductCostForEdit(product.id);
+      if (realCost !== null) product.cost = realCost;
+    } catch (error) {
+      console.error("Punto X Mayor edit product cost:", error);
+      showToast(error.message || "No se pudo leer el costo real del producto.");
+      return;
+    }
+  }
   editingProductId = productId;
   clearProductValidation(els.editProductForm);
   fillEditCategoryOptions(product.category);
@@ -7945,6 +7955,12 @@ async function getAdminProductCostMapForExport() {
   const { data, error } = await client.rpc("internal_admin_products_with_cost");
   if (error) throw new Error(error.message || "No se pudieron leer los costos reales.");
   return new Map((data || []).map((row) => [String(row.id || ""), Math.max(0, Number(row.cost_price) || 0)]));
+}
+
+async function getAdminProductCostForEdit(productId) {
+  const costById = await getAdminProductCostMapForExport();
+  const key = String(productId || "");
+  return costById.has(key) ? costById.get(key) : null;
 }
 
 function getExportCategoryRank(category) {
