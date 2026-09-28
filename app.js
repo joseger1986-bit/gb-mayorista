@@ -7001,12 +7001,110 @@ function getStockMovementSummary() {
   };
 }
 
-function renderCart() {
-  const items = cart.map((item) => {
+function syncCartWithCurrentCatalog(options = {}) {
+  if (!Array.isArray(cart) || !cart.length || !products.length) return { changed: false, removed: 0, updated: 0 };
+  const nextCart = [];
+  let removed = 0;
+  let updated = 0;
+
+  cart.forEach((item) => {
+    const current = buildCurrentCartItem(item);
+    if (!current) {
+      removed += 1;
+      return;
+    }
+    if (hasCartItemChanged(item, current)) updated += 1;
+    nextCart.push(current);
+  });
+
+  const changed = removed > 0 || updated > 0 || nextCart.length !== cart.length;
+  if (!changed) return { changed: false, removed, updated };
+  cart = mergeEquivalentCartItems(nextCart);
+  saveCart();
+  if (options.notify !== false) {
+    showToast("Actualizamos algunos productos de tu carrito con los precios o presentaciones vigentes.");
+  }
+  return { changed: true, removed, updated };
+}
+
+function buildCurrentCartItem(item) {
+  if (!item) return null;
+  const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
+  if (item.catalogGroupId || item.internalProductId || item.variantLabel || item.basePrice || item.presentation) {
+    const current = findCurrentCatalogVariantForCartItem(item);
+    if (!current) return null;
+    const { group, variant, internalProduct } = current;
+    return {
+      cartId: `${group.id}__${variant.id}`,
+      id: variant.productId,
+      internalProductId: variant.productId,
+      internalProductName: internalProduct?.name || variant.internalName || "",
+      catalogGroupId: group.id,
+      name: getCartProductNameFromCatalog(group, variant),
+      brand: group.brand,
+      category: group.category,
+      image: variant.image || group.image,
+      variantLabel: variant.label,
+      price: variant.price,
+      basePrice: variant.basePrice || variant.price,
+      saleType: variant.saleType,
+      packQuantity: variant.packQuantity,
+      presentation: variant.presentation,
+      stockUnit: variant.stockUnit,
+      quantity
+    };
+  }
+  const product = products.find((entry) => String(entry.id) === String(item.id) && entry.active !== false && entry.showInCatalog !== false && isCategoryVisible(entry.category));
+  return product ? { id: product.id, quantity } : null;
+}
+
+function findCurrentCatalogVariantForCartItem(item) {
+  const productId = String(item.internalProductId || item.id || "");
+  const wantedVariant = normalizeProductSearchText(item.variantLabel || "");
+  const wantedCartId = String(item.cartId || "");
+  const catalogGroups = getCatalogProducts();
+  let fallback = null;
+  for (const group of catalogGroups) {
+    for (const variant of group.variants || []) {
+      if (String(variant.productId || "") !== productId && String(variant.id || "") !== productId) continue;
+      const internalProduct = products.find((product) => String(product.id) === String(variant.productId));
+      const candidate = { group, variant, internalProduct };
+      if (!fallback) fallback = candidate;
+      const currentCartId = `${group.id}__${variant.id}`;
+      const currentVariant = normalizeProductSearchText(variant.label || "");
+      if (wantedCartId && wantedCartId === currentCartId) return candidate;
+      if (wantedVariant && wantedVariant === currentVariant) return candidate;
+    }
+  }
+  return fallback;
+}
+
+function hasCartItemChanged(previous, current) {
+  const keys = ["cartId", "id", "internalProductId", "catalogGroupId", "name", "brand", "category", "image", "variantLabel", "price", "basePrice", "saleType", "packQuantity", "presentation", "stockUnit", "quantity"];
+  return keys.some((key) => String(previous?.[key] ?? "") !== String(current?.[key] ?? ""));
+}
+
+function mergeEquivalentCartItems(items) {
+  const byKey = new Map();
+  items.forEach((item) => {
+    const key = String(item.cartId || item.id || crypto.randomUUID());
+    const existing = byKey.get(key);
+    if (existing) existing.quantity += Math.max(1, Number(item.quantity) || 1);
+    else byKey.set(key, { ...item, quantity: Math.max(1, Number(item.quantity) || 1) });
+  });
+  return [...byKey.values()];
+}
+
+function getCurrentCartItems() {
+  return cart.map((item) => {
     if (item.catalogGroupId) return item;
-    const product = products.find((entry) => entry.id === item.id);
+    const product = products.find((entry) => entry.id === item.id && entry.active !== false && entry.showInCatalog !== false);
     return product ? { ...product, quantity: item.quantity, cartId: item.id } : null;
   }).filter(Boolean);
+}
+function renderCart() {
+  syncCartWithCurrentCatalog({ notify: true });
+  const items = getCurrentCartItems();
 
   const totalUnits = getCartTotalQuantity(items);
   const totalPrice = getCartTotalPrice(items);
@@ -7069,9 +7167,14 @@ function renderCart() {
   els.whatsappLink.classList.toggle("disabled", !minimumReached);
   els.whatsappLink.onclick = async (event) => {
     const latestCustomer = getCustomerData();
-    if (!minimumReached) {
+    const validation = syncCartWithCurrentCatalog({ notify: true });
+    const latestItems = getCurrentCartItems();
+    const latestTotalPrice = getCartTotalPrice(latestItems);
+    const latestMinimumReached = latestTotalPrice >= WHOLESALE_MINIMUM;
+    if (validation.changed) renderCart();
+    if (!latestMinimumReached) {
       event.preventDefault();
-      showToast(`La compra mínima online es de ${formatMoney(WHOLESALE_MINIMUM)}. Faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)}.`);
+      showToast(`La compra mínima online es de ${formatMoney(WHOLESALE_MINIMUM)}. Faltan ${formatMoney(WHOLESALE_MINIMUM - latestTotalPrice)}.`);
       return;
     }
     if (!latestCustomer.isComplete) {
@@ -7084,8 +7187,8 @@ function renderCart() {
     els.whatsappLink.dataset.saving = "true";
     els.whatsappLink.classList.add("disabled");
     try {
-      const consultation = await saveCatalogConsultation(items, totalPrice, latestCustomer);
-      const whatsappUrl = buildWhatsappUrl(items, totalPrice, latestCustomer, formatConsultationNumber(consultation));
+      const consultation = await saveCatalogConsultation(latestItems, latestTotalPrice, latestCustomer);
+      const whatsappUrl = buildWhatsappUrl(latestItems, latestTotalPrice, latestCustomer, formatConsultationNumber(consultation));
       window.open(whatsappUrl, "_blank", "noopener,noreferrer");
       cart = [];
       saveCart();
