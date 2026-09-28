@@ -344,6 +344,12 @@ const els = {
   addProductToggle: document.querySelector("#addProductToggle"),
   addProductOverlay: document.querySelector("#addProductOverlay"),
   importProductsButton: document.querySelector("#importProductsButton"),
+  downloadWholesaleCatalogPdf: document.querySelector("#downloadWholesaleCatalogPdf"),
+  shareWholesaleCatalogPdf: document.querySelector("#shareWholesaleCatalogPdf"),
+  downloadResaleCatalogPdf: document.querySelector("#downloadResaleCatalogPdf"),
+  shareResaleCatalogPdf: document.querySelector("#shareResaleCatalogPdf"),
+  catalogPdfView: document.querySelector("#catalogPdfView"),
+  catalogPdfStatus: document.querySelector("#catalogPdfStatus"),
   exportProductsButton: document.querySelector("#exportProductsButton"),
   importProductsInput: document.querySelector("#importProductsInput"),
   downloadProductsTemplate: document.querySelector("#downloadProductsTemplate"),
@@ -541,6 +547,10 @@ els.importProductsButton?.addEventListener("click", () => {
   els.importProductsInput?.click();
 });
 els.exportProductsButton?.addEventListener("click", exportProductsToExcel);
+els.downloadWholesaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("wholesale", "download"));
+els.shareWholesaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("wholesale", "share"));
+els.downloadResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "download"));
+els.shareResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "share"));
 els.importProductsInput?.addEventListener("change", importProductsFromFile);
 els.clientsSearch?.addEventListener("input", renderClients);
 els.clientsSort?.addEventListener("change", renderClients);
@@ -10144,7 +10154,7 @@ function getSavedInitialManagementView() {
   const managementViews = getManagementViews();
   const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "pedidos";
   if (view === "reportes" && !hasPermission("reports")) return "pedidos";
-  if (view === "importacion" && !hasPermission("importExport")) return "pedidos";
+  if (["importacion", "catalogos"].includes(view) && !hasPermission("importExport")) return "pedidos";
   if (view === "seguridad" && !canAccess("admin")) return "pedidos";
   return view;
 }
@@ -10173,9 +10183,9 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     view = currentView && currentView !== "reportes" ? currentView : "admin";
     isManagementView = managementViews.includes(view);
   }
-  if (view === "importacion" && !hasPermission("importExport")) {
-    showToast("Importación Excel disponible solo para Administrador");
-    view = currentView && currentView !== "importacion" ? currentView : "admin";
+  if (["importacion", "catalogos"].includes(view) && !hasPermission("importExport")) {
+    showToast("Esta sección está disponible solo para Administrador");
+    view = currentView && !["importacion", "catalogos"].includes(currentView) ? currentView : "admin";
     isManagementView = managementViews.includes(view);
   }
   if (view === "seguridad" && !canAccess("admin")) {
@@ -10216,6 +10226,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.adminView.classList.toggle("hidden", view !== "admin");
   els.stockView?.classList.toggle("hidden", view !== "stock");
   els.importView.classList.toggle("hidden", view !== "importacion");
+  els.catalogPdfView?.classList.toggle("hidden", view !== "catalogos");
   els.ordersView.classList.toggle("hidden", view !== "pedidos");
   els.clientsView?.classList.toggle("hidden", view !== "clientes");
   els.reportsView.classList.toggle("hidden", view !== "reportes");
@@ -11065,7 +11076,7 @@ async function handleEmployeeProfilePasswordSet(event) {
   }
 }
 function getManagementViews() {
-  return ["admin", "pedidos", "clientes", "reportes", "importacion", "seguridad"];
+  return ["admin", "pedidos", "clientes", "reportes", "importacion", "catalogos", "seguridad"];
 }
 
 function applyRoleVisibility() {
@@ -11916,6 +11927,325 @@ async function exportProductsToExcel() {
   }
 }
 
+async function handleCatalogPdfAction(type, action) {
+  if (!hasPermission("importExport") || !canAccess("admin")) {
+    showToast("Catálogos PDF disponible solo para Administrador");
+    return;
+  }
+  if (handleCatalogPdfAction.busy) return;
+  handleCatalogPdfAction.busy = true;
+  setCatalogPdfBusy(true, "Preparando imágenes y catálogo PDF...");
+  try {
+    const blob = await createCatalogPdfBlob(type);
+    const filename = getCatalogPdfFilename(type);
+    if (action === "share") {
+      await shareCatalogPdfBlob(blob, filename, type);
+    } else {
+      triggerPdfDownload(blob, filename);
+      showToast("Catálogo PDF descargado", "success");
+    }
+  } catch (error) {
+    console.error("Punto X Mayor catalog PDF:", error);
+    showToast(error.message || "No se pudo generar el catálogo PDF");
+    setCatalogPdfStatus(error.message || "No se pudo generar el catálogo PDF", true);
+  } finally {
+    handleCatalogPdfAction.busy = false;
+    setCatalogPdfBusy(false);
+  }
+}
+
+function setCatalogPdfBusy(isBusy, message = "") {
+  [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf]
+    .filter(Boolean)
+    .forEach((button) => { button.disabled = isBusy; });
+  setCatalogPdfStatus(isBusy ? message : "", false);
+}
+
+function setCatalogPdfStatus(message = "", isError = false) {
+  if (!els.catalogPdfStatus) return;
+  els.catalogPdfStatus.textContent = message;
+  els.catalogPdfStatus.classList.toggle("hidden", !message);
+  els.catalogPdfStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+async function createCatalogPdfBlob(type) {
+  const includePrices = type === "wholesale";
+  const productsForPdf = getProductsForCatalogPdf();
+  if (!productsForPdf.length) throw new Error("No hay productos visibles para catálogo.");
+  const pdf = await createCatalogPdf(productsForPdf, { includePrices, neutral: !includePrices });
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function getProductsForCatalogPdf() {
+  return getOrderedProducts()
+    .filter((product) => product.active !== false)
+    .filter((product) => product.showInCatalog !== false)
+    .filter((product) => isCategoryVisible(product.category))
+    .sort((a, b) => {
+      const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
+      if (categoryDiff !== 0) return categoryDiff;
+      const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+      const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+      if (left !== right) return left - right;
+      return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+    });
+}
+
+function getCatalogPdfFilename(type) {
+  const suffix = type === "wholesale" ? "mayorista-con-precios" : "reventa-sin-precios";
+  return `catalogo-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
+}
+
+async function shareCatalogPdfBlob(blob, filename, type) {
+  const file = new File([blob], filename, { type: "application/pdf" });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: type === "wholesale" ? "Catálogo mayorista" : "Catálogo de productos",
+        text: type === "wholesale" ? "Catálogo mayorista con precios" : "Catálogo de productos"
+      });
+      showToast("Catálogo listo para compartir", "success");
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      console.warn("Punto X Mayor catalog PDF share:", error);
+    }
+  }
+  triggerPdfDownload(blob, filename);
+  showToast("Este dispositivo no permite compartir PDF. Se descargó el archivo.");
+}
+
+async function createCatalogPdf(productsForPdf, options = {}) {
+  const includePrices = Boolean(options.includePrices);
+  const neutral = Boolean(options.neutral);
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 30;
+  const gap = 12;
+  const headerHeight = 54;
+  const cardWidth = (pageWidth - (margin * 2) - gap) / 2;
+  const cardHeight = 226;
+  const imageHeight = 116;
+  const cardsPerPage = 6;
+  const pages = [];
+  const imageObjects = [];
+  let currentPage = makeCatalogPdfPage();
+  let categoryOnPage = "";
+
+  for (let index = 0; index < productsForPdf.length; index += 1) {
+    const product = productsForPdf[index];
+    const position = currentPage.cards.length;
+    if (position >= cardsPerPage) {
+      pages.push(currentPage);
+      currentPage = makeCatalogPdfPage();
+      categoryOnPage = "";
+    }
+    const image = await getCatalogPdfImageObject(getProductImages(product)[0] || product.image || DEFAULT_PRODUCT_IMAGE, imageObjects.length + 1);
+    if (image) imageObjects.push(image);
+    const category = String(product.category || "Sin categoría").trim() || "Sin categoría";
+    const showCategory = category !== categoryOnPage;
+    categoryOnPage = category;
+    currentPage.cards.push({ product, imageName: image?.name || "", showCategory });
+  }
+  if (currentPage.cards.length) pages.push(currentPage);
+  if (!pages.length) pages.push(makeCatalogPdfPage());
+
+  const pageCommands = pages.map((page, pageIndex) => renderCatalogPdfPage(page, {
+    pageIndex,
+    pageCount: pages.length,
+    pageWidth,
+    pageHeight,
+    margin,
+    gap,
+    headerHeight,
+    cardWidth,
+    cardHeight,
+    imageHeight,
+    includePrices,
+    neutral
+  }));
+  return buildPdfFromPagesWithImages(pageCommands, pageWidth, pageHeight, imageObjects);
+}
+
+function makeCatalogPdfPage() {
+  return { cards: [] };
+}
+
+function renderCatalogPdfPage(page, settings) {
+  const commands = [];
+  const addText = (text, x, y, size = 9, bold = false) => {
+    commands.push(`BT /F${bold ? 2 : 1} ${size} Tf ${x} ${y} Td ${pdfHexString(text)} Tj ET`);
+  };
+  const addLine = (x1, y1, x2, y2, width = 0.6) => commands.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  const addRect = (x, y, w, h, stroke = true, fill = false) => {
+    commands.push(`${x} ${y} ${w} ${h} re ${fill && stroke ? "B" : fill ? "f" : "S"}`);
+  };
+  const drawImage = (name, x, y, w, h) => {
+    if (!name) return;
+    commands.push(`q ${w} 0 0 ${h} ${x} ${y} cm /${name} Do Q`);
+  };
+  const {
+    pageIndex, pageCount, pageWidth, pageHeight, margin, gap, headerHeight,
+    cardWidth, cardHeight, imageHeight, includePrices, neutral
+  } = settings;
+  const title = includePrices ? "Catálogo mayorista" : "Catálogo de productos";
+  const subtitle = includePrices ? "Productos con precios de venta mayorista" : "Selección para reventa - sin precios";
+  const today = new Intl.DateTimeFormat("es-AR").format(new Date());
+
+  addText(title, margin, pageHeight - margin - 6, 16, true);
+  addText(subtitle, margin, pageHeight - margin - 22, 9, false);
+  if (!neutral) addText("Punto X Mayor", pageWidth - margin - 92, pageHeight - margin - 6, 10, true);
+  addText(today, pageWidth - margin - 58, pageHeight - margin - 22, 8, false);
+  addLine(margin, pageHeight - margin - 34, pageWidth - margin, pageHeight - margin - 34, 0.8);
+
+  page.cards.forEach((entry, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = margin + col * (cardWidth + gap);
+    const top = pageHeight - margin - headerHeight - row * (cardHeight + gap);
+    const y = top - cardHeight;
+    const product = entry.product;
+    addRect(x, y, cardWidth, cardHeight, true, false);
+    drawImage(entry.imageName, x + 8, top - imageHeight - 8, cardWidth - 16, imageHeight);
+    let textY = top - imageHeight - 24;
+    if (entry.showCategory) {
+      addText(String(product.category || "Sin categoría"), x + 10, textY, 7.5, true);
+      textY -= 12;
+    }
+    wrapPdfLine(getProductBaseName(product), 31).slice(0, 2).forEach((line) => {
+      addText(line, x + 10, textY, 9.2, true);
+      textY -= 11;
+    });
+    const variant = getCatalogPdfVariantLabel(product);
+    if (variant) {
+      wrapPdfLine(variant, 34).slice(0, 1).forEach((line) => {
+        addText(line, x + 10, textY, 8.2, false);
+        textY -= 10;
+      });
+    }
+    const presentation = getProductPresentation(product) || "Sin presentación";
+    wrapPdfLine(presentation, 34).slice(0, 2).forEach((line) => {
+      addText(line, x + 10, textY, 8.1, false);
+      textY -= 10;
+    });
+    if (includePrices) {
+      const price = getProductSalePriceForPresentation(product);
+      addText(price > 0 ? formatMoney(price) : "Falta precio", x + 10, y + 13, 10.5, true);
+    }
+  });
+  addText(`Página ${pageIndex + 1} de ${pageCount}`, pageWidth - margin - 58, 20, 8, false);
+  return commands;
+}
+
+function getCatalogPdfVariantLabel(product) {
+  const label = formatProductVariantSummary(product);
+  return label && label !== "Sin talle" ? label : "";
+}
+
+async function getCatalogPdfImageObject(imageUrl, index) {
+  try {
+    const source = getCatalogImage(imageUrl || DEFAULT_PRODUCT_IMAGE);
+    const jpeg = await renderCatalogPdfImageToJpeg(source, 420, 300);
+    if (!jpeg?.bytes?.length) return null;
+    return {
+      name: `Im${index}`,
+      width: jpeg.width,
+      height: jpeg.height,
+      hex: bytesToHex(jpeg.bytes)
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function renderCatalogPdfImageToJpeg(source, targetWidth = 420, targetHeight = 300) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#f7f8f6";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        const ratio = Math.min(targetWidth / image.naturalWidth, targetHeight / image.naturalHeight);
+        const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+        const x = Math.round((targetWidth - width) / 2);
+        const y = Math.round((targetHeight - height) / 2);
+        context.drawImage(image, x, y, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.76);
+        resolve({ bytes: dataUrlToBytes(dataUrl), width: targetWidth, height: targetHeight });
+      } catch (error) {
+        resolve(null);
+      }
+    };
+    image.onerror = () => resolve(null);
+    image.src = source;
+  });
+}
+
+function dataUrlToBytes(dataUrl) {
+  const base64 = String(dataUrl || "").split(",")[1] || "";
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  let hex = "";
+  bytes.forEach((byte) => {
+    hex += byte.toString(16).toUpperCase().padStart(2, "0");
+  });
+  return hex;
+}
+
+function buildPdfFromPagesWithImages(pageCommands, pageWidth, pageHeight, images = []) {
+  const objects = [];
+  const addObject = (body) => {
+    objects.push(body);
+    return objects.length;
+  };
+  const fontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  const boldFontId = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  const imageRefs = new Map();
+  images.forEach((image) => {
+    const stream = `${image.hex}>`;
+    const objectId = addObject(`<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    imageRefs.set(image.name, objectId);
+  });
+  const xObjectResources = [...imageRefs.entries()].map(([name, id]) => `/${name} ${id} 0 R`).join(" ");
+  const pageObjectIds = [];
+  pageCommands.forEach((commands) => {
+    const stream = commands.join("\n");
+    const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    const xObjectPart = xObjectResources ? `/XObject << ${xObjectResources} >>` : "";
+    const pageId = addObject(`<< /Type /Page /Parent 0 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> ${xObjectPart} >> /Contents ${contentId} 0 R >>`);
+    pageObjectIds.push(pageId);
+  });
+  const pagesId = addObject(`<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`);
+  const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  pageObjectIds.forEach((id) => {
+    objects[id - 1] = objects[id - 1].replace("/Parent 0 0 R", `/Parent ${pagesId} 0 R`);
+  });
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((body, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return pdf;
+}
 function exportSalesToExcel() {
   if (!hasPermission("importExport")) return;
   const headers = ["Pedido", "Fecha", "Cliente", "Teléfono", "Localidad", "Subtotal", "Descuento", "Envío", "Total final", "Productos"];

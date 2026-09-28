@@ -17,7 +17,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=visual-internal-2">
+    <link rel="stylesheet" href="/styles.css?v=catalog-pdf-1">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -180,7 +180,7 @@
           <button class="ghost-button management-tab-with-badge" data-view="pedidos">Pedidos<span class="orders-attention-badge hidden" id="ordersAttentionBadge" aria-label="Pedidos nuevos sin ver"></span></button>
           <button class="ghost-button" data-view="clientes">Clientes</button>
           <button class="ghost-button" data-view="reportes" data-reports-only>Reportes</button>
-          <button class="ghost-button" data-view="importacion" data-import-export-only>Importación Excel</button>
+          <span class="management-admin-tools" data-import-export-only><button class="ghost-button" data-view="importacion">Importación Excel</button><button class="ghost-button" data-view="catalogos">Catálogos PDF</button></span>
           </div>
       </section>
 
@@ -376,6 +376,41 @@
             Boxer Adulto Lody Art. 742 | 1 |  | Ropa Interior Hombre | 42000 | 60000 | 1 Docena | 24 | Sí
           </div>
           </div>
+      </section>
+
+
+      <section id="catalogPdfView" class="content-view hidden" data-import-export-only>
+        <div class="import-planner catalog-pdf-planner">
+          <div class="section-head compact">
+            <div>
+              <h2>Catálogos PDF</h2>
+              <p>Generá catálogos A4 con los productos visibles del catálogo actual.</p>
+            </div>
+          </div>
+          <div class="catalog-pdf-options" aria-label="Opciones de catálogo PDF">
+            <article class="catalog-pdf-card">
+              <div>
+                <h3>Mayorista con precios</h3>
+                <p>Incluye foto, nombre, talle o medida, presentación y precio de venta mayorista. No incluye costo ni stock.</p>
+              </div>
+              <div class="catalog-pdf-actions">
+                <button class="primary-button" id="downloadWholesaleCatalogPdf" type="button">Descargar PDF</button>
+                <button class="secondary-button" id="shareWholesaleCatalogPdf" type="button">Compartir</button>
+              </div>
+            </article>
+            <article class="catalog-pdf-card">
+              <div>
+                <h3>Para reventa sin precios</h3>
+                <p>Diseño neutro para compartir: foto, nombre, talle o medida y presentación. Sin precios, costos ni stock.</p>
+              </div>
+              <div class="catalog-pdf-actions">
+                <button class="primary-button" id="downloadResaleCatalogPdf" type="button">Descargar PDF</button>
+                <button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button>
+              </div>
+            </article>
+          </div>
+          <p class="catalog-pdf-status hidden" id="catalogPdfStatus" role="status"></p>
+        </div>
       </section>
 
       <section id="ordersView" class="content-view hidden">
@@ -742,6 +777,6 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=admin-edit-cost-1"></script>
+    <script src="/app.js?v=catalog-pdf-1"></script>
   </body>
 </html>

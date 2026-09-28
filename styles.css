@@ -13846,4 +13846,79 @@ body.admin-catalog-preview .public-catalog-header,
 body.admin-catalog-preview .public-catalog-header + .minimum-banner {
   display: none !important;
 }
+.management-admin-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1 1 320px;
+  max-width: 420px;
+}
 
+.management-admin-tools .ghost-button {
+  width: 100%;
+}
+
+.catalog-pdf-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.catalog-pdf-card {
+  display: grid;
+  gap: 16px;
+  align-content: space-between;
+  min-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(24, 33, 28, 0.05);
+}
+
+.catalog-pdf-card h3,
+.catalog-pdf-card p {
+  margin: 0;
+}
+
+.catalog-pdf-card h3 {
+  font-size: 1.08rem;
+}
+
+.catalog-pdf-card p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.catalog-pdf-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.catalog-pdf-status {
+  margin: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f7f8f7;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.catalog-pdf-status.is-error {
+  background: #fff1f1;
+  color: #9f1d1d;
+}
+
+@media (max-width: 760px) {
+  .management-admin-tools,
+  .catalog-pdf-options,
+  .catalog-pdf-actions {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .catalog-pdf-card {
+    min-height: auto;
+  }
+}
