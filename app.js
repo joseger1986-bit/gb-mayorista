@@ -11200,6 +11200,7 @@ function applyRoleVisibility() {
     element.classList.toggle("hidden", !hasPermission("reports"));
   });
   document.querySelectorAll("[data-import-export-only]").forEach((element) => {
+    if (element.classList.contains("content-view")) return;
     element.classList.toggle("hidden", !hasPermission("importExport"));
   });
   document.querySelectorAll("[data-security-only]").forEach((element) => {
