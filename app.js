@@ -19,7 +19,7 @@ const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const SUPABASE_CATALOG_SOURCE_VERSION = "products_safe_catalog_v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
-const WHOLESALE_MINIMUM = 100000;
+const WHOLESALE_MINIMUM = 150000;
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const MANAGEMENT_HOSTNAMES = ["gestion.puntoxmayor.com.ar"];
 const PUBLIC_CATALOG_HOSTNAMES = ["www.puntoxmayor.com.ar", "puntoxmayor.com.ar"];
@@ -12187,4 +12187,3 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
-
