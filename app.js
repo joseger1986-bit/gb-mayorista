@@ -249,6 +249,7 @@ let reportPeriodEnd = "";
 let reportCostsRefreshing = false;
 let reportAdminCostById = new Map();
 let reportAdminCostsLoaded = false;
+let reportAdminCostsPromise = null;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -6819,8 +6820,8 @@ function exportClientsToExcel() {
 
 async function renderReports() {
   if (!els.reportGrid) return;
-  if (currentView === "reportes" && canAccess("admin") && !reportAdminCostsLoaded && !reportCostsRefreshing) {
-    els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
+  if (canAccess("admin") && !reportAdminCostsLoaded) {
+    if (currentView === "reportes") els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
     await refreshAdminCostsForReports();
     if (currentView !== "reportes") return;
   }
@@ -6896,25 +6897,30 @@ async function renderReports() {
 }
 
 async function refreshAdminCostsForReports() {
-  if (reportCostsRefreshing || !canAccess("admin")) return reportAdminCostById;
+  if (!canAccess("admin")) return reportAdminCostById;
+  if (reportAdminCostsPromise) return reportAdminCostsPromise;
   reportCostsRefreshing = true;
-  try {
-    const costById = await getAdminProductCostMapForExport();
-    reportAdminCostById = costById;
-    reportAdminCostsLoaded = true;
-    products.forEach((product) => {
-      const key = String(product.id || "");
-      if (!costById.has(key)) return;
-      product.cost = Math.max(0, Number(costById.get(key)) || 0);
-    });
-    return reportAdminCostById;
-  } catch (error) {
-    console.error("Punto X Mayor report costs:", error);
-    if (currentView === "reportes") showToast(error.message || "No se pudieron leer los costos reales.");
-    return reportAdminCostById;
-  } finally {
-    reportCostsRefreshing = false;
-  }
+  reportAdminCostsPromise = (async () => {
+    try {
+      const costById = await getAdminProductCostMapForExport();
+      reportAdminCostById = costById;
+      reportAdminCostsLoaded = true;
+      products.forEach((product) => {
+        const key = String(product.id || "");
+        if (!costById.has(key)) return;
+        product.cost = Math.max(0, Number(costById.get(key)) || 0);
+      });
+      return reportAdminCostById;
+    } catch (error) {
+      console.error("Punto X Mayor report costs:", error);
+      if (currentView === "reportes") showToast(error.message || "No se pudieron leer los costos reales.");
+      return reportAdminCostById;
+    } finally {
+      reportCostsRefreshing = false;
+      reportAdminCostsPromise = null;
+    }
+  })();
+  return reportAdminCostsPromise;
 }
 
 function getReportPeriodRange() {
@@ -10493,6 +10499,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     markOrdersNotificationsSeen();
     refreshOrdersFromSupabase("view-pedidos", { silent: false });
   }
+  if (view === "reportes" && hasPermission("reports")) renderReports();
   renderInternalWebPendingAccess();
   renderRole();
   renderNav();
@@ -12800,6 +12807,7 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
 
 
 
