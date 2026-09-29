@@ -1624,6 +1624,10 @@ async function refreshCatalogFromSupabase(reason = "manual", options = {}) {
       throw new Error("Supabase no devolvio productos para Gestion.");
     }
     applyRemoteCatalog(remote, reason === "realtime" ? "supabase-realtime" : "supabase-read");
+    if (canAccess("admin")) {
+      await refreshAdminProductCosts(reason);
+      renderAll();
+    }
     supabaseCatalogReadyForWrites = true;
     setupSupabaseCatalogRealtime();
     logSupabaseSyncDebug("read-ok", {
@@ -6903,17 +6907,11 @@ async function refreshAdminCostsForReports() {
   reportCostsRefreshing = true;
   reportAdminCostsPromise = (async () => {
     try {
-      const costById = await getAdminProductCostMapForExport();
-      reportAdminCostById = costById;
-      reportAdminCostsLoaded = true;
-      products.forEach((product) => {
-        const key = String(product.id || "");
-        if (!costById.has(key)) return;
-        product.cost = Math.max(0, Number(costById.get(key)) || 0);
-      });
+      await refreshAdminProductCosts("reportes");
       return reportAdminCostById;
     } catch (error) {
       console.error("Punto X Mayor report costs:", error);
+      reportAdminCostsLoaded = false;
       if (currentView === "reportes") showToast(error.message || "No se pudieron leer los costos reales.");
       return reportAdminCostById;
     } finally {
@@ -6923,7 +6921,6 @@ async function refreshAdminCostsForReports() {
   })();
   return reportAdminCostsPromise;
 }
-
 function getReportPeriodRange() {
   const now = new Date();
   const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -8202,6 +8199,25 @@ async function getAdminProductCostMapForExport() {
   return new Map((data || []).map((row) => [String(row.id || ""), Math.max(0, Number(row.cost_price) || 0)]));
 }
 
+async function refreshAdminProductCosts(reason = "admin-costs") {
+  if (!canAccess("admin")) return { ok: false, reason, applied: 0, positive: 0 };
+  const costById = await getAdminProductCostMapForExport();
+  reportAdminCostById = costById;
+  reportAdminCostsLoaded = true;
+  let applied = 0;
+  let positive = 0;
+  products.forEach((product) => {
+    const key = String(product.id || "");
+    if (!costById.has(key)) return;
+    const cost = Math.max(0, Number(costById.get(key)) || 0);
+    product.cost = cost;
+    applied += 1;
+    if (cost > 0 && getProductTotalStock(product) > 0) positive += 1;
+  });
+  window.gbAdminCostStatus = { ok: true, reason, rows: costById.size, applied, positive, at: new Date().toISOString() };
+  if (!positive) console.warn("Punto X Mayor costos admin sin valores positivos aplicados", window.gbAdminCostStatus);
+  return window.gbAdminCostStatus;
+}
 async function getAdminProductCostForEdit(productId) {
   const costById = await getAdminProductCostMapForExport();
   const key = String(productId || "");
@@ -10835,6 +10851,7 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
         role: savedProfile
       };
       unlockInternalSession(session, restoredContext);
+      if (canAccess("admin")) await refreshAdminProductCosts("session-restore");
       return true;
     }
     internalUnlocked = false;
@@ -10994,6 +11011,7 @@ async function handleInternalProfileSubmit(event) {
     internalProfileSelection = "";
     unlockInternalSession(sessionData.session, context);
     await refreshCatalogFromSupabase("profile-login", { silent: true });
+    if (canAccess("admin")) await refreshAdminProductCosts("profile-login");
     await refreshOrdersFromSupabase("profile-login", { silent: true });
     renderAll();
     setView("pedidos", true, { replace: true });
@@ -12808,6 +12826,7 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
 
 
 
