@@ -14,6 +14,7 @@ const STORAGE_UI_STATE = "gb_mayorista_ui_state";
 const STORAGE_INTERNAL_UNLOCKED = "gb_mayorista_internal_unlocked";
 const STORAGE_INTERNAL_PROFILE = "gb_mayorista_internal_profile";
 const STORAGE_INTERNAL_PROFILE_USER = "gb_mayorista_internal_profile_user";
+const STORAGE_INTERNAL_PROFILE_SESSION = "gb_mayorista_internal_profile_session";
 const STORAGE_ORDERS_LAST_SEEN_NUMBER = "gb_mayorista_orders_last_seen_number";
 const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const SUPABASE_CATALOG_SOURCE_VERSION = "products_safe_catalog_v1";
@@ -870,9 +871,14 @@ function getSupabaseAuthClient() {
   return client?.auth ? client : null;
 }
 
+function getStoredInternalProfileSessionToken() {
+  return localStorage.getItem(STORAGE_INTERNAL_PROFILE_SESSION) || sessionStorage.getItem(STORAGE_INTERNAL_PROFILE_SESSION) || "";
+}
+
 function unlockInternalSession(session, context = null) {
   internalAuthenticated = Boolean(session?.user);
   const role = normalizeInternalRole(context?.role || "");
+  const profileSessionToken = String(context?.profile_session_token || context?.profileSessionToken || "");
   internalAuthContext = context || null;
   internalUnlocked = internalAuthenticated && ["admin", "employee"].includes(role);
   currentRole = internalUnlocked ? role : "client";
@@ -882,10 +888,16 @@ function unlockInternalSession(session, context = null) {
       sessionStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
       localStorage.setItem(STORAGE_INTERNAL_PROFILE, currentRole);
       localStorage.setItem(STORAGE_INTERNAL_PROFILE_USER, session.user.id);
+      if (profileSessionToken) {
+        sessionStorage.setItem(STORAGE_INTERNAL_PROFILE_SESSION, profileSessionToken);
+        localStorage.setItem(STORAGE_INTERNAL_PROFILE_SESSION, profileSessionToken);
+      }
     } else {
       sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
       localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
       localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+      sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+      localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
     }
     localStorage.setItem(STORAGE_ROLE, currentRole);
   } else {
@@ -893,6 +905,8 @@ function unlockInternalSession(session, context = null) {
     sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
     localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
     localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
     localStorage.setItem(STORAGE_ROLE, "client");
   }
 }
@@ -902,11 +916,16 @@ function lockInternalSession() {
   internalUnlocked = false;
   currentRole = "client";
   internalAuthContext = null;
+  reportAdminCostById = new Map();
+  reportAdminCostsLoaded = false;
+  reportAdminCostsPromise = null;
   teardownSupabaseOrdersRealtime();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
   sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
   localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
   localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+  localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
   localStorage.setItem(STORAGE_ROLE, "client");
 }
 
@@ -1554,16 +1573,17 @@ async function loadProductRowsFromSupabase(client) {
   let productRows = (data || []).filter((row) => !isArchivedProductRow(row));
 
   if (canReadCosts && typeof client.rpc === "function" && productRows.length) {
-    const { data: costRows, error: costError } = await client.rpc("internal_admin_products_with_cost");
-    if (costError) {
-      console.warn("Punto X Mayor costos admin:", costError);
-    } else {
-      const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
-      productRows = productRows.map((row) => ({
-        ...row,
-        cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
-      }));
-    }
+    const profileToken = getStoredInternalProfileSessionToken();
+    if (!profileToken) throw new Error("La sesión del perfil Administrador no está disponible para leer costos.");
+    const { data: costRows, error: costError } = await client.rpc("internal_admin_products_with_cost", {
+      p_profile_token: profileToken
+    });
+    if (costError) throw new Error(costError.message || "No se pudieron leer los costos reales.");
+    const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
+    productRows = productRows.map((row) => ({
+      ...row,
+      cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
+    }));
   }
   const productIds = productRows.map((row) => row.id).filter(Boolean);
   if (!productIds.length) return productRows;
@@ -8194,7 +8214,11 @@ async function getAdminProductCostMapForExport() {
   if (!canAccess("admin")) throw new Error("Solo Administrador puede exportar costos.");
   const client = getSupabaseAuthClient();
   if (!client || typeof client.rpc !== "function") throw new Error("Supabase Auth no está disponible para leer costos.");
-  const { data, error } = await client.rpc("internal_admin_products_with_cost");
+  const profileToken = getStoredInternalProfileSessionToken();
+  if (!profileToken) throw new Error("La sesión del perfil Administrador no está disponible para leer costos.");
+  const { data, error } = await client.rpc("internal_admin_products_with_cost", {
+    p_profile_token: profileToken
+  });
   if (error) throw new Error(error.message || "No se pudieron leer los costos reales.");
   return new Map((data || []).map((row) => [String(row.id || ""), Math.max(0, Number(row.cost_price) || 0)]));
 }
@@ -10844,15 +10868,30 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
     const backendRole = normalizeInternalRole(context.role);
     const savedProfile = normalizeInternalRole(localStorage.getItem(STORAGE_INTERNAL_PROFILE) || sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
     const savedProfileUser = localStorage.getItem(STORAGE_INTERNAL_PROFILE_USER) || "";
-    if (canRestoreSavedInternalProfile(savedProfile, backendRole) && savedProfileUser === session.user.id) {
-      const restoredContext = {
-        ...context,
-        allowed: true,
-        role: savedProfile
-      };
-      unlockInternalSession(session, restoredContext);
-      if (canAccess("admin")) await refreshAdminProductCosts("session-restore");
-      return true;
+    const savedProfileSessionToken = getStoredInternalProfileSessionToken();
+    if (canRestoreSavedInternalProfile(savedProfile, backendRole) && savedProfileUser === session.user.id && savedProfileSessionToken) {
+      try {
+        const profileSession = await rpcJson(
+          "internal_validate_profile_session",
+          { p_profile_token: savedProfileSessionToken },
+          "No se pudo restaurar el perfil interno."
+        );
+        const restoredRole = normalizeInternalRole(profileSession?.role);
+        if (profileSession?.ok && restoredRole === savedProfile) {
+          const restoredContext = {
+            ...context,
+            allowed: true,
+            username: profileSession.username || getInternalUsernameForRole(restoredRole),
+            role: restoredRole,
+            profile_session_token: savedProfileSessionToken
+          };
+          unlockInternalSession(session, restoredContext);
+          if (canAccess("admin")) await refreshAdminProductCosts("session-restore");
+          return true;
+        }
+      } catch (profileError) {
+        console.warn("Punto X Mayor restore profile session:", profileError);
+      }
     }
     internalUnlocked = false;
     internalAuthContext = context;
@@ -10861,6 +10900,8 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
     sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
     localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
     localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
     localStorage.setItem(STORAGE_ROLE, "client");
     internalProfileSelection = "";
     if (!options.silent) showInternalRoleChoice();
@@ -10987,11 +11028,22 @@ async function handleInternalProfileSubmit(event) {
     if (sessionError) throw sessionError;
     if (!sessionData?.session?.user) throw new Error("La sesión general ya no está disponible. Iniciá sesión nuevamente.");
     const username = getInternalUsernameForRole(role);
-    const verification = await rpcJson(
-      "internal_verify_profile_password",
-      { p_username: username, p_password: password },
-      "No se pudo validar la contraseña del perfil."
-    );
+    let verification;
+    try {
+      verification = await rpcJson(
+        "internal_start_profile_session",
+        { p_username: username, p_password: password },
+        "No se pudo validar la contraseña del perfil."
+      );
+    } catch (profileSessionError) {
+      if (!String(profileSessionError?.message || "").toLowerCase().includes("internal_start_profile_session")) throw profileSessionError;
+      console.warn("Punto X Mayor profile session RPC unavailable:", profileSessionError);
+      verification = await rpcJson(
+        "internal_verify_profile_password",
+        { p_username: username, p_password: password },
+        "No se pudo validar la contraseña del perfil."
+      );
+    }
     if (!verification?.ok) {
       const reason = verification?.reason === "profile_password_not_configured"
         ? "La contraseña de este perfil todavía no está configurada."
@@ -11005,6 +11057,7 @@ async function handleInternalProfileSubmit(event) {
       allowed: true,
       username: verification.username || username,
       role: verifiedRole,
+      profile_session_token: verification.profile_session_token || "",
       mfa_required: false,
       profile_password_must_change: Boolean(verification.must_change)
     };
@@ -11285,7 +11338,15 @@ async function handleInternalLogin(event) {
 }
 async function handleInternalLogout() {
   const client = getSupabaseAuthClient();
+  const profileToken = getStoredInternalProfileSessionToken();
   try {
+    if (profileToken) {
+      try {
+        await rpcJson("internal_end_profile_session", { p_profile_token: profileToken }, "No se pudo cerrar el perfil interno.");
+      } catch (profileError) {
+        console.warn("Punto X Mayor profile session logout:", profileError);
+      }
+    }
     if (client) await client.auth.signOut();
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth logout:", error);
