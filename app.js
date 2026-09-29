@@ -10324,16 +10324,8 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   els.adminNavCatalog?.classList.toggle("active", view === "catalogo");
   els.adminSwitchRole?.classList.toggle("active", view === "seguridad");
   els.backToManagement?.classList.toggle("hidden", !(isPrivateManagementRoute() && internalUnlocked && view === "catalogo"));
-  els.catalogView.classList.toggle("hidden", view !== "catalogo");
   els.managementShell.classList.toggle("hidden", !isManagementView || Boolean(operationalWebOrderId && view === "pedidos"));
-  els.adminView.classList.toggle("hidden", view !== "admin");
-  els.stockView?.classList.toggle("hidden", view !== "stock");
-  els.importView.classList.toggle("hidden", view !== "importacion");
-  els.catalogPdfView?.classList.toggle("hidden", view !== "catalogos");
-  els.ordersView.classList.toggle("hidden", view !== "pedidos");
-  els.clientsView?.classList.toggle("hidden", view !== "clientes");
-  els.reportsView.classList.toggle("hidden", view !== "reportes");
-  els.securityView?.classList.toggle("hidden", view !== "seguridad");
+  showExclusiveContentView(view);
   document.querySelectorAll("[data-catalog-only]").forEach((element) => {
     element.classList.toggle("hidden", view !== "catalogo");
   });
@@ -10355,6 +10347,28 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   if (!historyOptions.skipHistory && !suppressHistoryUpdate) {
     updateAppHistory(view, historyOptions);
   }
+}
+
+function hideAllContentViews() {
+  document.querySelectorAll(".content-view").forEach((viewElement) => {
+    viewElement.classList.add("hidden");
+  });
+}
+
+function showExclusiveContentView(view) {
+  hideAllContentViews();
+  const viewElementByName = {
+    catalogo: els.catalogView,
+    admin: els.adminView,
+    stock: els.stockView,
+    importacion: els.importView,
+    catalogos: els.catalogPdfView,
+    pedidos: els.ordersView,
+    clientes: els.clientsView,
+    reportes: els.reportsView,
+    seguridad: els.securityView
+  };
+  viewElementByName[view]?.classList.remove("hidden");
 }
 
 function initializeAppHistory() {
@@ -10700,6 +10714,7 @@ function showInternalRoleChoice(message = "", isError = false) {
   els.siteFooter?.classList.add("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
+  hideAllContentViews();
   els.catalogView?.classList.add("hidden");
   els.managementShell?.classList.add("hidden");
   els.adminView?.classList.add("hidden");
@@ -10847,6 +10862,7 @@ function showInternalLogin(showError = false, message = "", isSuccess = false) {
   els.siteFooter?.classList.add("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
+  hideAllContentViews();
   els.catalogView?.classList.add("hidden");
   els.managementShell?.classList.add("hidden");
   els.adminView?.classList.add("hidden");
@@ -10903,6 +10919,7 @@ function showPasswordRecoveryForm() {
   els.siteFooter?.classList.add("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
+  hideAllContentViews();
   els.catalogView?.classList.add("hidden");
   els.managementShell?.classList.add("hidden");
   els.adminView?.classList.add("hidden");
@@ -10934,6 +10951,7 @@ function showPasswordResetForm() {
   els.siteFooter?.classList.add("hidden");
   els.adminNav?.classList.add("hidden");
   els.backToManagement?.classList.add("hidden");
+  hideAllContentViews();
   els.catalogView?.classList.add("hidden");
   els.managementShell?.classList.add("hidden");
   els.adminView?.classList.add("hidden");
