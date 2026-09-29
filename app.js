@@ -247,6 +247,8 @@ let stockMovementsRemoteRefreshing = false;
 let reportPeriodStart = "";
 let reportPeriodEnd = "";
 let reportCostsRefreshing = false;
+let reportAdminCostById = new Map();
+let reportAdminCostsLoaded = false;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -6815,9 +6817,13 @@ function exportClientsToExcel() {
   showToast("Clientes exportados para Excel");
 }
 
-function renderReports() {
+async function renderReports() {
   if (!els.reportGrid) return;
-  refreshAdminCostsForReports();
+  if (currentView === "reportes" && canAccess("admin") && !reportAdminCostsLoaded && !reportCostsRefreshing) {
+    els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
+    await refreshAdminCostsForReports();
+    if (currentView !== "reportes") return;
+  }
   const totals = getTotals();
   const confirmedOrders = orders.filter((order) => isConfirmed(order.status));
   const periodRange = getReportPeriodRange();
@@ -6890,24 +6896,22 @@ function renderReports() {
 }
 
 async function refreshAdminCostsForReports() {
-  if (reportCostsRefreshing || currentView !== "reportes" || !canAccess("admin")) return;
+  if (reportCostsRefreshing || !canAccess("admin")) return reportAdminCostById;
   reportCostsRefreshing = true;
   try {
     const costById = await getAdminProductCostMapForExport();
-    let changed = false;
+    reportAdminCostById = costById;
+    reportAdminCostsLoaded = true;
     products.forEach((product) => {
       const key = String(product.id || "");
       if (!costById.has(key)) return;
-      const currentCost = Math.max(0, Number(costById.get(key)) || 0);
-      if (Number(product.cost) !== currentCost) {
-        product.cost = currentCost;
-        changed = true;
-      }
+      product.cost = Math.max(0, Number(costById.get(key)) || 0);
     });
-    if (changed && currentView === "reportes") renderReports();
+    return reportAdminCostById;
   } catch (error) {
     console.error("Punto X Mayor report costs:", error);
     if (currentView === "reportes") showToast(error.message || "No se pudieron leer los costos reales.");
+    return reportAdminCostById;
   } finally {
     reportCostsRefreshing = false;
   }
@@ -6944,7 +6948,7 @@ function getSalesMetricsForPeriod(startDate, endDate) {
   const sales = periodOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
   const cost = periodOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
     const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
-    return itemSum + ((Number(item.cost) || 0) * quantity);
+    return itemSum + (getOrderItemCostForReports(item) * quantity);
   }, 0), 0);
   const profit = sales - cost;
   return {
@@ -6956,6 +6960,31 @@ function getSalesMetricsForPeriod(startDate, endDate) {
   };
 }
 
+function getProductUnitCostForReports(product) {
+  if (!product) return 0;
+  const key = String(product.id || "");
+  if (canAccess("admin") && reportAdminCostById.has(key)) return Math.max(0, Number(reportAdminCostById.get(key)) || 0);
+  return Math.max(0, Number(product.cost) || 0);
+}
+
+function getProductStockCostValueForReports(product) {
+  return getProductUnitCostForReports(product) * getProductTotalStock(product);
+}
+
+function getProductStockSaleValueForReports(product) {
+  return (Number(product?.price) || 0) * getProductTotalStock(product);
+}
+
+function getOrderItemCostForReports(item) {
+  const savedCost = Math.max(0, Number(item?.cost) || 0);
+  if (savedCost > 0) return savedCost;
+  const product = products.find((entry) => String(entry.id || "") === String(item?.id || ""));
+  const unitCost = getProductUnitCostForReports(product);
+  if (!unitCost) return 0;
+  const presentation = getBudgetItemPresentation(item) || getProductPresentation(product || {});
+  const stockUnit = normalizeStockUnit(item?.stockUnit || product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  return Math.round(unitCost * getStockUnitsPerSoldPresentation(presentation, stockUnit));
+}
 function formatPercent(value) {
   return `${(Number(value) || 0).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 }
@@ -11489,8 +11518,8 @@ function getTotals() {
     monthSales: monthOrders.reduce((sum, order) => sum + order.total, 0),
     yearSales: yearOrders.reduce((sum, order) => sum + order.total, 0),
     monthProfit: monthOrders.reduce((sum, order) => sum + order.profit, 0),
-    stockSaleValue: products.reduce((sum, product) => sum + product.price * getProductTotalStock(product), 0),
-    stockCostValue: products.reduce((sum, product) => sum + product.cost * getProductTotalStock(product), 0)
+    stockSaleValue: products.reduce((sum, product) => sum + getProductStockSaleValueForReports(product), 0),
+    stockCostValue: products.reduce((sum, product) => sum + getProductStockCostValueForReports(product), 0)
   };
 }
 
@@ -12771,4 +12800,6 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
+
 
