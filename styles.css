@@ -3344,31 +3344,6 @@ th .table-sort-button[data-sort-products="stock"] {
   background: rgba(255, 255, 255, 0.7);
 }
 
-.admin-cost-diagnostic {
-  border: 1px solid rgba(161, 92, 18, 0.35);
-  border-radius: 8px;
-  margin: 0.75rem 0;
-  padding: 0.75rem;
-  background: #fff8ed;
-  color: #3d2a10;
-  font-size: 0.85rem;
-  text-align: left;
-}
-
-.admin-cost-diagnostic strong,
-.admin-cost-diagnostic span {
-  display: block;
-}
-
-.admin-cost-diagnostic ul {
-  margin: 0.5rem 0 0;
-  padding-left: 1.1rem;
-}
-
-.admin-cost-diagnostic li {
-  margin: 0.18rem 0;
-}
-
 .toast {
   position: fixed;
   left: 50%;

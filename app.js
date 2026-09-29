@@ -251,8 +251,6 @@ let reportCostsRefreshing = false;
 let reportAdminCostById = new Map();
 let reportAdminCostsLoaded = false;
 let reportAdminCostsPromise = null;
-let adminCostDiagnostic = null;
-let adminCostDiagnosticPromise = null;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -389,7 +387,6 @@ const els = {
   categoryManagerList: document.querySelector("#categoryManagerList"),
   adminCategoryTitle: document.querySelector("#adminCategoryTitle"),
   adminCategorySummary: document.querySelector("#adminCategorySummary"),
-  adminCostDiagnostic: document.querySelector("#adminCostDiagnostic"),
   downloadTemplate: document.querySelector("#downloadTemplate"),
   adminProducts: document.querySelector("#adminProducts"),
   archivedProducts: document.querySelector("#archivedProducts"),
@@ -403,7 +400,6 @@ const els = {
   clientsSort: document.querySelector("#clientsSort"),
   exportClientsButton: document.querySelector("#exportClientsButton"),
   clientDetail: document.querySelector("#clientDetail"),
-  reportCostDiagnostic: document.querySelector("#reportCostDiagnostic"),
   reportGrid: document.querySelector("#reportGrid"),
   heroProducts: document.querySelector("#heroProducts"),
   heroCategories: document.querySelector("#heroCategories"),
@@ -1916,7 +1912,8 @@ async function syncCatalogToSupabase(reason = "manual") {
         active: !isArchivedProductRow(product),
         sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
       };
-      if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
+      const persistedCost = getPersistableProductCost(product);
+      if (persistedCost !== null) row.cost_price = persistedCost;
       if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
       if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
       if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
@@ -2084,7 +2081,8 @@ function buildSupabaseProductRow(product, categoryId, sortOrder) {
     active: product.active !== false,
     sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : sortOrder
   };
-  if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
+  const persistedCost = getPersistableProductCost(product);
+  if (persistedCost !== null) row.cost_price = persistedCost;
   if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
   if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
   if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
@@ -2107,7 +2105,8 @@ function buildSupabaseProductEditRow(product, categoryId) {
     image_path: getSupabaseImagePath(product.image),
     updated_at: new Date().toISOString()
   };
-  if (canAccess("admin")) row.cost_price = Math.max(0, Number(product.cost) || 0);
+  const persistedCost = getPersistableProductCost(product);
+  if (persistedCost !== null) row.cost_price = persistedCost;
   if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
   if (supabaseProductGallerySupported) row.gallery_images = getStoredProductImages(product).map(getSupabaseImagePath).filter(Boolean);
   if (supabaseProductStockUnitSupported) row.stock_unit = normalizeStockUnit(product.stockUnit);
@@ -2117,6 +2116,13 @@ function buildSupabaseProductEditRow(product, categoryId) {
   }
   if (supabaseProductAssortmentSupported) row.assortment_name = getProductSurtidoValue(product);
   return row;
+}
+
+function getPersistableProductCost(product) {
+  if (!canAccess("admin")) return null;
+  const value = Number(product?.cost);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.max(0, value);
 }
 
 async function syncSingleProductToSupabase(product, reason = "edit-product") {
@@ -2619,7 +2625,6 @@ window.gbTeardownCatalogRealtime = teardownSupabaseCatalogRealtime;
 window.gbRefreshOrdersFromSupabase = refreshOrdersFromSupabase;
 window.gbSetupOrdersRealtime = setupSupabaseOrdersRealtime;
 window.gbTeardownOrdersRealtime = teardownSupabaseOrdersRealtime;
-window.gbRunAdminCostDiagnostic = runAdminCostDiagnostic;
 window.gbForceSyncProductsToSupabase = function () {
   supabaseCatalogBootstrapped = true;
   supabaseCatalogReadyForWrites = true;
@@ -3375,8 +3380,6 @@ function toggleCatalogDetails(groupId, button) {
 
 function renderAdmin() {
   renderAdminCategories();
-  renderAdminCostDiagnosticPanels();
-  if (shouldRunAdminCostDiagnostic()) window.setTimeout(() => runAdminCostDiagnostic("productos"), 0);
   const isAdmin = canAccess("admin");
   const canManageProducts = hasPermission("manageProducts") || isAdmin;
   const canEditSaleData = hasPermission("editSaleData") || isAdmin;
@@ -4278,7 +4281,12 @@ async function saveEditedProduct(event) {
   nextProduct.baseName = stripProductVariantFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName, nextProduct.surtidoName);
   nextProduct.name = nextProduct.baseName;
   nextProduct.price = getPresentationTotalFromMoneyInput(els.editProductPrice, nextProduct.presentation);
-  if (canAccess("admin")) nextProduct.cost = getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation);
+  if (canAccess("admin")) {
+    const rawCostInput = String(els.editProductCost?.value || "").trim();
+    nextProduct.cost = rawCostInput
+      ? getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation)
+      : Math.max(0, Number(product.cost) || 0);
+  }
   nextProduct.saleType = getSaleTypeFromPresentation(nextProduct.presentation);
   nextProduct.packQuantity = getPackQuantityFromPresentation(nextProduct.presentation);
   console.info("Punto X Mayor EDIT PRODUCT SAVE START", {
@@ -6852,8 +6860,6 @@ function exportClientsToExcel() {
 
 async function renderReports() {
   if (!els.reportGrid) return;
-  renderAdminCostDiagnosticPanels();
-  if (shouldRunAdminCostDiagnostic()) window.setTimeout(() => runAdminCostDiagnostic("reportes"), 0);
   if (canAccess("admin") && !reportAdminCostsLoaded) {
     if (currentView === "reportes") els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
     await refreshAdminCostsForReports();
@@ -8249,7 +8255,6 @@ async function refreshAdminProductCosts(reason = "admin-costs") {
   });
   window.gbAdminCostStatus = { ok: true, reason, rows: costById.size, applied, positive, at: new Date().toISOString() };
   if (!positive) console.warn("Punto X Mayor costos admin sin valores positivos aplicados", window.gbAdminCostStatus);
-  window.setTimeout(() => runAdminCostDiagnostic(reason), 0);
   return window.gbAdminCostStatus;
 }
 
@@ -8263,120 +8268,6 @@ function getPublicErrorSummary(error) {
   ].filter(Boolean).join(" - ") || String(error);
 }
 
-function getAdminCostDiagnosticRows(diagnostic) {
-  if (!diagnostic) return ["Diagnóstico de costos pendiente."];
-  return [
-    `motivo: ${diagnostic.reason || "-"}`,
-    `token perfil: ${diagnostic.tokenExists ? "SI" : "NO"}`,
-    `validación perfil: ${diagnostic.validateOk === true ? "OK" : diagnostic.validateOk === false ? "ERROR" : "sin ejecutar"}`,
-    diagnostic.validateRole ? `rol validado: ${diagnostic.validateRole}` : "",
-    diagnostic.validateError ? `error validación: ${diagnostic.validateError}` : "",
-    `RPC costos: ${diagnostic.costRpcOk === true ? "OK" : diagnostic.costRpcOk === false ? "ERROR" : "sin ejecutar"}`,
-    diagnostic.costRpcError ? `error RPC costos: ${diagnostic.costRpcError}` : "",
-    `filas RPC: ${Number(diagnostic.costRows) || 0}`,
-    `filas con cost_price > 0: ${Number(diagnostic.positiveCostRows) || 0}`,
-    diagnostic.firstPositiveCostName ? `primer costo positivo: ${diagnostic.firstPositiveCostName} (${formatMoney(diagnostic.firstPositiveCost || 0)})` : "",
-    `products[] total: ${Number(diagnostic.productsTotal) || 0}`,
-    `products[] con cost > 0: ${Number(diagnostic.productsWithCost) || 0}`,
-    diagnostic.sampleProductWithCost ? `primer product.cost positivo: ${diagnostic.sampleProductWithCost}` : "",
-    diagnostic.exception ? `excepción: ${diagnostic.exception}` : ""
-  ].filter(Boolean);
-}
-
-function renderAdminCostDiagnosticPanels() {
-  const panels = [els.adminCostDiagnostic, els.reportCostDiagnostic].filter(Boolean);
-  if (!panels.length) return;
-  const show = canAccess("admin") && Boolean(adminCostDiagnostic);
-  const rows = getAdminCostDiagnosticRows(adminCostDiagnostic);
-  panels.forEach((panel) => {
-    panel.classList.toggle("hidden", !show);
-    if (!show) {
-      panel.innerHTML = "";
-      return;
-    }
-    panel.innerHTML = `
-      <strong>Diagnóstico temporal de costos Admin</strong>
-      <span>Este bloque no muestra tokens ni contraseñas.</span>
-      <ul>${rows.map((row) => `<li>${escapeHtml(row)}</li>`).join("")}</ul>
-    `;
-  });
-}
-
-function shouldRunAdminCostDiagnostic() {
-  if (!canAccess("admin") || adminCostDiagnosticPromise) return false;
-  if (!adminCostDiagnostic?.at) return true;
-  const age = Date.now() - new Date(adminCostDiagnostic.at).getTime();
-  return !Number.isFinite(age) || age > 60000;
-}
-
-async function runAdminCostDiagnostic(reason = "manual") {
-  if (!canAccess("admin")) return null;
-  if (adminCostDiagnosticPromise) return adminCostDiagnosticPromise;
-  adminCostDiagnosticPromise = (async () => {
-    const profileToken = getStoredInternalProfileSessionToken();
-    const diagnostic = {
-      reason,
-      at: new Date().toISOString(),
-      tokenExists: Boolean(profileToken),
-      tokenLength: profileToken ? profileToken.length : 0,
-      validateOk: null,
-      validateRole: "",
-      validateError: "",
-      costRpcOk: null,
-      costRpcError: "",
-      costRows: 0,
-      positiveCostRows: 0,
-      firstPositiveCostName: "",
-      firstPositiveCost: 0,
-      productsTotal: products.length,
-      productsWithCost: products.filter((product) => Number(product.cost) > 0).length,
-      sampleProductWithCost: products.find((product) => Number(product.cost) > 0)?.name || "",
-      exception: ""
-    };
-    try {
-      const client = getSupabaseAuthClient();
-      if (!client || typeof client.rpc !== "function") throw new Error("Supabase Auth no está disponible.");
-      if (profileToken) {
-        const { data: validationData, error: validationError } = await client.rpc("internal_validate_profile_session", {
-          p_profile_token: profileToken
-        });
-        diagnostic.validateOk = !validationError && validationData?.ok === true;
-        diagnostic.validateRole = validationData?.role || "";
-        diagnostic.validateError = validationError ? getPublicErrorSummary(validationError) : validationData?.ok === false ? String(validationData?.reason || "validación rechazada") : "";
-      } else {
-        diagnostic.validateOk = false;
-        diagnostic.validateError = "No hay token de perfil guardado.";
-      }
-
-      const { data: costData, error: costError } = await client.rpc("internal_admin_products_with_cost", {
-        p_profile_token: profileToken || ""
-      });
-      diagnostic.costRpcOk = !costError;
-      diagnostic.costRpcError = costError ? getPublicErrorSummary(costError) : "";
-      const rows = Array.isArray(costData) ? costData : [];
-      diagnostic.costRows = rows.length;
-      const positiveRows = rows.filter((row) => Number(row.cost_price) > 0);
-      diagnostic.positiveCostRows = positiveRows.length;
-      if (positiveRows.length) {
-        diagnostic.firstPositiveCostName = positiveRows[0].name || positiveRows[0].base_name || "";
-        diagnostic.firstPositiveCost = Math.max(0, Number(positiveRows[0].cost_price) || 0);
-      }
-    } catch (error) {
-      diagnostic.exception = error?.message || String(error);
-    } finally {
-      diagnostic.productsTotal = products.length;
-      diagnostic.productsWithCost = products.filter((product) => Number(product.cost) > 0).length;
-      diagnostic.sampleProductWithCost = products.find((product) => Number(product.cost) > 0)?.name || "";
-      adminCostDiagnostic = diagnostic;
-      window.gbAdminCostDiagnostic = diagnostic;
-      renderAdminCostDiagnosticPanels();
-      console.info("Punto X Mayor admin cost diagnostic", diagnostic);
-      adminCostDiagnosticPromise = null;
-    }
-    return diagnostic;
-  })();
-  return adminCostDiagnosticPromise;
-}
 async function getAdminProductCostForEdit(productId) {
   const costById = await getAdminProductCostMapForExport();
   const key = String(productId || "");
@@ -12158,7 +12049,10 @@ function buildImportedProductUpdates(rows) {
     const category = categoryIndex >= 0 ? String(row[categoryIndex] || "").trim() : existing.category;
     const presentation = presentationIndex >= 0 ? String(row[presentationIndex] || "").trim() || getProductPresentation(existing) : getProductPresentation(existing);
     const price = priceIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation) : existing.price;
-    const cost = costIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation) : existing.cost;
+    const rawCostCell = costIndex >= 0 ? String(row[costIndex] ?? "").trim() : "";
+    const cost = rawCostCell
+      ? getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation)
+      : existing.cost;
     if (!name || !category || price <= 0) {
       skipped += 1;
       return null;
