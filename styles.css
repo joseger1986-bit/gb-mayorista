@@ -9323,6 +9323,7 @@ body.operational-web-detail-mode #ordersView {
 
 .prepared-toggle {
   min-height: 32px;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9332,7 +9333,7 @@ body.operational-web-detail-mode #ordersView {
   background: #fff;
   padding: 0.34rem 0.62rem;
   color: #374151;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 950;
   cursor: pointer;
   white-space: nowrap;
@@ -10239,6 +10240,24 @@ body.operational-web-detail-mode #ordersView {
   .compact-order-actions {
     gap: 7px;
   }
+
+  .order-product-actions,
+  .operational-web-product-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .order-product-actions > *,
+  .operational-web-product-actions > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .prepared-toggle {
+    width: 100%;
+    min-height: 34px;
+    padding-inline: 0.5rem;
+  }
 }
 
 /* Productos compactos dentro de Consulta/Pedido */
@@ -10278,6 +10297,11 @@ body.operational-web-detail-mode #ordersView {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+}
+
+.order-product-actions .prepared-toggle {
+  flex: 1 1 100%;
 }
 
 .order-product-actions .small-button {

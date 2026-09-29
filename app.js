@@ -1143,6 +1143,7 @@ async function detectSupabaseOrderItemPreparedSupport(client) {
     supabaseOrderItemPreparedSupported = true;
     return true;
   }
+  supabaseOrderItemPreparedSupportChecked = false;
   console.warn("Punto X Mayor order_items.prepared no disponible:", error);
   return false;
 }
@@ -5843,7 +5844,7 @@ function renderOrderItemPreparedControl(order, item) {
   return `
     <button class="prepared-toggle ${isPrepared ? "is-prepared" : ""}" type="button" data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}">
       <span>${isPrepared ? "✓" : ""}</span>
-      ${isPrepared ? "Separado" : "Marcar separado"}
+      ${isPrepared ? "SEPARADO" : "Separado"}
     </button>
   `;
 }
@@ -9812,21 +9813,12 @@ async function toggleBudgetItemPrepared(orderId, itemKey) {
   const order = orders.find((entry) => entry.id === orderId);
   const item = findOrderItemByKey(order, itemKey);
   if (!order || !item || !hasPermission("orders")) return;
-  const previous = Boolean(item.prepared);
-  const next = !previous;
-  item.prepared = next;
-  order.updatedAt = new Date().toISOString();
-  saveOrders();
-  renderAll();
-
+  const next = !Boolean(item.prepared);
   const client = getSupabaseCatalogClient();
   const remoteItemId = String(item.remoteItemId || "");
-  if (!client || !remoteItemId) {
-    showToast(next ? "Producto marcado como separado" : "Producto desmarcado");
-    return;
-  }
 
   try {
+    if (!client || !remoteItemId) throw new Error("No se pudo identificar el producto del pedido para guardar el separado.");
     const supported = await detectSupabaseOrderItemPreparedSupport(client);
     if (!supported) throw new Error("Falta aplicar la migración de preparación de pedidos.");
     const { error } = await client
@@ -9834,12 +9826,12 @@ async function toggleBudgetItemPrepared(orderId, itemKey) {
       .update({ prepared: next })
       .eq("id", remoteItemId);
     if (error) throw error;
-    showToast(next ? "Producto marcado como separado" : "Producto desmarcado", "success");
-  } catch (error) {
-    item.prepared = previous;
+    item.prepared = next;
     order.updatedAt = new Date().toISOString();
     saveOrders();
     renderAll();
+    showToast(next ? "Producto marcado como separado" : "Producto desmarcado", "success");
+  } catch (error) {
     console.error("Punto X Mayor prepared item:", error);
     showToast(error.message || "No se pudo guardar el separado del producto.");
   }
@@ -10799,11 +10791,11 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
     const backendRole = normalizeInternalRole(context.role);
     const savedProfile = normalizeInternalRole(localStorage.getItem(STORAGE_INTERNAL_PROFILE) || sessionStorage.getItem(STORAGE_INTERNAL_PROFILE) || "");
     const savedProfileUser = localStorage.getItem(STORAGE_INTERNAL_PROFILE_USER) || "";
-    if (["admin", "employee"].includes(savedProfile) && savedProfile === backendRole && savedProfileUser === session.user.id) {
+    if (canRestoreSavedInternalProfile(savedProfile, backendRole) && savedProfileUser === session.user.id) {
       const restoredContext = {
         ...context,
         allowed: true,
-        role: backendRole
+        role: savedProfile
       };
       unlockInternalSession(session, restoredContext);
       return true;
@@ -10834,6 +10826,14 @@ function getInternalUsernameForRole(role) {
 
 function getInternalRoleLabel(role) {
   return normalizeInternalRole(role) === "admin" ? "Administrador" : "Empleado";
+}
+
+function canRestoreSavedInternalProfile(savedProfile, backendRole) {
+  const profile = normalizeInternalRole(savedProfile);
+  const backend = normalizeInternalRole(backendRole);
+  if (!["admin", "employee"].includes(profile)) return false;
+  if (backend === "admin") return true;
+  return backend === "employee" && profile === "employee";
 }
 
 function showInternalRoleChoice(message = "", isError = false) {
@@ -12771,3 +12771,4 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
