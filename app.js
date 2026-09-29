@@ -6118,10 +6118,11 @@ function createManualConsultation() {
   openOrderDetail(draft.id);
 }
 
-async function saveManualConsultation(order) {
+async function saveManualConsultation(order, options = {}) {
+  const renderAfterSave = options.renderAfterSave !== false;
   if (!order.items.length) {
-    openOrderId = order.id;
-    renderOrders();
+    if (renderAfterSave) openOrderId = order.id;
+    if (renderAfterSave) renderOrders();
     showToast("Agregá al menos un producto");
     return false;
   }
@@ -6146,8 +6147,8 @@ async function saveManualConsultation(order) {
       console.error("Punto X Mayor local sale save:", error);
       order.manualDraft = true;
       showToast(error.message || "No se pudo registrar la venta.");
-      openOrderId = order.id;
-      renderOrders();
+      if (renderAfterSave) openOrderId = order.id;
+      if (renderAfterSave) renderOrders();
       return false;
     }
   }
@@ -6161,10 +6162,12 @@ async function saveManualConsultation(order) {
   saveOrders();
   saveClients();
   saveStockHistory();
-  openOrderId = order.id;
-  completedQuickSaleOrderId = order.id;
-  editingOrderCustomerId = "";
-  renderOrders();
+  if (renderAfterSave) {
+    openOrderId = order.id;
+    completedQuickSaleOrderId = order.id;
+    editingOrderCustomerId = "";
+    renderOrders();
+  }
   showToast("Venta realizada", "success");
   return true;
 }
@@ -7812,7 +7815,7 @@ async function finalizeInternalCatalogSale() {
   sale.status = "Pagado";
   recalculateBudget(sale);
   if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
-  const saved = await saveManualConsultation(sale);
+  const saved = await saveManualConsultation(sale, { renderAfterSave: false });
   if (!saved) return;
   collapseInternalSaleDetail({ fromHistory: true });
   internalCatalogSale = null;
