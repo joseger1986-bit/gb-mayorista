@@ -1518,7 +1518,8 @@ async function initializeSupabaseCatalog() {
 }
 
 async function loadCatalogFromSupabase() {
-  const client = getSupabaseCatalogReadClient();
+  const shouldUseAuthenticatedCatalog = isPrivateManagementRoute() && internalUnlocked && canAccess("admin");
+  const client = shouldUseAuthenticatedCatalog ? getSupabaseCatalogClient() : getSupabaseCatalogReadClient();
   if (!client) return { categories: [], products: [] };
   supabaseProductDescriptionSupported = await detectSupabaseProductDescriptionSupport(client);
   supabaseProductOptionSupported = await detectSupabaseProductOptionSupport(client);
@@ -12807,6 +12808,7 @@ function showToast(message, type = "") {
     els.toast.classList.remove("success");
   }, 2200);
 }
+
 
 
 
