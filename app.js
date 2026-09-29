@@ -5893,15 +5893,11 @@ function findOrderItemByKey(order, key) {
     || (order?.items || []).find((item) => String(item.id || "") === cleanKey);
 }
 
-function renderOrderItemPreparedControl(order, item) {
+function getOrderItemPreparedAttributes(order, item) {
   if (!hasPermission("orders")) return "";
   const isPrepared = Boolean(item.prepared);
   const key = getOrderItemKey(item);
-  return `
-    <button class="prepared-toggle ${isPrepared ? "is-prepared" : ""}" type="button" data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}" title="${isPrepared ? "Desmarcar separado" : "Marcar separado"}" aria-label="${isPrepared ? "Desmarcar separado" : "Marcar separado"}">
-      <span>${isPrepared ? "✓" : ""}</span>
-    </button>
-  `;
+  return `data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}" title="${isPrepared ? "Desmarcar separado" : "Marcar separado"}"`;
 }
 
 function renderCompactBudgetItem(order, item) {
@@ -5919,8 +5915,7 @@ function renderCompactBudgetItem(order, item) {
       `
     : "";
   return `
-    <div class="budget-item compact-budget-item-row order-product-read-row ${actions ? "" : "no-order-actions"} ${item.prepared ? "is-prepared" : ""}">
-      ${renderOrderItemPreparedControl(order, item)}
+    <div class="budget-item compact-budget-item-row order-product-read-row ${actions ? "" : "no-order-actions"} ${item.prepared ? "is-prepared" : ""}" ${getOrderItemPreparedAttributes(order, item)}>
       <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b><small>${escapeHtml(quantityLine)}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
@@ -5945,15 +5940,13 @@ function renderOperationalWebBudgetItem(order, item) {
       `
     : "";
   return `
-    <article class="quick-sale-item operational-web-product-item ${item.prepared ? "is-prepared" : ""}">
-      ${renderOrderItemPreparedControl(order, item)}
+    <article class="quick-sale-item operational-web-product-item ${item.prepared ? "is-prepared" : ""}" ${getOrderItemPreparedAttributes(order, item)}>
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         <span>${escapeHtml(quantityLine)}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
       <div class="quick-sale-item-controls operational-web-product-actions">
-        ${renderOrderItemPreparedControl(order, item)}
         ${actions}
       </div>
     </article>
@@ -6535,7 +6528,11 @@ function bindBudgetEditor() {
     button.addEventListener("click", () => removeBudgetItem(button.dataset.budgetRemove, button.dataset.product));
   });
   els.ordersList.querySelectorAll("[data-toggle-prepared]").forEach((button) => {
-    button.addEventListener("click", () => toggleBudgetItemPrepared(button.dataset.togglePrepared, button.dataset.itemKey));
+    button.addEventListener("click", (event) => {
+      const interactive = event.target.closest("button, input, select, textarea, a, label, summary");
+      if (interactive && interactive !== event.currentTarget) return;
+      toggleBudgetItemPrepared(button.dataset.togglePrepared, button.dataset.itemKey);
+    });
   });
   els.ordersList.querySelectorAll("[data-edit-budget-item]").forEach((button) => {
     button.addEventListener("click", () => openBudgetItemEditor(button.dataset.editBudgetItem, button.dataset.product));
