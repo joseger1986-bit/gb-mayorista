@@ -975,6 +975,13 @@ async function initializeSupabaseAuth() {
       return;
     }
     if (session?.user) {
+      if (
+        internalUnlocked
+        && getStoredInternalProfileSessionToken()
+        && localStorage.getItem(STORAGE_INTERNAL_PROFILE_USER) === session.user.id
+      ) {
+        return;
+      }
       if (internalProfileSubmitting || Date.now() < internalProfileAuthBypassUntil) return;
       completeInternalAccessAfterAuth(session, { silent: !isPrivateManagementRoute() }).then((allowed) => {
         if (allowed && isPrivateManagementRoute()) {

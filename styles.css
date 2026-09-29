@@ -9323,7 +9323,8 @@ body.operational-web-detail-mode #ordersView {
 
 .prepared-toggle {
   min-height: 32px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 150px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9337,6 +9338,7 @@ body.operational-web-detail-mode #ordersView {
   font-weight: 950;
   cursor: pointer;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .prepared-toggle span {
@@ -10293,18 +10295,20 @@ body.operational-web-detail-mode #ordersView {
 }
 
 .order-product-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  justify-items: stretch;
   gap: 6px;
   min-width: 0;
 }
 
 .order-product-actions .prepared-toggle {
-  flex: 1 1 100%;
+  grid-column: 1 / -1;
+  max-width: none;
 }
 
 .order-product-actions .small-button {
+  width: 100%;
   min-height: 30px;
   padding: 0.34rem 0.55rem;
   font-size: 0.72rem;
