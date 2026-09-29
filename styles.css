@@ -9301,6 +9301,61 @@ body.operational-web-detail-mode #ordersView {
   min-height: 38px;
 }
 
+.order-preparation-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e8dcc0;
+  border-radius: 10px;
+  background: #fff9eb;
+  padding: 9px 11px;
+  color: #4d3f22;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.order-preparation-progress.complete {
+  border-color: rgba(35, 124, 78, 0.35);
+  background: #ecfdf3;
+  color: #14532d;
+}
+
+.prepared-toggle {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 999px;
+  background: #fff;
+  padding: 0.34rem 0.62rem;
+  color: #374151;
+  font-size: 0.72rem;
+  font-weight: 950;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.prepared-toggle span {
+  min-width: 14px;
+  color: inherit;
+  text-align: center;
+}
+
+.prepared-toggle.is-prepared {
+  border-color: rgba(35, 124, 78, 0.45);
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.order-product-read-row.is-prepared,
+.operational-web-product-item.is-prepared {
+  border-color: rgba(35, 124, 78, 0.45);
+  background: #f0fdf4;
+}
+
 .operational-web-order-card .consultation-summary-box {
   display: grid;
   gap: 8px;
@@ -10220,6 +10275,7 @@ body.operational-web-detail-mode #ordersView {
 
 .order-product-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }

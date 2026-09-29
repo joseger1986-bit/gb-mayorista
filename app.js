@@ -246,6 +246,7 @@ let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
 let reportPeriodStart = "";
 let reportPeriodEnd = "";
+let reportCostsRefreshing = false;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -286,6 +287,8 @@ var supabaseCatalogRealtimeRefreshTimer = null;
 var supabaseOrdersRealtimeChannel = null;
 var supabaseOrdersRealtimeRefreshTimer = null;
 var supabaseOrdersRealtimeStatus = "";
+var supabaseOrderItemPreparedSupported = false;
+var supabaseOrderItemPreparedSupportChecked = false;
 var supabaseCatalogPendingDeletedProductIds = new Set();
 var supabaseOrdersBootstrapped = false;
 var supabaseOrdersRemoteRefreshing = false;
@@ -1118,12 +1121,30 @@ async function refreshOrdersFromSupabase(reason = "manual", options = {}) {
 async function loadOrdersFromSupabase() {
   const client = getSupabaseCatalogClient();
   if (!client) return [];
+  await detectSupabaseOrderItemPreparedSupport(client);
   const { data, error } = await client
     .from("orders")
     .select("*, order_items(*)")
     .order("order_number", { ascending: false });
   if (error) throw error;
   return (data || []).map(mapSupabaseOrderToLocal).filter(Boolean);
+}
+
+async function detectSupabaseOrderItemPreparedSupport(client) {
+  if (supabaseOrderItemPreparedSupportChecked) return supabaseOrderItemPreparedSupported;
+  supabaseOrderItemPreparedSupportChecked = true;
+  supabaseOrderItemPreparedSupported = false;
+  if (!client) return false;
+  const { error } = await client
+    .from("order_items")
+    .select("prepared")
+    .limit(1);
+  if (!error) {
+    supabaseOrderItemPreparedSupported = true;
+    return true;
+  }
+  console.warn("Punto X Mayor order_items.prepared no disponible:", error);
+  return false;
 }
 
 function mergeRemoteOrders(remoteOrders) {
@@ -1171,6 +1192,7 @@ function mapSupabaseOrderToLocal(row) {
 function mapSupabaseOrderItemToLocal(row) {
   return {
     id: String(row.product_id || row.id || crypto.randomUUID()),
+    remoteItemId: String(row.id || ""),
     name: row.product_name || "Producto",
     brand: "Punto X Mayor",
     price: Number(row.unit_price) || 0,
@@ -1181,6 +1203,7 @@ function mapSupabaseOrderItemToLocal(row) {
     variant: row.variant_name || "",
     catalogProduct: row.product_name || "",
     presentation: row.presentation || "",
+    prepared: Boolean(row.prepared),
     quantity: Math.max(1, Math.round(Number(row.quantity) || 1))
   };
 }
@@ -1311,18 +1334,22 @@ function buildSupabaseOrderPayload(order) {
 }
 
 function buildSupabaseOrderItemRows(order, orderId) {
-  return (order.items || []).map((item) => ({
-    order_id: orderId,
-    product_id: item.id,
-    product_name: item.name || "Producto",
-    variant_name: item.variant || "",
-    presentation: getBudgetItemPresentation(item),
-    stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
-    quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
-    unit_price: Number(item.price) || 0,
-    unit_cost: Number(item.cost) || 0,
-    subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
-  }));
+  return (order.items || []).map((item) => {
+    const row = {
+      order_id: orderId,
+      product_id: item.id,
+      product_name: item.name || "Producto",
+      variant_name: item.variant || "",
+      presentation: getBudgetItemPresentation(item),
+      stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
+      quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+      unit_price: Number(item.price) || 0,
+      unit_cost: Number(item.cost) || 0,
+      subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
+    };
+    if (supabaseOrderItemPreparedSupported) row.prepared = Boolean(item.prepared);
+    return row;
+  });
 }
 
 async function persistOrderToSupabase(order, options = {}) {
@@ -5700,6 +5727,7 @@ function renderInternalOrderCard(order, options = {}) {
           ` : ""}
 
           <div class="budget-items compact-budget-items">
+            ${renderOrderPreparationProgress(order)}
             <div class="budget-items-title-row">
               <h4>Productos del pedido</h4>
               <span>${order.items.length} producto${order.items.length === 1 ? "" : "s"}</span>
@@ -5782,6 +5810,44 @@ function renderInternalOrderCard(order, options = {}) {
   `;
 }
 
+function getOrderPreparationSummary(order) {
+  const total = (order.items || []).length;
+  const prepared = (order.items || []).filter((item) => Boolean(item.prepared)).length;
+  return { total, prepared, complete: total > 0 && prepared === total };
+}
+
+function renderOrderPreparationProgress(order) {
+  const summary = getOrderPreparationSummary(order);
+  if (!summary.total) return "";
+  return `
+    <div class="order-preparation-progress ${summary.complete ? "complete" : ""}">
+      <strong>${summary.complete ? "✓ " : ""}Preparación: ${summary.prepared} de ${summary.total} separados</strong>
+    </div>
+  `;
+}
+
+function getOrderItemKey(item) {
+  return String(item?.remoteItemId || item?.id || "");
+}
+
+function findOrderItemByKey(order, key) {
+  const cleanKey = String(key || "");
+  return (order?.items || []).find((item) => String(item.remoteItemId || "") === cleanKey)
+    || (order?.items || []).find((item) => String(item.id || "") === cleanKey);
+}
+
+function renderOrderItemPreparedControl(order, item) {
+  if (!hasPermission("orders")) return "";
+  const isPrepared = Boolean(item.prepared);
+  const key = getOrderItemKey(item);
+  return `
+    <button class="prepared-toggle ${isPrepared ? "is-prepared" : ""}" type="button" data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}">
+      <span>${isPrepared ? "✓" : ""}</span>
+      ${isPrepared ? "Separado" : "Marcar separado"}
+    </button>
+  `;
+}
+
 function renderCompactBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
   const option = getBudgetItemOptionLabel(item, product);
@@ -5797,13 +5863,13 @@ function renderCompactBudgetItem(order, item) {
       `
     : `<span class="readonly-order-note">Solo lectura</span>`;
   return `
-    <div class="budget-item compact-budget-item-row order-product-read-row">
+    <div class="budget-item compact-budget-item-row order-product-read-row ${item.prepared ? "is-prepared" : ""}">
       <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b><small>${escapeHtml(quantityLine)}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
       <span class="order-product-unit-price">${formatMoney(item.price)}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
-      <span class="order-product-actions">${actions}</span>
+      <span class="order-product-actions">${renderOrderItemPreparedControl(order, item)}${actions}</span>
     </div>
   `;
 }
@@ -5822,13 +5888,14 @@ function renderOperationalWebBudgetItem(order, item) {
       `
     : `<span class="readonly-order-note">Solo lectura</span>`;
   return `
-    <article class="quick-sale-item operational-web-product-item">
+    <article class="quick-sale-item operational-web-product-item ${item.prepared ? "is-prepared" : ""}">
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         <span>${escapeHtml(quantityLine)}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
       <div class="quick-sale-item-controls operational-web-product-actions">
+        ${renderOrderItemPreparedControl(order, item)}
         ${actions}
       </div>
     </article>
@@ -6405,6 +6472,9 @@ function bindBudgetEditor() {
   els.ordersList.querySelectorAll("[data-budget-remove]").forEach((button) => {
     button.addEventListener("click", () => removeBudgetItem(button.dataset.budgetRemove, button.dataset.product));
   });
+  els.ordersList.querySelectorAll("[data-toggle-prepared]").forEach((button) => {
+    button.addEventListener("click", () => toggleBudgetItemPrepared(button.dataset.togglePrepared, button.dataset.itemKey));
+  });
   els.ordersList.querySelectorAll("[data-edit-budget-item]").forEach((button) => {
     button.addEventListener("click", () => openBudgetItemEditor(button.dataset.editBudgetItem, button.dataset.product));
   });
@@ -6746,6 +6816,7 @@ function exportClientsToExcel() {
 
 function renderReports() {
   if (!els.reportGrid) return;
+  refreshAdminCostsForReports();
   const totals = getTotals();
   const confirmedOrders = orders.filter((order) => isConfirmed(order.status));
   const periodRange = getReportPeriodRange();
@@ -6815,6 +6886,30 @@ function renderReports() {
 
   `;
   bindReportPeriodControls();
+}
+
+async function refreshAdminCostsForReports() {
+  if (reportCostsRefreshing || currentView !== "reportes" || !canAccess("admin")) return;
+  reportCostsRefreshing = true;
+  try {
+    const costById = await getAdminProductCostMapForExport();
+    let changed = false;
+    products.forEach((product) => {
+      const key = String(product.id || "");
+      if (!costById.has(key)) return;
+      const currentCost = Math.max(0, Number(costById.get(key)) || 0);
+      if (Number(product.cost) !== currentCost) {
+        product.cost = currentCost;
+        changed = true;
+      }
+    });
+    if (changed && currentView === "reportes") renderReports();
+  } catch (error) {
+    console.error("Punto X Mayor report costs:", error);
+    if (currentView === "reportes") showToast(error.message || "No se pudieron leer los costos reales.");
+  } finally {
+    reportCostsRefreshing = false;
+  }
 }
 
 function getReportPeriodRange() {
@@ -9711,6 +9806,43 @@ function updateBudgetItemQty(orderId, productId, quantity) {
   saveOrders();
   renderAll();
   showToast("Cantidad actualizada");
+}
+
+async function toggleBudgetItemPrepared(orderId, itemKey) {
+  const order = orders.find((entry) => entry.id === orderId);
+  const item = findOrderItemByKey(order, itemKey);
+  if (!order || !item || !hasPermission("orders")) return;
+  const previous = Boolean(item.prepared);
+  const next = !previous;
+  item.prepared = next;
+  order.updatedAt = new Date().toISOString();
+  saveOrders();
+  renderAll();
+
+  const client = getSupabaseCatalogClient();
+  const remoteItemId = String(item.remoteItemId || "");
+  if (!client || !remoteItemId) {
+    showToast(next ? "Producto marcado como separado" : "Producto desmarcado");
+    return;
+  }
+
+  try {
+    const supported = await detectSupabaseOrderItemPreparedSupport(client);
+    if (!supported) throw new Error("Falta aplicar la migración de preparación de pedidos.");
+    const { error } = await client
+      .from("order_items")
+      .update({ prepared: next })
+      .eq("id", remoteItemId);
+    if (error) throw error;
+    showToast(next ? "Producto marcado como separado" : "Producto desmarcado", "success");
+  } catch (error) {
+    item.prepared = previous;
+    order.updatedAt = new Date().toISOString();
+    saveOrders();
+    renderAll();
+    console.error("Punto X Mayor prepared item:", error);
+    showToast(error.message || "No se pudo guardar el separado del producto.");
+  }
 }
 
 function updateBudgetItemVariant(orderId, productId, variant) {
