@@ -913,7 +913,8 @@ function unlockInternalSession(session, context = null) {
   }
 }
 
-function lockInternalSession() {
+function lockInternalSession(options = {}) {
+  const clearStoredProfile = options.clearStoredProfile !== false;
   internalAuthenticated = false;
   internalUnlocked = false;
   currentRole = "client";
@@ -923,18 +924,20 @@ function lockInternalSession() {
   reportAdminCostsPromise = null;
   teardownSupabaseOrdersRealtime();
   sessionStorage.removeItem(STORAGE_INTERNAL_UNLOCKED);
-  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
-  localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
-  localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
-  sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
-  localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+  if (clearStoredProfile) {
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_USER);
+    sessionStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+    localStorage.removeItem(STORAGE_INTERNAL_PROFILE_SESSION);
+  }
   localStorage.setItem(STORAGE_ROLE, "client");
 }
 
 async function initializeSupabaseAuth() {
   const client = getSupabaseAuthClient();
   if (!client) {
-    lockInternalSession();
+    lockInternalSession({ clearStoredProfile: false });
     if (isPrivateManagementRoute()) showInternalLogin(true, "Supabase Auth no está disponible.");
     return;
   }
@@ -948,7 +951,7 @@ async function initializeSupabaseAuth() {
       const { data, error } = await client.auth.getSession();
       if (error) throw error;
       if (data?.session?.user) await completeInternalAccessAfterAuth(data.session, { silent: !isPrivateManagementRoute() });
-      else lockInternalSession();
+      else lockInternalSession({ clearStoredProfile: false });
     }
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth session:", error);
@@ -957,7 +960,7 @@ async function initializeSupabaseAuth() {
       if (window.history?.replaceState) window.history.replaceState({}, "", PRIVATE_MANAGEMENT_PATH);
       showInternalLogin(true, getPasswordResetErrorMessage(error));
     } else {
-      lockInternalSession();
+      lockInternalSession({ clearStoredProfile: false });
       if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
     }
   }
@@ -5895,9 +5898,8 @@ function renderOrderItemPreparedControl(order, item) {
   const isPrepared = Boolean(item.prepared);
   const key = getOrderItemKey(item);
   return `
-    <button class="prepared-toggle ${isPrepared ? "is-prepared" : ""}" type="button" data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}">
+    <button class="prepared-toggle ${isPrepared ? "is-prepared" : ""}" type="button" data-toggle-prepared="${order.id}" data-item-key="${escapeHtml(key)}" aria-pressed="${isPrepared ? "true" : "false"}" title="${isPrepared ? "Desmarcar separado" : "Marcar separado"}" aria-label="${isPrepared ? "Desmarcar separado" : "Marcar separado"}">
       <span>${isPrepared ? "✓" : ""}</span>
-      ${isPrepared ? "SEPARADO" : "Separado"}
     </button>
   `;
 }
@@ -5915,15 +5917,16 @@ function renderCompactBudgetItem(order, item) {
         <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}">Editar</button>
         <button class="danger-button small-button icon-trash-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto" title="Eliminar producto">Eliminar</button>
       `
-    : `<span class="readonly-order-note">Solo lectura</span>`;
+    : "";
   return `
-    <div class="budget-item compact-budget-item-row order-product-read-row ${item.prepared ? "is-prepared" : ""}">
+    <div class="budget-item compact-budget-item-row order-product-read-row ${actions ? "" : "no-order-actions"} ${item.prepared ? "is-prepared" : ""}">
+      ${renderOrderItemPreparedControl(order, item)}
       <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b><small>${escapeHtml(quantityLine)}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
       <span class="order-product-unit-price">${formatMoney(item.price)}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
-      <span class="order-product-actions">${renderOrderItemPreparedControl(order, item)}${actions}</span>
+      ${actions ? `<span class="order-product-actions">${actions}</span>` : ""}
     </div>
   `;
 }
@@ -5940,9 +5943,10 @@ function renderOperationalWebBudgetItem(order, item) {
         <button class="secondary-button small-button" type="button" data-edit-budget-item="${order.id}" data-product="${item.id}">Editar</button>
         <button class="danger-button small-button quick-sale-remove-button" type="button" data-budget-remove="${order.id}" data-product="${item.id}" aria-label="Eliminar producto">Eliminar</button>
       `
-    : `<span class="readonly-order-note">Solo lectura</span>`;
+    : "";
   return `
     <article class="quick-sale-item operational-web-product-item ${item.prepared ? "is-prepared" : ""}">
+      ${renderOrderItemPreparedControl(order, item)}
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         <span>${escapeHtml(quantityLine)}</span>
@@ -11171,7 +11175,7 @@ function clearAdminOnlyState() {
 
 function showInternalLogin(showError = false, message = "", isSuccess = false) {
   passwordRecoveryActive = false;
-  lockInternalSession();
+  lockInternalSession({ clearStoredProfile: false });
   currentView = "gestion-login";
   document.body.classList.add("private-management-mode");
   document.documentElement.dataset.privateManagement = "true";
