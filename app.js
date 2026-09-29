@@ -254,6 +254,8 @@ let reportAdminCostsPromise = null;
 let internalCatalogSale = null;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
+let internalSaleCompletedHistoryActive = false;
+let internalSaleCompletedClosingByCode = false;
 let internalWebPendingExpanded = false;
 let editingProductId = "";
 let editProductInitialState = "";
@@ -5678,11 +5680,12 @@ function renderQuickSaleCompletedItem(item) {
   const presentation = getBudgetItemPresentation(item);
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const subtotal = quantity * (Number(item.price) || 0);
+  const quantityDetail = formatOrderItemOperationalQuantity({ ...item, presentation }, product);
   return `
     <div class="quick-sale-item quick-sale-completed-item">
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
-        <span>${escapeHtml(formatCleanQuantity({ ...item, presentation }))} · ${formatMoney(item.price)}</span>
+        <span>${escapeHtml(quantityDetail)}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
     </div>
@@ -6227,6 +6230,7 @@ function clearCompletedQuickSaleViewState() {
   if (internalCatalogCompletedSaleId) {
     internalCatalogCompletedSaleId = "";
     internalCatalogSaleExpanded = false;
+    internalSaleCompletedHistoryActive = false;
     document.body.classList.remove("internal-sale-detail-open");
   }
 }
@@ -7623,6 +7627,30 @@ function renderInternalSaleCompletedPanel(order) {
   `;
 }
 
+function closeInternalSaleCompletedPanel(options = {}) {
+  if (!internalCatalogCompletedSaleId && !internalSaleCompletedHistoryActive) return;
+  internalCatalogCompletedSaleId = "";
+  internalCatalogSale = null;
+  internalCatalogSaleExpanded = false;
+  document.body.classList.remove("internal-sale-detail-open");
+  renderCatalog();
+  renderInternalCatalogSale();
+  if (internalSaleCompletedHistoryActive) {
+    internalSaleCompletedHistoryActive = false;
+    if (!options.fromHistory && window.history?.state?.modal === "internalSaleCompleted") {
+      internalSaleCompletedClosingByCode = true;
+      window.history.back();
+    }
+  }
+}
+
+function pushInternalSaleCompletedHistoryState() {
+  if (!appHistoryReady || !window.history?.pushState) return;
+  if (internalSaleCompletedHistoryActive || window.history.state?.modal === "internalSaleCompleted") return;
+  internalSaleCompletedHistoryActive = true;
+  window.history.pushState({ ...makeAppHistoryState(currentView), modal: "internalSaleCompleted" }, "", getCurrentHistoryUrl());
+}
+
 function renderInternalSaleItem(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   return `
@@ -7793,12 +7821,18 @@ async function finalizeInternalCatalogSale() {
   currentView = "catalogo";
   renderCatalog();
   renderInternalCatalogSale();
+  pushInternalSaleCompletedHistoryState();
 }
 
 function startNewInternalCatalogSale() {
+  if (internalCatalogCompletedSaleId) {
+    closeInternalSaleCompletedPanel();
+    return;
+  }
   internalCatalogSale = null;
   internalCatalogSaleExpanded = false;
   internalCatalogCompletedSaleId = "";
+  internalSaleCompletedHistoryActive = false;
   document.body.classList.remove("internal-sale-detail-open");
   renderCatalog();
   renderInternalCatalogSale();
@@ -10662,6 +10696,14 @@ function handleAppPopState(event) {
   }
   if (internalSaleDetailClosingByCode) {
     internalSaleDetailClosingByCode = false;
+    return;
+  }
+  if (internalSaleCompletedClosingByCode) {
+    internalSaleCompletedClosingByCode = false;
+    return;
+  }
+  if (internalSaleCompletedHistoryActive && internalCatalogCompletedSaleId) {
+    closeInternalSaleCompletedPanel({ fromHistory: true });
     return;
   }
   if (internalSaleDetailHistoryActive && internalCatalogSaleExpanded) {
