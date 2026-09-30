@@ -13163,19 +13163,25 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
 .public-footer-social-link {
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  gap: 5px;
+  padding: 8px 10px;
   border: 1px solid rgba(201, 162, 74, 0.68);
-  border-radius: 999px;
+  border-radius: 14px;
   background: #fff;
   color: #0b0b0b;
   text-decoration: none;
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
   transition: transform 0.16s ease, border-color 0.16s ease;
 }
@@ -13190,6 +13196,11 @@ body:not(.private-management-mode) #catalogView .pack-sale-detail span:first-chi
 .public-footer-social-link svg {
   width: 24px;
   height: 24px;
+}
+
+.public-footer-social-link span {
+  color: #141414;
+  white-space: nowrap;
 }
 
 .public-footer-whatsapp { color: #25d366; }
