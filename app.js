@@ -316,6 +316,7 @@ let internalProfileSelection = "";
 let internalProfileSubmitting = false;
 let internalProfileAuthBypassUntil = 0;
 let internalAuthContext = null;
+let internalAuthBootstrapping = false;
 
 const els = {
   catalogView: document.querySelector("#catalogView"),
@@ -854,7 +855,7 @@ async function runConfirmDialogAction() {
 
 async function initializeApp() {
   restoreUiStateBeforeInitialView();
-  renderAll();
+  if (!isPrivateManagementRoute()) renderAll();
   await initializeSupabaseAuth();
   await initializeSupabaseCatalog();
   if (!passwordRecoveryActive) setView(getInitialView(), false, { skipHistory: true });
@@ -938,6 +939,7 @@ async function initializeSupabaseAuth() {
     return;
   }
 
+  internalAuthBootstrapping = true;
   try {
     const recoveryReturn = isPasswordRecoveryReturn();
     if (recoveryReturn) {
@@ -959,6 +961,8 @@ async function initializeSupabaseAuth() {
       lockInternalSession({ clearStoredProfile: false });
       if (isPrivateManagementRoute()) showInternalLogin(true, "No se pudo verificar la sesión.");
     }
+  } finally {
+    internalAuthBootstrapping = false;
   }
 
   client.auth.onAuthStateChange((event, session) => {
@@ -991,7 +995,8 @@ async function initializeSupabaseAuth() {
       });
       return;
     }
-    if (event === "SIGNED_OUT" || isPrivateManagementRoute()) {
+    if (!session?.user && internalAuthBootstrapping) return;
+    if (event === "SIGNED_OUT") {
       lockInternalSession();
       els.internalRoleView?.classList.add("hidden");
       if (isPrivateManagementRoute()) showInternalLogin(false);
@@ -1618,7 +1623,7 @@ function applyRemoteCatalog(remote, reason = "supabase-read") {
   localStorage.setItem(STORAGE_CATEGORIES, JSON.stringify(categories));
   localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
   localStorage.setItem(STORAGE_SUPABASE_CATALOG_SOURCE, SUPABASE_CATALOG_SOURCE_VERSION);
-  renderAll();
+  if (!isPrivateManagementRoute() || internalUnlocked) renderAll();
   updateSupabaseCatalogStatus({
     ok: true,
     mode: reason,
@@ -10520,7 +10525,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     return;
   }
   if (isPrivateManagementRoute() && internalAuthenticated && !internalUnlocked) {
-    showInternalLogin();
+    showInternalRoleChoice();
     return;
   }
   if (isManagementView && !internalUnlocked) {
@@ -10912,7 +10917,7 @@ function formatLoginLockMessage(lock) {
 async function completeInternalAccessAfterAuth(session, options = {}) {
   const client = getSupabaseAuthClient();
   if (!client || !session?.user) {
-    lockInternalSession();
+    if (!internalAuthBootstrapping) lockInternalSession();
     return false;
   }
   try {
@@ -10945,6 +10950,14 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
         }
       } catch (profileError) {
         console.warn("Punto X Mayor restore profile session:", profileError);
+        if (isPrivateManagementRoute() && internalAuthBootstrapping) {
+          internalUnlocked = false;
+          internalAuthContext = context;
+          currentRole = "client";
+          sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
+          localStorage.setItem(STORAGE_ROLE, "client");
+          return false;
+        }
       }
     }
     internalUnlocked = false;
@@ -10962,9 +10975,16 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
     return false;
   } catch (error) {
     console.error("Punto X Mayor internal access:", error);
-    await client.auth.signOut();
-    lockInternalSession();
-    if (!options.silent) showInternalLogin(true, error.message || "No se pudo validar el acceso interno.");
+    if (isPrivateManagementRoute()) {
+      internalAuthenticated = true;
+      internalUnlocked = false;
+      currentRole = "client";
+      internalAuthContext = null;
+      sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, "pending");
+      if (!options.silent) showInternalRoleChoice(error.message || "No se pudo restaurar el perfil interno.", true);
+    } else if (!internalAuthBootstrapping) {
+      lockInternalSession();
+    }
     return false;
   }
 }

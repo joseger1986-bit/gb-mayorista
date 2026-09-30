@@ -463,6 +463,16 @@ html[data-private-management="true"] body.internal-catalog-cart-mode .floating-c
   padding-top: 24px;
 }
 
+html[data-private-management="true"]:not([data-gb-app="loaded"]) body {
+  background: var(--bg);
+}
+
+html[data-private-management="true"]:not([data-gb-app="loaded"]) [data-catalog-only],
+html[data-private-management="true"]:not([data-gb-app="loaded"]) #catalogView,
+html[data-private-management="true"]:not([data-gb-app="loaded"]) #floatingCartButton {
+  display: none !important;
+}
+
 .admin-return-button {
   white-space: nowrap;
 }
