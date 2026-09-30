@@ -20,6 +20,8 @@ const APP_DATA_VERSION = "catalog-unified-mobile-v1";
 const SUPABASE_CATALOG_SOURCE_VERSION = "products_safe_catalog_v1";
 const DISPLAY_PHONE = "2477520456";
 const WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(DISPLAY_PHONE);
+const PUBLIC_CATALOG_PHONE = "2477533891";
+const PUBLIC_CATALOG_WHATSAPP_NUMBER = normalizeArgentinaWhatsappNumber(PUBLIC_CATALOG_PHONE);
 const WHOLESALE_MINIMUM = 150000;
 const PRIVATE_MANAGEMENT_PATH = "/gestion";
 const MANAGEMENT_HOSTNAMES = ["gestion.puntoxmayor.com.ar"];
@@ -10222,7 +10224,7 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
     "Nos comunicaremos a la brevedad.",
     ...(consultationId ? ["", `ID Pedido: ${consultationId}`] : [])
   ];
-  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
+  return `https://wa.me/${PUBLIC_CATALOG_WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
 }
 function buildCustomerWhatsappUrl(order) {
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
