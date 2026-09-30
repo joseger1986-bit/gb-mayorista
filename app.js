@@ -419,11 +419,7 @@ const els = {
   stockModalCurrent: document.querySelector("#stockModalCurrent"),
   stockModalQuantityLabel: document.querySelector("#stockModalQuantityLabel"),
   stockModalQuantity: document.querySelector("#stockModalQuantity"),
-  stockModalCostWrap: document.querySelector("#stockModalCostWrap"),
-  stockModalUnitCost: document.querySelector("#stockModalUnitCost"),
-  stockModalCostHint: document.querySelector("#stockModalCostHint"),
   stockModalReasonWrap: document.querySelector("#stockModalReasonWrap"),
-  stockModalCostLabel: document.querySelector("#stockModalCostLabel"),
   stockModalReason: document.querySelector("#stockModalReason"),
   stockModalSubmit: document.querySelector("#stockModalSubmit"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
@@ -4396,10 +4392,6 @@ function openStockModal(productId, mode = "add") {
   const checkedMode = els.stockModalForm.querySelector(`input[name="stockMode"][value="${stockModalDefaultMode}"]`);
   if (checkedMode) checkedMode.checked = true;
   if (els.stockModalQuantity) els.stockModalQuantity.value = "";
-  if (els.stockModalUnitCost) {
-    els.stockModalUnitCost.value = "";
-    els.stockModalUnitCost.placeholder = product.cost ? String(Math.round(Number(product.cost) || 0)) : "0";
-  }
   updateStockModalMode();
   setStockModalSaving(false);
   els.stockModalOverlay.classList.remove("hidden");
@@ -4431,15 +4423,9 @@ function updateStockModalMode() {
   const form = els.stockModalForm ? new FormData(els.stockModalForm) : new FormData();
   const mode = String(form.get("stockMode") || stockModalDefaultMode || "add");
   els.stockModalReasonWrap?.classList.toggle("hidden", mode !== "subtract");
-  els.stockModalCostWrap?.classList.toggle("hidden", mode !== "add");
-  if (els.stockModalUnitCost) els.stockModalUnitCost.required = mode === "add";
   const product = products.find((item) => item.id === stockModalProductId);
   if (els.stockModalTitle && product) {
     els.stockModalTitle.textContent = `${mode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
-  }
-  if (els.stockModalCostLabel && product) {
-    const unit = normalizeStockUnit(product.stockUnit) === "docenas" ? "docena" : "unidad";
-    els.stockModalCostLabel.textContent = `Costo nuevo por ${unit}`;
   }
 }
 
@@ -4468,11 +4454,6 @@ async function confirmStockModal(event) {
     return;
   }
   const movementType = mode === "subtract" ? "salida" : "entrada";
-  const unitCost = movementType === "entrada" ? Number(els.stockModalUnitCost?.value) || 0 : null;
-  if (movementType === "entrada" && unitCost <= 0) {
-    showToast("Ingresá el costo de la mercadería que entra");
-    return;
-  }
   const reason = movementType === "salida"
     ? String(form.get("stockReason") || "Ajuste").trim() || "Ajuste"
     : "Ingreso";
@@ -4481,7 +4462,6 @@ async function confirmStockModal(event) {
     await applyStockMovement(product, {
       movementType,
       quantity,
-      unitCost,
       reason,
       orderId: null,
       variant: "Base / sin variante",
@@ -7081,8 +7061,8 @@ function renderStockMovementsReport() {
         const quantity = Math.max(0, Math.round(Number(entry.quantity) || Math.abs(Number(entry.delta) || 0)));
         const movementType = entry.movementType || (Number(entry.delta) > 0 ? "entrada" : "salida");
         const costParts = [];
-        if (Number(entry.unitCost) > 0) costParts.push(`Costo mov.: ${formatMoney(entry.unitCost)}`);
-        if (Number(entry.previousCost) > 0 || Number(entry.nextCost) > 0) {
+        if (canAccess("admin") && Number(entry.unitCost) > 0) costParts.push(`Costo mov.: ${formatMoney(entry.unitCost)}`);
+        if (canAccess("admin") && (Number(entry.previousCost) > 0 || Number(entry.nextCost) > 0)) {
           costParts.push(`Costo prom.: ${formatMoney(entry.previousCost || 0)} → ${formatMoney(entry.nextCost || 0)}`);
         }
         return `
@@ -7956,8 +7936,7 @@ async function applyStockMovement(product, options = {}) {
     movement_type: movementType,
     movement_quantity: quantity,
     movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
-    related_order_id: options.orderId || null,
-    movement_unit_cost: movementType === "entrada" ? Number(options.unitCost) || 0 : null
+    related_order_id: options.orderId || null
   };
   console.info("Punto X Mayor STOCK MOVEMENT START", {
     product_id: product.id,
@@ -7966,7 +7945,7 @@ async function applyStockMovement(product, options = {}) {
     cantidad: quantity,
     unidad: normalizeStockUnit(product.stockUnit || remoteBefore.stock_unit),
     movimiento: movementType,
-    rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid, numeric)",
+    rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid)",
     rpc_params: rpcParams
   });
   const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", rpcParams), "Supabase tardó demasiado en guardar el movimiento de stock.");
@@ -7985,7 +7964,6 @@ async function applyStockMovement(product, options = {}) {
   const rpcPayload = Array.isArray(data) ? data[0] : data;
   const movement = rpcPayload?.movement || rpcPayload?.stock_movement || rpcPayload;
   const nextStock = Math.max(0, Math.round(Number(rpcPayload?.new_stock ?? movement?.new_stock)));
-  const nextAverageCost = Number(rpcPayload?.new_cost ?? movement?.new_cost);
   if (!Number.isFinite(nextStock)) {
     throw new Error("Supabase guardó el movimiento, pero no devolvió el stock actualizado.");
   }
@@ -8010,9 +7988,6 @@ async function applyStockMovement(product, options = {}) {
     nextStock
   });
   setProductVariantStock(product, "Base / sin variante", nextStock);
-  if (movementType === "entrada" && Number.isFinite(nextAverageCost) && nextAverageCost >= 0) {
-    product.cost = nextAverageCost;
-  }
   if (String(editingProductId || "") === String(product.id)) {
     if (els.editProductStock) els.editProductStock.value = String(nextStock);
     updateEditProductStockLabels(product);
