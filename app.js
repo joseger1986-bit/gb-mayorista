@@ -1190,7 +1190,7 @@ async function loadOrdersFromSupabase() {
   const { data, error } = await client
     .from("orders")
     .select("*, order_items(*)")
-    .order("order_number", { ascending: false });
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return (data || []).map(mapSupabaseOrderToLocal).filter(Boolean);
 }
@@ -1325,11 +1325,9 @@ async function saveOrderToSupabase(order) {
 async function saveLocalSaleToSupabase(order) {
   const client = getSupabaseCatalogClient();
   if (!client) throw new Error("No se pudo conectar con Supabase para registrar la venta.");
+  if (typeof client.rpc !== "function") throw new Error("Supabase RPC no está disponible para registrar la venta.");
   recalculateBudget(order);
-  const orderId = String(order.remoteId || order.id || crypto.randomUUID());
-  order.id = orderId;
-  const orderRow = {
-    id: orderId,
+  const payload = {
     customer_name: order.customerName || order.customer || "",
     customer_phone: order.customerPhone || "",
     customer_location: order.customerLocation || "",
@@ -1346,14 +1344,7 @@ async function saveLocalSaleToSupabase(order) {
     paid_at: order.paidAt || new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
-  const { data: savedOrder, error: orderError } = await client
-    .from("orders")
-    .insert(orderRow)
-    .select("*")
-    .single();
-  if (orderError) throw new Error(`No se pudo guardar la venta en Supabase: ${orderError.message || orderError.code || "error desconocido"}`);
   const itemRows = order.items.map((item) => ({
-    order_id: savedOrder.id,
     product_id: item.id,
     product_name: item.name || "Producto",
     variant_name: item.variant || "",
@@ -1364,11 +1355,14 @@ async function saveLocalSaleToSupabase(order) {
     unit_cost: Number(item.cost) || 0,
     subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
   }));
-  const { data: savedItems, error: itemsError } = await client
-    .from("order_items")
-    .insert(itemRows)
-    .select("*");
-  if (itemsError) throw new Error(`La venta se creó, pero no se pudieron guardar sus productos: ${itemsError.message || itemsError.code || "error desconocido"}`);
+  const { data, error } = await client.rpc("create_local_order", {
+    order_payload: payload,
+    item_payload: itemRows
+  });
+  if (error) throw new Error(`No se pudo guardar la venta en Supabase: ${error.message || error.code || "error desconocido"}`);
+  const savedOrder = data?.order || data?.pedido || data;
+  const savedItems = data?.items || data?.order_items || itemRows;
+  if (!savedOrder?.id) throw new Error("Supabase no devolvió el ID de la venta creada.");
   const remoteOrder = mapSupabaseOrderToLocal({ ...savedOrder, order_items: savedItems || [] });
   if (!remoteOrder?.number) throw new Error("Supabase creó la venta, pero no devolvió un número correlativo.");
   return remoteOrder;
@@ -5490,7 +5484,16 @@ function getFilteredOrders() {
     const matchesText = !terms.length || terms.every((term) => getOrderSearchText(order).includes(term));
     const matchesFilter = matchesOrderListFilter(order, orderListFilter);
     return matchesText && matchesFilter;
-  });
+  }).sort(compareOrdersNewestFirst);
+}
+
+function compareOrdersNewestFirst(a, b) {
+  const aTime = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+  const bTime = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+  const safeATime = Number.isFinite(aTime) ? aTime : 0;
+  const safeBTime = Number.isFinite(bTime) ? bTime : 0;
+  if (safeBTime !== safeATime) return safeBTime - safeATime;
+  return (Number(b?.number) || 0) - (Number(a?.number) || 0);
 }
 
 function getOrderSearchText(order) {
