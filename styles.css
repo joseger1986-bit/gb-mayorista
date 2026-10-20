@@ -2660,10 +2660,22 @@ th .table-sort-button[data-sort-products="stock"] {
   overflow-wrap: anywhere;
 }
 
-.manual-catalog-context > .manual-catalog-navigation {
+.manual-catalog-context .manual-catalog-navigation {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.internal-sale-discard-button,
+.manual-catalog-context .manual-catalog-controls .internal-sale-discard-button,
+.internal-sale-panel .internal-sale-detail > .internal-sale-discard-button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 8px;
+  white-space: normal;
+  font-size: 0.8125rem;
 }
 
 .manual-catalog-navigation > button {

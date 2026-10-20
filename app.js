@@ -5686,13 +5686,17 @@ function renderInternalWebPendingAccess() {
     els.internalWebPendingSlot.innerHTML = `<section class="manual-catalog-context">
       <div><strong>Agregando a ${escapeHtml(formatRecordNumber(editingOrder))}</strong>
       <span>${escapeHtml(getOrderCustomerName(editingOrder))} · ${editingOrder.items.length} productos · ${formatMoney(editingOrder.total || 0)}</span></div>
-      <div class="manual-catalog-navigation">
-        <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
-        <button class="secondary-button" type="button" data-exit-manual-catalog>CATÁLOGO NORMAL</button>
+      <div class="manual-catalog-controls">
+        <div class="manual-catalog-navigation">
+          <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
+          <button class="secondary-button" type="button" data-exit-manual-catalog>CATÁLOGO NORMAL</button>
+        </div>
+        <button class="danger-button internal-sale-discard-button" type="button" data-discard-internal-sale>DESCARTAR VENTA</button>
       </div>
     </section>` + els.internalWebPendingSlot.innerHTML;
     els.internalWebPendingSlot.querySelector("[data-return-manual-order]")?.addEventListener("click", () => returnToManualOrderDetail());
     els.internalWebPendingSlot.querySelector("[data-exit-manual-catalog]")?.addEventListener("click", () => setView("catalogo", true));
+    els.internalWebPendingSlot.querySelector("[data-discard-internal-sale]")?.addEventListener("click", discardInternalCatalogSale);
   }
 
   els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
@@ -8103,6 +8107,7 @@ function renderInternalCatalogSale(options = {}) {
         <button class="primary-button internal-sale-finish-button" type="button" data-internal-sale-finish ${sale.items.length ? "" : "disabled"}>
           FINALIZAR VENTA ${formatMoney(sale.total || 0)}
         </button>
+        <button class="danger-button internal-sale-discard-button" type="button" data-discard-internal-sale>DESCARTAR VENTA</button>
       </div>
     </section>
   `;
@@ -8188,6 +8193,7 @@ function renderInternalSaleItem(item) {
 
 function bindInternalCatalogSale() {
   if (!els.internalSaleDock) return;
+  els.internalSaleDock.querySelector("[data-discard-internal-sale]")?.addEventListener("click", discardInternalCatalogSale);
   els.internalSaleDock.querySelector("[data-internal-save-pending]")?.addEventListener("click", saveInternalPendingOrder);
   els.internalSaleDock.querySelector("[data-internal-partial-whatsapp]")?.addEventListener("click", () => shareInternalPartial("whatsapp"));
   els.internalSaleDock.querySelector("[data-internal-partial-pdf]")?.addEventListener("click", () => shareInternalPartial("pdf"));
@@ -8345,6 +8351,66 @@ async function finalizeInternalCatalogSale() {
   renderInternalCatalogSale();
   pushInternalSaleCompletedHistoryState();
   } finally { manualOrderBusy = false; }
+}
+
+async function discardInternalCatalogSale() {
+  if (!isInternalCatalogQuickSaleMode() || manualOrderBusy || isConfirmDialogOpen()) return;
+  const editingContext = manualCatalogEdit?.catalogActive ? manualCatalogEdit : null;
+  const draft = internalCatalogSale;
+  if (!editingContext && (!draft || internalCatalogCompletedSaleId)) return;
+  await requestDeleteConfirmation({
+    title: "Descartar venta",
+    text: "¿Querés descartar esta venta? Se perderán los productos y datos cargados"
+      + (editingContext ? ". El pedido guardado se conservará sin cambios." : ""),
+    confirmText: "Descartar venta",
+    loadingText: "Descartando...",
+    action: async () => {
+      if (manualOrderBusy) throw new Error("Hay un guardado en curso. Esperá a que termine.");
+      if (!isInternalCatalogQuickSaleMode()) throw new Error("Volvé al catálogo antes de descartar esta preparación.");
+      if (editingContext ? manualCatalogEdit !== editingContext
+        : internalCatalogSale !== draft || manualCatalogEdit?.catalogActive || internalCatalogCompletedSaleId) {
+        throw new Error("La preparación cambió. Volvé a abrirla antes de descartar.");
+      }
+      manualOrderBusy = true;
+      try {
+        if (editingContext) {
+          // Restore only the local edit from the saved record. Never update/cancel/delete it.
+          const id = editingContext.order.remoteId || editingContext.order.id;
+          const client = getSupabaseCatalogClient();
+          if (!client) throw new Error("No se pudo consultar el pedido guardado. La edición se conserva.");
+          const { data: saved, error } = await withSupabaseTimeout(client.from("orders")
+            .select("*, order_items(*)").eq("id", id).single(), "No se pudo recuperar el pedido guardado. La edición se conserva.");
+          if (error) throw new Error(formatSupabaseOperationError(error, "No se pudo recuperar el pedido guardado."));
+          if (String(saved?.id) !== String(id)) throw new Error("No se pudo verificar el pedido original. La edición se conserva.");
+          const original = mapSupabaseOrderToLocal(saved);
+          orders = orders.map((order) => String(order.remoteId || order.id) === String(id) ? original : order);
+          manualCatalogEdit = null;
+          if (openOrderId === id) openOrderId = "";
+          if (previewOrderId === id) previewOrderId = "";
+          if (operationalWebOrderId === id) operationalWebOrderId = "";
+          saveOrders();
+        } else {
+          internalCatalogSale = null;
+          internalCatalogSaleExpanded = false;
+          internalPendingSaveError = "";
+          internalSaleDetailHistoryActive = false;
+          internalSaleDetailClosingByCode = false;
+          orders = orders.filter((order) => !(order.id === draft.id && order.manualDraft && !order.remoteId));
+          if (!currentPrintOrderId && currentPdfFilename === "pedido-pendiente.pdf") {
+            clearPdfDownloadLink();
+            currentPrintDocument = null;
+          }
+          if (appHistoryReady && window.history?.state?.modal === "internalSaleDetail") {
+            window.history.replaceState(makeAppHistoryState("catalogo"), "", getCurrentHistoryUrl());
+          }
+        }
+        setView("catalogo", true, { replace: true });
+        showToast(editingContext ? "Edición descartada. El pedido guardado se conserva." : "Venta descartada.", "success");
+      } finally {
+        manualOrderBusy = false;
+      }
+    }
+  });
 }
 
 async function startNewInternalCatalogSale() {
