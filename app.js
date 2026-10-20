@@ -5681,23 +5681,6 @@ function renderInternalWebPendingAccess() {
   if (!manualPending.length) internalManualPendingExpanded = false;
   els.internalWebPendingSlot.innerHTML = renderPendingOrderBar("web", webPending, internalWebPendingExpanded)
     + renderPendingOrderBar("manual", manualPending, internalManualPendingExpanded);
-  const editingOrder = getManualCatalogTarget();
-  if (editingOrder) {
-    els.internalWebPendingSlot.innerHTML = `<section class="manual-catalog-context">
-      <div><strong>Agregando a ${escapeHtml(formatRecordNumber(editingOrder))}</strong>
-      <span>${escapeHtml(getOrderCustomerName(editingOrder))} · ${editingOrder.items.length} productos · ${formatMoney(editingOrder.total || 0)}</span></div>
-      <div class="manual-catalog-controls">
-        <div class="manual-catalog-navigation">
-          <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
-          <button class="secondary-button" type="button" data-exit-manual-catalog>CATÁLOGO NORMAL</button>
-        </div>
-        <button class="danger-button internal-sale-discard-button" type="button" data-discard-internal-sale>DESCARTAR VENTA</button>
-      </div>
-    </section>` + els.internalWebPendingSlot.innerHTML;
-    els.internalWebPendingSlot.querySelector("[data-return-manual-order]")?.addEventListener("click", () => returnToManualOrderDetail());
-    els.internalWebPendingSlot.querySelector("[data-exit-manual-catalog]")?.addEventListener("click", () => setView("catalogo", true));
-    els.internalWebPendingSlot.querySelector("[data-discard-internal-sale]")?.addEventListener("click", discardInternalCatalogSale);
-  }
 
   els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
     button.addEventListener("click", () => {

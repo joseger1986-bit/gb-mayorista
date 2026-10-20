@@ -2642,32 +2642,7 @@ th .table-sort-button[data-sort-products="stock"] {
   }
 }
 
-.manual-catalog-context {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.manual-catalog-context > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.manual-catalog-context .manual-catalog-navigation {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .internal-sale-discard-button,
-.manual-catalog-context .manual-catalog-controls .internal-sale-discard-button,
 .internal-sale-panel .internal-sale-detail > .internal-sale-discard-button {
   display: block;
   width: 100%;
@@ -2678,18 +2653,7 @@ th .table-sort-button[data-sort-products="stock"] {
   font-size: 0.8125rem;
 }
 
-.manual-catalog-navigation > button {
-  flex: 1 1 120px;
-  min-width: 0;
-  min-height: 44px;
-  padding: 8px;
-  white-space: normal;
-  overflow-wrap: normal;
-  font-size: 0.8125rem;
-}
-
-.manual-order-catalog-button,
-.manual-catalog-context > button {
+.manual-order-catalog-button {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -2698,13 +2662,6 @@ th .table-sort-button[data-sort-products="stock"] {
 .manual-order-catalog-button {
   width: 100%;
   margin-bottom: 10px;
-}
-
-@media (max-width: 600px) {
-  .manual-catalog-context {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }
 
 .pending-title-label {
