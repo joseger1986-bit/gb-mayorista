@@ -263,6 +263,8 @@ let internalCatalogCompletedSaleId = "";
 let internalSaleCompletedHistoryActive = false;
 let internalSaleCompletedClosingByCode = false;
 let internalWebPendingExpanded = false;
+let internalManualPendingExpanded = false;
+let internalPendingSaveError = "";
 let editingProductId = "";
 let editProductInitialState = "";
 let editProductRemoveImagePending = false;
@@ -1388,17 +1390,28 @@ async function persistManualOrder(order, action = "save") {
   if (!client || !token) throw new Error("La sesion de Gestion no esta disponible.");
   const payload = buildSupabaseOrderPayload(order);
   payload.delivery_type = order.deliveryType || "Retira en local";
+  const submittedId = order.remoteId || order.id;
+  const itemRows = buildSupabaseOrderItemRows(order, submittedId);
   const { data, error } = await withSupabaseTimeout(client.rpc("internal_manual_order", {
-    p_order_id: order.remoteId || order.id,
+    p_order_id: submittedId,
     p_action: action,
     p_profile_token: token,
     p_revision: Number(order.manualRevision) || 0,
     p_order_payload: payload,
-    p_items: buildSupabaseOrderItemRows(order, order.remoteId || order.id)
+    p_items: itemRows
   }), "No se pudo confirmar el guardado del pedido. Actualiza Pedidos antes de reintentar.");
-  if (error) throw new Error(error.message || "No se pudo guardar el pedido manual.");
+  if (error) throw new Error(formatSupabaseOperationError(error, "No se pudo guardar el pedido manual."));
   if (!data?.order?.id || !Number(data.order.order_number)) throw new Error("Supabase no confirmo el pedido guardado.");
-  const remote = mapSupabaseOrderToLocal({ ...data.order, order_items: data.items || [] });
+  if (String(data.order.id) !== String(submittedId) || data.order.origin !== "manual") throw new Error("Supabase devolvio un pedido distinto del enviado.");
+  order.manualRevision = Number(data.order.manual_revision) || 0;
+  if (action === "save" && String(internalCatalogSale?.id) === String(submittedId)) {
+    internalCatalogSale.manualRevision = order.manualRevision;
+  }
+  const { data: saved, error: readError } = await withSupabaseTimeout(client.from("orders")
+    .select("*, order_items(*)").eq("id", submittedId).single(), "Supabase respondio al guardado, pero no se pudo verificar. Actualiza Pedidos antes de reintentar.");
+  if (readError) throw new Error(`Supabase respondio al guardado, pero fallo la verificacion: ${formatSupabaseOperationError(readError)}`);
+  verifyManualOrderPersistence(saved, submittedId, action, payload, itemRows);
+  const remote = mapSupabaseOrderToLocal(saved);
   Object.assign(order, remote, { manualDraft: false });
   orders = orders.filter((entry) => String(entry.remoteId || entry.id) !== String(remote.id));
   if (!order.deletedAt) orders.unshift(order);
@@ -1406,26 +1419,77 @@ async function persistManualOrder(order, action = "save") {
   return order;
 }
 
+function verifyManualOrderPersistence(saved, id, action, payload, items) {
+  if (!saved || String(saved.id) !== String(id) || saved.origin !== "manual" || !Number(saved.order_number)) {
+    throw new Error("No se pudo verificar el pedido manual guardado. Actualiza Pedidos.");
+  }
+  if (action === "delete") {
+    if (!saved.deleted_at || saved.stock_applied || saved.status !== "Pendiente") throw new Error("Supabase no confirmo la eliminacion del pedido pendiente.");
+    return;
+  }
+  if (saved.deleted_at || saved.status !== (action === "pay" ? "Pagado" : "Pendiente")
+    || Boolean(saved.stock_applied) !== (action === "pay")) {
+    throw new Error("El estado guardado del pedido no coincide. Actualiza Pedidos antes de reintentar.");
+  }
+  const lineKey = (item) => JSON.stringify([String(item.product_id), item.variant_name || "", item.presentation || "", Number(item.quantity), Number(item.unit_price)]);
+  const expected = items.map(lineKey).sort();
+  const actual = (saved.order_items || []).map(lineKey).sort();
+  if (JSON.stringify(expected) !== JSON.stringify(actual) || Number(saved.total) !== Number(payload.total)
+    || saved.customer_name !== String(payload.customer_name || "").trim()) {
+    throw new Error("Supabase respondio, pero los datos del pedido no coinciden al releerlos. No cierres el detalle y actualiza Pedidos.");
+  }
+}
+
 async function saveInternalPendingOrder() {
   if (manualOrderBusy || !internalCatalogSale?.items?.length) return;
+  readInternalSaleCustomerFields();
+  showInternalPendingSaveError("");
   if (!String(internalCatalogSale.customerName || "").trim()) {
     const details = els.internalSaleDock.querySelector(".internal-sale-customer-options");
     if (details) details.open = true;
-    els.internalSaleDock.querySelector('[data-internal-sale-customer="name"]')?.focus();
-    showToast("Completa el nombre del cliente para guardar el pedido.");
+    showInternalPendingSaveError("Completá el nombre del cliente para guardar el pedido pendiente.");
+    const nameInput = els.internalSaleDock.querySelector('[data-internal-sale-customer="name"]');
+    nameInput?.setAttribute("aria-invalid", "true");
+    nameInput?.focus();
+    nameInput?.scrollIntoView({ block: "center" });
     return;
   }
   manualOrderBusy = true;
+  internalPendingSaveError = "";
+  const saveButton = els.internalSaleDock.querySelector("[data-internal-save-pending]");
+  const disabledControls = [...els.internalSaleDock.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled)")];
+  disabledControls.forEach((control) => { control.disabled = true; });
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = "GUARDANDO PEDIDO..."; }
   try {
     const pending = { ...internalCatalogSale, items: internalCatalogSale.items.map((item) => ({ ...item })), origin: "manual", status: "Pendiente", stockApplied: false, paidAt: null };
     await persistManualOrder(pending);
     collapseInternalSaleDetail({ fromHistory: true });
     internalCatalogSale = null;
     internalCatalogSaleExpanded = false;
+    internalManualPendingExpanded = true;
     renderAll();
+    els.internalWebPendingSlot?.scrollIntoView({ block: "start", behavior: "smooth" });
     showToast("Pedido pendiente guardado", "success");
-  } catch (error) { showToast(error.message); }
-  finally { manualOrderBusy = false; }
+    return true;
+  } catch (error) {
+    showInternalPendingSaveError(error.message || "No se pudo guardar el pedido pendiente.");
+    showToast(internalPendingSaveError);
+    return false;
+  }
+  finally {
+    manualOrderBusy = false;
+    disabledControls.forEach((control) => { control.disabled = false; });
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = "PASAR A PEDIDOS MANUALES PENDIENTES"; }
+  }
+}
+
+function showInternalPendingSaveError(message) {
+  internalPendingSaveError = message;
+  const errorBox = els.internalSaleDock?.querySelector("[data-pending-save-error]");
+  if (!errorBox) return;
+  errorBox.textContent = message;
+  errorBox.classList.toggle("hidden", !message);
+  if (message) errorBox.scrollIntoView({ block: "nearest" });
 }
 
 async function saveManualOrderChanges(order) {
@@ -1490,8 +1554,9 @@ function buildManualPartialMessage(order) {
     `Total: ${formatMoney(totals.total)}`].join("\n");
 }
 
-function shareInternalPartial(mode) {
+async function shareInternalPartial(mode) {
   if (manualOrderBusy || !internalCatalogSale?.items?.length) return;
+  readInternalSaleCustomerFields();
   const draft = { ...internalCatalogSale, origin: "manual", status: "Pendiente", partialDetail: true, manualDraft: true };
   if (mode === "whatsapp") {
     const phone = String(draft.customerPhone || "").replace(/\D/g, "");
@@ -1502,13 +1567,19 @@ function shareInternalPartial(mode) {
   try {
     const pdf = createOrderDocumentPdf(buildOrderPrintDocument(draft));
     const blob = new Blob([pdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "detalle-de-pedido-pendiente.pdf";
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    clearPdfDownloadLink({ keepBlob: true });
+    currentPdfBlob = blob;
+    currentPdfFilename = "pedido-pendiente.pdf";
+    currentPrintOrderId = "";
+    await shareCurrentPdf({ allowDesktopShare: true, order: draft, text: "PEDIDO PENDIENTE", fallbackOnError: true });
   } catch (error) { showToast("No se pudo generar el detalle PDF."); }
+}
+
+function readInternalSaleCustomerFields() {
+  if (!internalCatalogSale) return;
+  els.internalSaleDock?.querySelectorAll("[data-internal-sale-customer]").forEach((input) => {
+    updateInternalSaleCustomer(input.dataset.internalSaleCustomer, input.value);
+  });
 }
 
 function getRemoteOrderId(order) {
@@ -5546,59 +5617,60 @@ function renderInternalWebPendingAccess() {
   els.internalWebPendingSlot.classList.toggle("hidden", !isVisible);
   if (!isVisible) {
     internalWebPendingExpanded = false;
+    internalManualPendingExpanded = false;
     els.internalWebPendingSlot.innerHTML = "";
     return;
   }
 
   const webPending = getPendingWebConsultations();
   const manualPending = getPendingManualOrders();
-  const pending = [...webPending, ...manualPending];
-  const hasPending = pending.length > 0;
-  if (!hasPending) internalWebPendingExpanded = false;
+  if (!webPending.length) internalWebPendingExpanded = false;
+  if (!manualPending.length) internalManualPendingExpanded = false;
+  els.internalWebPendingSlot.innerHTML = renderPendingOrderBar("web", webPending, internalWebPendingExpanded)
+    + renderPendingOrderBar("manual", manualPending, internalManualPendingExpanded)
+    + `<button class="primary-button internal-new-sale-button" type="button" data-start-internal-sale>NUEVA VENTA</button>`;
+  els.internalWebPendingSlot.querySelector("[data-start-internal-sale]")?.addEventListener("click", startNewInternalCatalogSale);
 
-  els.internalWebPendingSlot.innerHTML = `
-    <section class="internal-web-pending ${hasPending ? "has-pending" : "is-empty"}">
-      <button class="internal-web-pending-toggle" type="button" data-toggle-web-pending ${hasPending ? "" : "disabled"} aria-expanded="${internalWebPendingExpanded ? "true" : "false"}">
-        <span class="internal-web-pending-title">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 4h6m-6 4h6m-6 4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          PEDIDOS PENDIENTES
-          ${hasPending ? `<b>${pending.length}</b>` : ""}
-        </span>
-      </button>
-      ${internalWebPendingExpanded && hasPending ? `
-        <div class="internal-web-pending-list">
-          ${[{title:"PEDIDOS WEB",items:webPending},{title:"PEDIDOS MANUALES",items:manualPending}].map((group) => `
-            <h4 class="pending-group-title">${group.title} <b>${group.items.length}</b></h4>
-          ${group.items.map((order) => `
-            <article class="internal-web-pending-row">
-              <div>
-                <strong>${escapeHtml(formatRecordNumber(order))}</strong>
-                <em>${escapeHtml(getOrderOriginLabel(order).toUpperCase())}</em>
-                <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
-                <small>${order.items.length} producto${order.items.length === 1 ? "" : "s"} · ${formatMoney(order.total || order.catalogTotal || 0)} · ${escapeHtml(normalizeConsultationStatus(order.status))}</small>
-              </div>
-              <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
-            </article>
-          `).join("")}`).join("")}
-        </div>
-      ` : ""}
-    </section>
-  `;
-
-  els.internalWebPendingSlot.querySelector("[data-toggle-web-pending]")?.addEventListener("click", () => {
-    if (!hasPending) return;
-    internalWebPendingExpanded = !internalWebPendingExpanded;
-    renderInternalWebPendingAccess();
+  els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.togglePending === "web") internalWebPendingExpanded = !internalWebPendingExpanded;
+      else internalManualPendingExpanded = !internalManualPendingExpanded;
+      renderInternalWebPendingAccess();
+    });
   });
   els.internalWebPendingSlot.querySelectorAll("[data-open-web-pending-order]").forEach((button) => {
     button.addEventListener("click", () => openPendingWebConsultation(button.dataset.openWebPendingOrder));
   });
 }
 
+function renderPendingOrderBar(source, pending, expanded) {
+  const title = source === "manual" ? "PEDIDOS MANUALES PENDIENTES" : "PEDIDOS WEB PENDIENTES";
+  return `<section class="internal-web-pending ${pending.length ? "has-pending" : "is-empty"}" data-pending-group="${source}">
+    <button class="internal-web-pending-toggle" type="button" data-toggle-pending="${source}" ${pending.length ? "" : "disabled"} aria-expanded="${expanded ? "true" : "false"}" aria-controls="pending-list-${source}">
+      <span class="internal-web-pending-title"><span class="pending-title-label">${title}</span><b class="${pending.length ? "" : "pending-count-zero"}">${pending.length}</b></span>
+    </button>
+    <div class="internal-web-pending-list ${expanded ? "" : "hidden"}" id="pending-list-${source}">
+      ${pending.map((order) => `<article class="internal-web-pending-row">
+        <div>
+          <strong>${escapeHtml(formatRecordNumber(order))}</strong>
+          <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
+          <small>${escapeHtml(formatCompactDateTime(order.createdAt))} · ${escapeHtml(normalizeConsultationStatus(order.status))}</small>
+          <small>${order.items.length} productos · ${formatMoney(order.total || order.catalogTotal || 0)}</small>
+          <details class="pending-products-preview"><summary>Ver productos</summary>
+            <ul>${order.items.map((item) => `<li><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml([item.variant, formatOrderItemOperationalQuantity(item)].filter(Boolean).join(" · "))}</span></li>`).join("")}</ul>
+          </details>
+        </div>
+        <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
+      </article>`).join("")}
+    </div>
+  </section>`;
+}
+
 function openPendingWebConsultation(orderId) {
   const order = orders.find((item) => item.id === orderId);
   if (!order || !["web", "manual"].includes(getOrderOrigin(order)) || order.deletedAt) return;
   internalWebPendingExpanded = false;
+  internalManualPendingExpanded = false;
   operationalWebOrderId = order.id;
   setView("pedidos", false, { preserveOrderState: true });
   openOrderDetail(order.id, { source: "catalogo" });
@@ -5753,10 +5825,13 @@ function renderOrderActionButtons(order, options = {}) {
   const documentButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>`;
   const backButtonLabel = options.operationalWeb ? "Volver al catálogo" : "Volver";
   const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">${backButtonLabel}</button>`;
+  const pendingPdfButton = getOrderOrigin(order) === "manual" && !isConfirmed(order.status)
+    ? `<button class="secondary-button small-button" type="button" data-share-manual-pdf="${order.id}">COMPARTIR PDF POR WHATSAPP</button>` : "";
   if (readonly) return `${previewButton}${documentButton}${backButton}`;
   return `
     <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}">Guardar cambios</button>
-    ${getOrderOrigin(order) === "manual" ? `<button class="primary-button small-button" type="button" data-pay-manual="${order.id}">Confirmar pago</button><button class="danger-button small-button" type="button" data-delete-manual="${order.id}">Eliminar pedido</button>` : ""}
+    ${getOrderOrigin(order) === "manual" ? `<button class="primary-button small-button" type="button" data-pay-manual="${order.id}">Confirmar pago</button><button class="danger-button small-button" type="button" data-delete-manual="${order.id}">ELIMINAR PEDIDO</button>` : ""}
+    ${pendingPdfButton}
     ${previewButton}
     ${documentButton}
     ${backButton}
@@ -6541,13 +6616,18 @@ function sendBudgetPreviewPdfByWhatsapp(orderId) {
     currentPdfBlob = new Blob([pdf], { type: "application/pdf" });
     currentPdfUrl = URL.createObjectURL(currentPdfBlob);
     currentPdfFilename = currentPrintFilename;
-    shareCurrentPdf();
+    if (isPendingManualDetail(order)) {
+      shareCurrentPdf({ allowDesktopShare: true, order, text: "PEDIDO PENDIENTE", fallbackOnError: true });
+    } else {
+      shareCurrentPdf();
+    }
   } catch (error) {
     clearPdfDownloadLink();
     showToast("No se pudo preparar el PDF");
   }
 }
 function bindBudgetEditor() {
+  els.ordersList.querySelectorAll("[data-share-manual-pdf]").forEach((button) => button.addEventListener("click", () => sendBudgetPreviewPdfByWhatsapp(button.dataset.shareManualPdf)));
   els.ordersList.querySelectorAll("[data-pay-manual]").forEach((button) => button.addEventListener("click", () => payManualOrder(button.dataset.payManual)));
   els.ordersList.querySelectorAll("[data-delete-manual]").forEach((button) => button.addEventListener("click", () => deleteManualOrder(button.dataset.deleteManual)));
   els.ordersList.querySelector("[data-orders-search]")?.addEventListener("input", (event) => {
@@ -7810,7 +7890,7 @@ function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct
 function renderInternalCatalogSale(options = {}) {
   if (!els.internalSaleDock) return;
   const completedSale = internalCatalogCompletedSaleId ? orders.find((order) => order.id === internalCatalogCompletedSaleId) : null;
-  const active = isInternalCatalogQuickSaleMode() && (internalCatalogSale?.items?.length || completedSale);
+  const active = isInternalCatalogQuickSaleMode() && (internalCatalogSale || completedSale);
   const detail = els.internalSaleDock.querySelector(".internal-sale-detail");
   const previousScrollTop = options.preservePanelScroll ? detail?.scrollTop || 0 : 0;
   els.internalSaleDock.classList.toggle("hidden", !active);
@@ -7841,7 +7921,7 @@ function renderInternalCatalogSale(options = {}) {
           <button class="secondary-button small-button" type="button" data-internal-sale-toggle>Seguir agregando</button>
         </div>
         <div class="internal-sale-items">
-          ${sale.items.map((item) => renderInternalSaleItem(item)).join("")}
+          ${sale.items.length ? sale.items.map((item) => renderInternalSaleItem(item)).join("") : `<div class="empty-state compact">Todavía no agregaste productos.</div>`}
         </div>
         <div class="internal-sale-totals">
           <span>Subtotal <b data-internal-sale-subtotal>${formatMoney(sale.subtotal || 0)}</b></span>
@@ -7868,12 +7948,12 @@ function renderInternalCatalogSale(options = {}) {
             <input type="number" min="0" step="1" value="${Number(sale.discountValue) || 0}" data-internal-sale-discount-value aria-label="Valor del descuento">
           </span>
         </section>
-        <details class="quick-sale-more-options internal-sale-customer-options">
-          <summary>+ MÁS OPCIONES DEL CLIENTE</summary>
+        <details class="quick-sale-more-options internal-sale-customer-options" ${internalPendingSaveError ? "open" : ""}>
+          <summary>DATOS DEL CLIENTE</summary>
           <div class="quick-sale-options-grid">
             <fieldset>
               <legend>Datos del cliente</legend>
-              <label>Nombre<input type="text" value="${escapeHtml(sale.customerName || "")}" data-internal-sale-customer="name" placeholder="Opcional"></label>
+              <label>Nombre del cliente<input type="text" value="${escapeHtml(sale.customerName || "")}" data-internal-sale-customer="name" placeholder="Nombre para guardar el pedido" autocomplete="name"></label>
               <label>Teléfono<input type="tel" value="${escapeHtml(sale.customerPhone || "")}" data-internal-sale-customer="phone" placeholder="Opcional"></label>
               <label>Localidad<input type="text" value="${escapeHtml(sale.customerLocation || "")}" data-internal-sale-customer="location" placeholder="Opcional"></label>
             </fieldset>
@@ -7881,10 +7961,11 @@ function renderInternalCatalogSale(options = {}) {
         </details>
         <div class="manual-order-actions">
           <button class="secondary-button" type="button" data-internal-partial-whatsapp>ENVIAR DETALLE PARCIAL</button>
-          <button class="secondary-button" type="button" data-internal-partial-pdf>DESCARGAR DETALLE PDF</button>
-          <button class="primary-button" type="button" data-internal-save-pending>GUARDAR PEDIDO PENDIENTE</button>
+          <button class="secondary-button" type="button" data-internal-partial-pdf>COMPARTIR PDF POR WHATSAPP</button>
+          <button class="primary-button" type="button" data-internal-save-pending ${sale.items.length ? "" : "disabled"}>PASAR A PEDIDOS MANUALES PENDIENTES</button>
         </div>
-        <button class="primary-button internal-sale-finish-button" type="button" data-internal-sale-finish>
+        <p class="cart-error ${internalPendingSaveError ? "" : "hidden"}" role="alert" data-pending-save-error>${escapeHtml(internalPendingSaveError)}</p>
+        <button class="primary-button internal-sale-finish-button" type="button" data-internal-sale-finish ${sale.items.length ? "" : "disabled"}>
           FINALIZAR VENTA ${formatMoney(sale.total || 0)}
         </button>
       </div>
@@ -8131,13 +8212,39 @@ async function finalizeInternalCatalogSale() {
   } finally { manualOrderBusy = false; }
 }
 
-function startNewInternalCatalogSale() {
-  if (internalCatalogCompletedSaleId) {
-    closeInternalSaleCompletedPanel();
+async function startNewInternalCatalogSale() {
+  if (manualOrderBusy || !isInternalCatalogQuickSaleMode()) return;
+  if (internalCatalogSale?.items?.length) {
+    readInternalSaleCustomerFields();
+    if (!String(internalCatalogSale.customerName || "").trim()) {
+      internalCatalogSaleExpanded = true;
+      internalPendingSaveError = "Completá los datos del cliente y pasá esta preparación a pedidos manuales pendientes antes de comenzar otra venta.";
+      renderInternalCatalogSale();
+      els.internalSaleDock.querySelector('[data-internal-sale-customer="name"]')?.focus();
+      return;
+    }
+    await requestDeleteConfirmation({
+      title: "Nueva venta",
+      text: "Tenés una venta en preparación. Guardala como pedido manual pendiente antes de comenzar otra.",
+      confirmText: "Guardar pendiente y comenzar otra",
+      loadingText: "Guardando pedido...",
+      action: async () => {
+        if (!await saveInternalPendingOrder()) throw new Error(internalPendingSaveError || "No se pudo confirmar el guardado. La preparación se conserva.");
+        beginEmptyInternalCatalogSale();
+      }
+    });
     return;
   }
-  internalCatalogSale = null;
-  internalCatalogSaleExpanded = false;
+  beginEmptyInternalCatalogSale();
+}
+
+function beginEmptyInternalCatalogSale() {
+  if (internalCatalogCompletedSaleId) {
+    closeInternalSaleCompletedPanel();
+  }
+  internalCatalogSale = createInternalCatalogSaleDraft();
+  internalCatalogSaleExpanded = true;
+  internalPendingSaveError = "";
   internalCatalogCompletedSaleId = "";
   internalSaleCompletedHistoryActive = false;
   document.body.classList.remove("internal-sale-detail-open");
@@ -9819,7 +9926,7 @@ async function shareCurrentPdf(options = {}) {
   }
   const fallbackMode = options.fallbackMode || "whatsapp-download";
   const allowDesktopShare = Boolean(options.allowDesktopShare);
-  const order = currentPrintOrderId ? orders.find((item) => item.id === currentPrintOrderId) : null;
+  const order = options.order || (currentPrintOrderId ? orders.find((item) => item.id === currentPrintOrderId) : null);
   const phone = normalizeArgentinaWhatsappNumber(order?.customerPhone || "");
   const file = new File([currentPdfBlob], currentPdfFilename, { type: "application/pdf" });
   const canSharePdf = Boolean(navigator.share && navigator.canShare?.({ files: [file] }));
@@ -9829,15 +9936,17 @@ async function shareCurrentPdf(options = {}) {
       await navigator.share({
         files: [file],
         title: currentPdfFilename.replace(/\.pdf$/i, ""),
-        text: "Pedido Punto X Mayor"
+        text: options.text || "Pedido Punto X Mayor"
       });
       showToast("PDF listo para compartir", "success");
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
       console.warn("Punto X Mayor PDF share:", error);
-      showToast("No se pudo compartir el PDF. Usá Descargar PDF.");
-      return;
+      if (!options.fallbackOnError) {
+        showToast("No se pudo compartir el PDF. Usá Descargar PDF.");
+        return;
+      }
     }
   }
 
@@ -9848,7 +9957,7 @@ async function shareCurrentPdf(options = {}) {
 
   triggerPdfDownload(currentPdfBlob, currentPdfFilename);
   if (!phone || phone === "549") {
-    showToast("El pedido no tiene teléfono cargado. PDF descargado.");
+    showToast("PDF descargado. Abrí WhatsApp y adjuntá el archivo manualmente.");
     return;
   }
   const opened = window.open("https://wa.me/" + phone, "_blank", "noreferrer");

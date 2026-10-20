@@ -2607,6 +2607,47 @@ th .table-sort-button[data-sort-products="stock"] {
   font-size: 0.85rem;
 }
 
+#internalWebPendingSlot {
+  display: grid;
+  gap: 10px;
+}
+
+#internalWebPendingSlot.hidden {
+  display: none;
+}
+
+.internal-new-sale-button {
+  width: 100%;
+  min-height: 42px;
+}
+
+.pending-title-label {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.internal-web-pending-title .pending-count-zero {
+  background: #444;
+  color: #fff;
+}
+
+.pending-products-preview {
+  min-width: 0;
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+
+.pending-products-preview ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.pending-products-preview li > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .order-origin-manual {
   background: #edf4ee;
   color: #245636;
