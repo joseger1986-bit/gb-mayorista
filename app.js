@@ -705,7 +705,10 @@ els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
 });
 els.printPreviewShare?.addEventListener("click", () => {
-  shareCurrentPdf({ allowDesktopShare: true, fallbackMode: "download-only" });
+  const order = orders.find((entry) => entry.id === currentPrintOrderId);
+  shareCurrentPdf(isPendingManualDetail(order)
+    ? { allowDesktopShare: true, order, text: "PEDIDO PENDIENTE", fallbackOnError: true }
+    : { allowDesktopShare: true, fallbackMode: "download-only" });
 });
 els.stockModalForm?.addEventListener("submit", confirmStockModal);
 els.stockModalForm?.addEventListener("change", (event) => {
@@ -1389,7 +1392,7 @@ async function saveLocalSaleToSupabase(order) {
 }
 
 function isPendingManualDetail(order) {
-  return Boolean(order?.partialDetail || (getOrderOrigin(order) === "manual" && !isConfirmed(order.status)));
+  return Boolean(order?.partialDetail || (getOrderOrigin(order) === "manual" && order?.status === "Pendiente"));
 }
 
 async function persistManualOrder(order, action = "save") {
@@ -1533,17 +1536,53 @@ async function payManualOrder(id) {
   finally { manualOrderBusy = false; }
 }
 
-async function deleteManualOrder(id) {
+async function persistManualOrderCancellation(order) {
+  const client = getSupabaseAuthClient();
+  const token = getStoredInternalProfileSessionToken();
+  if (!client || !token) throw new Error("La sesión de Gestión no está disponible.");
+  const { data: profile, error: profileError } = await withSupabaseTimeout(client.rpc("internal_validate_profile_session", {
+    p_profile_token: token
+  }), "No se pudo validar el perfil para cancelar el pedido.");
+  if (profileError) throw new Error(formatSupabaseOperationError(profileError));
+  if (!profile?.ok || !["admin", "employee"].includes(profile.role)) throw new Error("Ingresá nuevamente al perfil de Gestión para cancelar el pedido.");
+  const id = order.remoteId || order.id;
+  const revision = Number(order.manualRevision) || 0;
+  // The conditional UPDATE also serializes against the payment RPC's row lock.
+  const { data: changed, error } = await withSupabaseTimeout(client.from("orders")
+    .update({ status: "Cancelado", manual_revision: revision + 1, updated_at: new Date().toISOString() })
+    .eq("id", id).eq("origin", "manual").eq("status", "Pendiente")
+    .eq("stock_applied", false).eq("manual_revision", revision).is("deleted_at", null)
+    .select("id").maybeSingle(), "No se pudo confirmar la cancelación. Actualizá Pedidos antes de reintentar.");
+  if (error) throw new Error(formatSupabaseOperationError(error, "No se pudo cancelar el pedido."));
+  if (!changed?.id) throw new Error("El pedido cambió o ya no está pendiente. Volvé a abrirlo antes de cancelar.");
+  const { data: saved, error: readError } = await withSupabaseTimeout(client.from("orders")
+    .select("*, order_items(*)").eq("id", id).single(), "No se pudo verificar la cancelación. Actualizá Pedidos.");
+  if (readError) throw new Error(formatSupabaseOperationError(readError));
+  if (String(saved?.id) !== String(id) || saved.status !== "Cancelado" || saved.stock_applied
+    || saved.deleted_at || Number(saved.order_number) !== Number(order.number)) {
+    throw new Error("Supabase no confirmó el pedido cancelado. Actualizá Pedidos.");
+  }
+  Object.assign(order, mapSupabaseOrderToLocal(saved));
+  saveOrders();
+}
+
+async function cancelManualOrder(id) {
   const order = orders.find((entry) => entry.id === id);
-  if (!order || getOrderOrigin(order) !== "manual" || !canEditOrder(order) || manualOrderBusy) return;
+  if (!order || getOrderOrigin(order) !== "manual" || order.status !== "Pendiente" || !canEditOrder(order) || manualOrderBusy) return;
   await requestDeleteConfirmation({
-    text: "¿Seguro que querés eliminar este pedido manual? Esta acción no se puede deshacer",
-    confirmText: "Eliminar pedido",
-    loadingText: "Eliminando...",
+    title: "Cancelar pedido",
+    text: "¿Querés cancelar este pedido? Se conservará en el historial y no descontará stock.",
+    confirmText: "Cancelar pedido",
+    loadingText: "Cancelando...",
     action: async () => {
       if (manualOrderBusy) throw new Error("Hay un guardado en curso.");
       manualOrderBusy = true;
-      try { await persistManualOrder(order, "delete"); closeOrderDetail(id); renderAll(); }
+      try {
+        await persistManualOrderCancellation(order);
+        closeOrderDetail(id);
+        renderAll();
+        showToast("Pedido cancelado. Conservado en el historial.", "success");
+      }
       finally { manualOrderBusy = false; }
     }
   });
@@ -5636,8 +5675,7 @@ function renderInternalWebPendingAccess() {
   if (!webPending.length) internalWebPendingExpanded = false;
   if (!manualPending.length) internalManualPendingExpanded = false;
   els.internalWebPendingSlot.innerHTML = renderPendingOrderBar("web", webPending, internalWebPendingExpanded)
-    + renderPendingOrderBar("manual", manualPending, internalManualPendingExpanded)
-    + `<button class="primary-button internal-new-sale-button" type="button" data-start-internal-sale>NUEVA VENTA</button>`;
+    + renderPendingOrderBar("manual", manualPending, internalManualPendingExpanded);
   const editingOrder = getManualCatalogTarget();
   if (editingOrder) {
     els.internalWebPendingSlot.innerHTML = `<section class="manual-catalog-context">
@@ -5647,7 +5685,6 @@ function renderInternalWebPendingAccess() {
     </section>` + els.internalWebPendingSlot.innerHTML;
     els.internalWebPendingSlot.querySelector("[data-return-manual-order]")?.addEventListener("click", () => returnToManualOrderDetail());
   }
-  els.internalWebPendingSlot.querySelector("[data-start-internal-sale]")?.addEventListener("click", startNewInternalCatalogSale);
 
   els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -5839,7 +5876,15 @@ function renderOrderCustomerBlock(order) {
 
 function renderOrderActionButtons(order, options = {}) {
   const readonly = !canEditOrder(order);
-  const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone || getOrderOrigin(order) === "manual" ? "" : "disabled"}>${getOrderOrigin(order) === "manual" && !isConfirmed(order.status) ? "Enviar detalle parcial" : "Vista previa de WhatsApp"}</button>`;
+  if (getOrderOrigin(order) === "manual" && order.status === "Pendiente") {
+    return `${readonly ? "" : `
+      <button class="primary-button small-button" type="button" data-save-order="${order.id}">Guardar modificaciones</button>
+      <button class="primary-button small-button" type="button" data-pay-manual="${order.id}">Confirmar pago</button>
+      <button class="danger-button small-button" type="button" data-cancel-manual="${order.id}">Cancelar pedido</button>`}
+      <button class="secondary-button small-button" type="button" data-preview-manual-pdf="${order.id}">Compartir PDF por WhatsApp</button>
+      <button class="secondary-button small-button" type="button" data-return-manual-catalog="${order.id}">Volver al catálogo</button>`;
+  }
+  const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone || getOrderOrigin(order) === "manual" ? "" : "disabled"}>Vista previa de WhatsApp</button>`;
   const documentButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>`;
   const backButtonLabel = options.operationalWeb ? "Volver al catálogo" : "Volver";
   const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">${backButtonLabel}</button>`;
@@ -5848,7 +5893,6 @@ function renderOrderActionButtons(order, options = {}) {
   if (readonly) return `${previewButton}${documentButton}${backButton}`;
   return `
     <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}">Guardar cambios</button>
-    ${getOrderOrigin(order) === "manual" ? `<button class="primary-button small-button" type="button" data-pay-manual="${order.id}">Confirmar pago</button><button class="danger-button small-button" type="button" data-delete-manual="${order.id}">ELIMINAR PEDIDO</button>` : ""}
     ${pendingPdfButton}
     ${previewButton}
     ${documentButton}
@@ -6181,7 +6225,7 @@ function renderInternalOrderCard(order, options = {}) {
           <span class="sr-only" data-budget-subtotal="${order.id}">${formatMoney(totals.subtotal || 0)}</span>
         </aside>
 
-        <div class="order-actions compact-order-actions">
+        <div class="order-actions compact-order-actions ${isPendingManualDetail(order) ? "manual-pending-actions" : ""}">
           ${renderOrderActionButtons(order, { operationalWeb: isOperationalWeb })}
         </div>
       </details>
@@ -6623,6 +6667,13 @@ function sendBudgetPreviewByWhatsapp(orderId) {
     renderAll();
   }
 }
+function previewManualOrderPdf(orderId) {
+  const order = orders.find((entry) => entry.id === orderId);
+  if (!order || !hasPermission("orders") || !isPendingManualDetail(order)) return;
+  readOrderDraftFieldsFromDom(orderId);
+  viewOrderDocument(orderId);
+}
+
 function sendBudgetPreviewPdfByWhatsapp(orderId) {
   const order = orders.find((item) => item.id === orderId);
   if (!order) return;
@@ -6649,10 +6700,16 @@ function sendBudgetPreviewPdfByWhatsapp(orderId) {
   }
 }
 function bindBudgetEditor() {
+  els.ordersList.querySelectorAll("[data-preview-manual-pdf]").forEach((button) => button.addEventListener("click", () => previewManualOrderPdf(button.dataset.previewManualPdf)));
+  els.ordersList.querySelectorAll("[data-return-manual-catalog]").forEach((button) => button.addEventListener("click", () => {
+    const id = button.dataset.returnManualCatalog;
+    closeOrderDetail(id);
+    if (currentView !== "catalogo") setView("catalogo", true);
+  }));
   els.ordersList.querySelectorAll("[data-manual-order-catalog]").forEach((button) => button.addEventListener("click", () => openManualOrderCatalog(button.dataset.manualOrderCatalog)));
   els.ordersList.querySelectorAll("[data-share-manual-pdf]").forEach((button) => button.addEventListener("click", () => sendBudgetPreviewPdfByWhatsapp(button.dataset.shareManualPdf)));
   els.ordersList.querySelectorAll("[data-pay-manual]").forEach((button) => button.addEventListener("click", () => payManualOrder(button.dataset.payManual)));
-  els.ordersList.querySelectorAll("[data-delete-manual]").forEach((button) => button.addEventListener("click", () => deleteManualOrder(button.dataset.deleteManual)));
+  els.ordersList.querySelectorAll("[data-cancel-manual]").forEach((button) => button.addEventListener("click", () => cancelManualOrder(button.dataset.cancelManual)));
   els.ordersList.querySelector("[data-orders-search]")?.addEventListener("input", (event) => {
     orderListSearch = event.target.value;
     persistUiState({ orderListSearch });
