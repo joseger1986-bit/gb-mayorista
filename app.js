@@ -248,6 +248,8 @@ let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
 const stockMovementOperationLocks = new Set();
 let reportPeriodStart = "";
+let reportProductSort = "quantity";
+let reportRenderVersion = 0;
 let reportPeriodEnd = "";
 let reportCostsRefreshing = false;
 let reportAdminCostById = new Map();
@@ -6945,21 +6947,58 @@ function exportClientsToExcel() {
 }
 
 async function renderReports() {
-  if (!els.reportGrid) return;
+  if (!els.reportGrid || !hasPermission("reports") || currentView !== "reportes") return;
+  const renderVersion = ++reportRenderVersion;
+  let reportOrders;
+  try {
+    const client = getSupabaseCatalogClient();
+    if (!client) throw new Error("No se pudo conectar para leer las ventas reales.");
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await withSupabaseTimeout(client.from("orders")
+        .select("*, order_items(*)").order("created_at", { ascending: false }).order("id")
+        .range(offset, offset + 999), "No se pudieron cargar las ventas para Reportes.");
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    reportOrders = rows.map((row) => ({
+      id: row.id, remoteId: row.id, status: row.status,
+      createdAt: row.created_at, paidAt: row.paid_at,
+      total: Number(row.total) || 0,
+      items: (row.order_items || []).map(mapSupabaseOrderItemToLocal)
+    }));
+  } catch (error) {
+    if (renderVersion === reportRenderVersion && currentView === "reportes") {
+      els.reportGrid.innerHTML = `<div class="empty-state" role="alert">${escapeHtml(error.message || "No se pudieron cargar las ventas.")}<br><button type="button" class="secondary-button small-button" data-retry-reports>Reintentar</button></div>`;
+      els.reportGrid.querySelector("[data-retry-reports]")?.addEventListener("click", renderReports);
+    }
+    return;
+  }
   if (canAccess("admin") && !reportAdminCostsLoaded) {
     if (currentView === "reportes") els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
     await refreshAdminCostsForReports();
     if (currentView !== "reportes") return;
   }
-  const totals = getTotals();
-  const confirmedOrders = orders.filter((order) => isConfirmed(order.status));
+  if (renderVersion !== reportRenderVersion || currentView !== "reportes" || !hasPermission("reports") || !canAccess("admin")) return;
+  if (!reportAdminCostsLoaded) {
+    els.reportGrid.innerHTML = `<div class="empty-state" role="alert">No se pudieron cargar los costos reales.<br><button type="button" class="secondary-button small-button" data-retry-reports>Reintentar</button></div>`;
+    els.reportGrid.querySelector("[data-retry-reports]")?.addEventListener("click", renderReports);
+    return;
+  }
+  const totals = getTotals(reportOrders);
+  const confirmedOrders = getReportPaidOrders(reportOrders);
   const periodRange = getReportPeriodRange();
-  const periodMetrics = getSalesMetricsForPeriod(periodRange.start, periodRange.end);
+  const periodMetrics = getSalesMetricsForPeriod(periodRange.start, periodRange.end, reportOrders);
   const ticketAverage = confirmedOrders.length
     ? confirmedOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) / confirmedOrders.length
     : 0;
   const stockMargin = totals.stockSaleValue - totals.stockCostValue;
-  const topProducts = getProductSalesSummary().filter((item) => item.quantity > 0).slice(0, 10);
+  const topProducts = getProductSalesSummary(reportOrders, periodRange.start, periodRange.end)
+    .sort((a, b) => b[reportProductSort] - a[reportProductSort] || a.name.localeCompare(b.name)).slice(0, 10);
+  const monthChange = totals.previousMonthSales > 0
+    ? `${totals.monthSales >= totals.previousMonthSales ? "+" : ""}${formatPercent((totals.monthSales - totals.previousMonthSales) / totals.previousMonthSales * 100)}`
+    : totals.monthSales > 0 ? "Sin base de comparación" : "Sin ventas en ambos períodos";
 
   els.reportGrid.innerHTML = `
     <section class="executive-report-section executive-sales">
@@ -6969,10 +7008,14 @@ async function renderReports() {
       </div>
       <div class="executive-card-grid">
         ${renderExecutiveCard("Ventas de hoy", formatMoney(totals.todaySales))}
+        ${renderExecutiveCard("Ventas de ayer", formatMoney(totals.yesterdaySales))}
         ${renderExecutiveCard("Ventas del mes", formatMoney(totals.monthSales))}
+        ${renderExecutiveCard("Ventas del mes anterior", formatMoney(totals.previousMonthSales))}
         ${renderExecutiveCard("Ventas del año", formatMoney(totals.yearSales))}
         ${renderExecutiveCard("Ticket promedio", formatMoney(ticketAverage))}
       </div>
+      <p class="report-context">${escapeHtml(`Hoy: ${totals.periods.today} · Ayer: ${totals.periods.yesterday} · Zona horaria: Argentina`)}. Ventas pagadas por fecha de pago; si falta, fecha de creación.</p>
+      <p class="report-context"><strong>${escapeHtml(monthChange)}</strong> · ${escapeHtml(`${totals.periods.monthStart} a ${totals.periods.today} frente a ${totals.periods.previousMonthStart} a ${totals.periods.previousMonthEnd} (mes anterior completo). Año: ${totals.periods.yearStart.slice(0, 4)}.`)}</p>
     </section>
 
     <section class="executive-report-section executive-stock">
@@ -6990,7 +7033,7 @@ async function renderReports() {
     <section class="executive-report-section executive-profit">
       <div class="executive-section-head">
         <span>Rentabilidad histórica</span>
-        <strong>Costo promedio por período</strong>
+        <strong>Ventas pagadas por período</strong>
       </div>
       <div class="report-period-controls" role="group" aria-label="Período de rentabilidad">
         <label>
@@ -7004,10 +7047,12 @@ async function renderReports() {
       </div>
       <div class="executive-card-grid">
         ${renderExecutiveCard("Total vendido", formatMoney(periodMetrics.sales))}
-        ${renderExecutiveCard("Costo mercadería", formatMoney(periodMetrics.cost))}
-        ${renderExecutiveCard("Ganancia bruta", formatMoney(periodMetrics.profit), "highlight")}
-        ${renderExecutiveCard("Margen / Markup", `${formatPercent(periodMetrics.margin)} / ${formatPercent(periodMetrics.markup)}`)}
+        ${renderExecutiveCard("Costo mercadería", periodMetrics.missingCosts ? "Costo incompleto" : formatMoney(periodMetrics.cost))}
+        ${renderExecutiveCard("Ganancia bruta", periodMetrics.missingCosts ? "No disponible" : formatMoney(periodMetrics.profit), "highlight")}
+        ${renderExecutiveCard("Margen sobre ventas", periodMetrics.missingCosts ? "No disponible" : formatPercent(periodMetrics.margin))}
+        ${renderExecutiveCard("Marcación sobre costo", periodMetrics.missingCosts || periodMetrics.markup === null ? "No disponible" : formatPercent(periodMetrics.markup))}
       </div>
+      <p class="report-context">${periodMetrics.count} ventas pagadas · ${escapeHtml(periodRange.start)} a ${escapeHtml(periodRange.end)} (Argentina).${periodMetrics.estimatedCosts ? ` ${periodMetrics.estimatedCosts} renglones sin costo histórico: estimación con costo actual.` : " Costos históricos guardados en la venta."}${periodMetrics.missingCosts ? ` ${periodMetrics.missingCosts} renglones sin costo disponible.` : ""}</p>
     </section>
 
     <section class="executive-report-section executive-products">
@@ -7015,6 +7060,8 @@ async function renderReports() {
         <span>Estadísticas de ventas</span>
         <strong>Top 10 más vendidos</strong>
       </div>
+      <label class="report-product-sort">Ordenar por <select data-report-product-sort><option value="quantity" ${reportProductSort === "quantity" ? "selected" : ""}>Unidades vendidas</option><option value="revenue" ${reportProductSort === "revenue" ? "selected" : ""}>Facturación</option></select></label>
+      <p class="report-context">Mismo período que Rentabilidad histórica. Facturación neta de descuentos.</p>
       ${renderTopProducts(topProducts)}
     </section>
 
@@ -7043,15 +7090,18 @@ async function refreshAdminCostsForReports() {
   return reportAdminCostsPromise;
 }
 function getReportPeriodRange() {
-  const now = new Date();
-  const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const defaultEnd = now.toISOString().slice(0, 10);
+  const defaultEnd = getReportArgentinaDate(new Date());
+  const defaultStart = `${defaultEnd.slice(0, 7)}-01`;
   const start = reportPeriodStart || defaultStart;
   const end = reportPeriodEnd || defaultEnd;
   return start <= end ? { start, end } : { start: end, end: start };
 }
 
 function bindReportPeriodControls() {
+  els.reportGrid?.querySelector("[data-report-product-sort]")?.addEventListener("change", (event) => {
+    reportProductSort = event.target.value === "revenue" ? "revenue" : "quantity";
+    renderReports();
+  });
   els.reportGrid?.querySelector("[data-report-period-start]")?.addEventListener("change", (event) => {
     reportPeriodStart = event.target.value || "";
     renderReports();
@@ -7062,26 +7112,28 @@ function bindReportPeriodControls() {
   });
 }
 
-function getSalesMetricsForPeriod(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T23:59:59`);
-  const periodOrders = orders.filter((order) => {
-    if (!isConfirmed(order.status)) return false;
-    const saleDate = new Date(getOrderSaleDate(order));
-    return saleDate >= start && saleDate <= end;
-  });
+function getSalesMetricsForPeriod(startDate, endDate, source = orders) {
+  const periodOrders = getReportPaidOrders(source).filter((order) => isReportOrderInPeriod(order, startDate, endDate));
   const sales = periodOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+  let missingCosts = 0;
+  let estimatedCosts = 0;
   const cost = periodOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
     const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
-    return itemSum + (getOrderItemCostForReports(item) * quantity);
+    const itemCost = getOrderItemCostForReports(item);
+    if (!(itemCost > 0)) missingCosts++;
+    else if (!(Number(item.cost) > 0)) estimatedCosts++;
+    return itemSum + itemCost * quantity;
   }, 0), 0);
   const profit = sales - cost;
   return {
     sales,
     cost,
     profit,
+    count: periodOrders.length,
+    missingCosts,
+    estimatedCosts,
     margin: sales > 0 ? (profit / sales) * 100 : 0,
-    markup: cost > 0 ? (profit / cost) * 100 : 0
+    markup: cost > 0 ? (profit / cost) * 100 : null
   };
 }
 
@@ -7131,7 +7183,7 @@ function renderTopProducts(items) {
         <article class="executive-product-row">
           <span>${index + 1}</span>
           <strong>${escapeHtml(item.name)}</strong>
-          <em>${item.quantity} vendido(s)</em>
+          <em>${item.quantity.toLocaleString("es-AR", { maximumFractionDigits: 2 })} unidades<br>${formatMoney(item.revenue)}</em>
         </article>
       `).join("")}
     </div>
@@ -7223,13 +7275,20 @@ function renderStockMovementsPanel() {
   }
 }
 
-function getProductSalesSummary() {
-  const sales = new Map(products.map((product) => [product.id, { id: product.id, name: product.name, quantity: 0 }]));
-  orders.filter((order) => isConfirmed(order.status)).forEach((order) => {
+function getProductSalesSummary(source = orders, startDate = "", endDate = "") {
+  const sales = new Map();
+  getReportPaidOrders(source).filter((order) => !startDate || isReportOrderInPeriod(order, startDate, endDate)).forEach((order) => {
+    const subtotal = order.items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0);
+    const revenueFactor = subtotal > 0 ? (Number(order.total) || 0) / subtotal : 0;
     order.items.forEach((item) => {
-      const entry = sales.get(item.id) || { id: item.id, name: item.name, quantity: 0 };
-      entry.quantity += Math.max(0, Number(item.quantity) || 0);
-      sales.set(item.id, entry);
+      const key = `${item.id}|${item.variant || ""}`;
+      const entry = sales.get(key) || { id: key, name: [item.name, item.variant].filter(Boolean).join(" · "), quantity: 0, revenue: 0 };
+      const quantity = Math.max(0, Number(item.quantity) || 0);
+      const presentation = getBudgetItemPresentation(item);
+      const stockUnit = normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+      entry.quantity += quantity * getStockUnitsPerSoldPresentation(presentation, stockUnit) * (stockUnit === "docenas" ? 12 : 1);
+      entry.revenue += quantity * (Number(item.price) || 0) * revenueFactor;
+      sales.set(key, entry);
     });
   });
   return [...sales.values()].sort((a, b) => b.quantity - a.quantity);
@@ -11785,22 +11844,65 @@ function getOrderSaleDate(order) {
   return order.paidAt || order.updatedAt || order.createdAt;
 }
 
-function getTotals() {
-  const today = new Date().toDateString();
-  const month = new Date().getMonth();
-  const year = new Date().getFullYear();
-  const confirmedOrders = orders.filter((order) => isConfirmed(order.status));
-  const todayOrders = confirmedOrders.filter((order) => new Date(getOrderSaleDate(order)).toDateString() === today);
-  const monthOrders = confirmedOrders.filter((order) => {
-    const date = new Date(getOrderSaleDate(order));
-    return date.getMonth() === month && date.getFullYear() === year;
-  });
-  const yearOrders = confirmedOrders.filter((order) => new Date(getOrderSaleDate(order)).getFullYear() === year);
+function getReportOrderDate(order) {
+  return order.paidAt || order.paid_at || order.createdAt || order.created_at;
+}
+
+function getReportArgentinaDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date);
+  const part = (type) => parts.find((entry) => entry.type === type).value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function getReportCalendarPeriods(now = new Date()) {
+  const today = getReportArgentinaDate(now);
+  const [year, month, day] = today.split("-").map(Number);
+  const dateKey = (date) => date.toISOString().slice(0, 10);
+  return {
+    today,
+    yesterday: dateKey(new Date(Date.UTC(year, month - 1, day - 1))),
+    monthStart: `${today.slice(0, 7)}-01`,
+    previousMonthStart: dateKey(new Date(Date.UTC(year, month - 2, 1))),
+    previousMonthEnd: dateKey(new Date(Date.UTC(year, month - 1, 0))),
+    yearStart: `${year}-01-01`
+  };
+}
+
+function getReportPaidOrders(source = orders) {
+  const unique = new Map();
+  for (const order of source) {
+    if (order.manualDraft || !isConfirmed(order.status)) continue;
+    const id = String(order.remoteId || order.id || "");
+    if (!id || !getReportArgentinaDate(getReportOrderDate(order))) continue;
+    if (!unique.has(id)) unique.set(id, order);
+  }
+  return [...unique.values()];
+}
+
+function isReportOrderInPeriod(order, start, end) {
+  const day = getReportArgentinaDate(getReportOrderDate(order));
+  return Boolean(day && day >= start && day <= end);
+}
+
+function getTotals(source = orders, now = new Date()) {
+  const periods = getReportCalendarPeriods(now);
+  const confirmedOrders = getReportPaidOrders(source);
+  const sumRange = (start, end) => confirmedOrders.filter((order) => isReportOrderInPeriod(order, start, end))
+    .reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+  const monthOrders = confirmedOrders.filter((order) => isReportOrderInPeriod(order, periods.monthStart, periods.today));
 
   return {
-    todaySales: todayOrders.reduce((sum, order) => sum + order.total, 0),
-    monthSales: monthOrders.reduce((sum, order) => sum + order.total, 0),
-    yearSales: yearOrders.reduce((sum, order) => sum + order.total, 0),
+    periods,
+    todaySales: sumRange(periods.today, periods.today),
+    yesterdaySales: sumRange(periods.yesterday, periods.yesterday),
+    monthSales: sumRange(periods.monthStart, periods.today),
+    previousMonthSales: sumRange(periods.previousMonthStart, periods.previousMonthEnd),
+    yearSales: sumRange(periods.yearStart, periods.today),
     monthProfit: monthOrders.reduce((sum, order) => sum + order.profit, 0),
     stockSaleValue: products.reduce((sum, product) => sum + getProductStockSaleValueForReports(product), 0),
     stockCostValue: products.reduce((sum, product) => sum + getProductStockCostValueForReports(product), 0)
