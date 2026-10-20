@@ -802,6 +802,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 initializeApp();
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && isPrivateManagementRoute() && currentView === "catalogo" && manualCatalogEdit) {
+    setView("catalogo", true, { replace: true });
+  }
+});
 window.addEventListener("pagehide", () => {
   persistUiState({ scrollY: window.scrollY || 0 });
   teardownSupabaseOrdersRealtime();
@@ -5681,9 +5686,13 @@ function renderInternalWebPendingAccess() {
     els.internalWebPendingSlot.innerHTML = `<section class="manual-catalog-context">
       <div><strong>Agregando a ${escapeHtml(formatRecordNumber(editingOrder))}</strong>
       <span>${escapeHtml(getOrderCustomerName(editingOrder))} · ${editingOrder.items.length} productos · ${formatMoney(editingOrder.total || 0)}</span></div>
-      <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
+      <div class="manual-catalog-navigation">
+        <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
+        <button class="secondary-button" type="button" data-exit-manual-catalog>CATÁLOGO NORMAL</button>
+      </div>
     </section>` + els.internalWebPendingSlot.innerHTML;
     els.internalWebPendingSlot.querySelector("[data-return-manual-order]")?.addEventListener("click", () => returnToManualOrderDetail());
+    els.internalWebPendingSlot.querySelector("[data-exit-manual-catalog]")?.addEventListener("click", () => setView("catalogo", true));
   }
 
   els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
@@ -7954,8 +7963,7 @@ function openManualOrderCatalog(orderId) {
   previewOrderId = "";
   operationalWebOrderId = "";
   orderDetailHistoryActive = false;
-  setView("catalogo", true);
-  renderInternalCatalogSale();
+  setView("catalogo", true, { manualOrderCatalogId: orderId });
 }
 
 function returnToManualOrderDetail(options = {}) {
@@ -11162,7 +11170,13 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     clearCompletedQuickSaleViewState();
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
-  if (manualCatalogEdit?.catalogActive && view !== "catalogo") manualCatalogEdit.catalogActive = false;
+  if (view === "catalogo") {
+    // Only the explicit order action may enter catalog editing. Normal navigation detaches it.
+    const explicitOrderId = historyOptions.manualOrderCatalogId;
+    if (!explicitOrderId || manualCatalogEdit?.order.id !== explicitOrderId) manualCatalogEdit = null;
+  } else if (manualCatalogEdit?.catalogActive) {
+    manualCatalogEdit.catalogActive = false;
+  }
   currentView = view;
   persistUiState({ view });
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
@@ -11172,6 +11186,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
   updateOperationalWebDetailModeClass();
   if (isInternalCatalogQuickSaleMode()) {
     renderCatalog();
+    renderInternalCatalogSale();
   }
   els.internalLoginView?.classList.add("hidden");
   els.internalRoleView?.classList.add("hidden");
