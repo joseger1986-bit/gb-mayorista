@@ -1268,6 +1268,7 @@ function mapSupabaseOrderItemToLocal(row) {
     packQuantity: getPackQuantityFromPresentation(row.presentation) || 1,
     stockUnit: normalizeStockUnit(row.stock_unit || inferDefaultStockUnitFromPresentation(row.presentation)),
     cost: Number(row.unit_cost) || 0,
+    costSource: row.cost_source || (Number(row.unit_cost) > 0 ? "recorded" : "missing"),
     variant: row.variant_name || "",
     catalogProduct: row.product_name || "",
     presentation: row.presentation || "",
@@ -6953,16 +6954,14 @@ async function renderReports() {
   try {
     const client = getSupabaseCatalogClient();
     if (!client) throw new Error("No se pudo conectar para leer las ventas reales.");
-    const rows = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data, error } = await withSupabaseTimeout(client.from("orders")
-        .select("*, order_items(*)").order("created_at", { ascending: false }).order("id")
-        .range(offset, offset + 999), "No se pudieron cargar las ventas para Reportes.");
-      if (error) throw error;
-      rows.push(...(data || []));
-      if (!data || data.length < 1000) break;
-    }
-    reportOrders = rows.map((row) => ({
+    const profileToken = getStoredInternalProfileSessionToken();
+    if (!profileToken) throw new Error("La sesión del Administrador no está disponible para leer la rentabilidad histórica.");
+    const { data, error } = await withSupabaseTimeout(client.rpc("internal_admin_historical_sales", {
+      p_profile_token: profileToken
+    }), "No se pudieron cargar las ventas históricas.");
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error("No se recibieron los registros financieros históricos.");
+    reportOrders = data.map((row) => ({
       id: row.id, remoteId: row.id, status: row.status,
       createdAt: row.created_at, paidAt: row.paid_at,
       total: Number(row.total) || 0,
@@ -7047,12 +7046,12 @@ async function renderReports() {
       </div>
       <div class="executive-card-grid">
         ${renderExecutiveCard("Total vendido", formatMoney(periodMetrics.sales))}
-        ${renderExecutiveCard("Costo mercadería", periodMetrics.missingCosts ? "Costo incompleto" : formatMoney(periodMetrics.cost))}
-        ${renderExecutiveCard("Ganancia bruta", periodMetrics.missingCosts ? "No disponible" : formatMoney(periodMetrics.profit), "highlight")}
-        ${renderExecutiveCard("Margen sobre ventas", periodMetrics.missingCosts ? "No disponible" : formatPercent(periodMetrics.margin))}
-        ${renderExecutiveCard("Marcación sobre costo", periodMetrics.missingCosts || periodMetrics.markup === null ? "No disponible" : formatPercent(periodMetrics.markup))}
+        ${renderExecutiveCard(periodMetrics.estimatedCosts ? "Costo mercadería estimado" : "Costo mercadería", periodMetrics.missingCosts ? "Costo incompleto" : formatMoney(periodMetrics.cost))}
+        ${renderExecutiveCard(periodMetrics.estimatedCosts ? "Ganancia bruta estimada" : "Ganancia bruta", periodMetrics.missingCosts ? "No disponible" : formatMoney(periodMetrics.profit), "highlight")}
+        ${renderExecutiveCard(periodMetrics.estimatedCosts ? "Margen estimado" : "Margen sobre ventas", periodMetrics.missingCosts ? "No disponible" : formatPercent(periodMetrics.margin))}
+        ${renderExecutiveCard(periodMetrics.estimatedCosts ? "Marcación estimada" : "Marcación sobre costo", periodMetrics.missingCosts || periodMetrics.markup === null ? "No disponible" : formatPercent(periodMetrics.markup))}
       </div>
-      <p class="report-context">${periodMetrics.count} ventas pagadas · ${escapeHtml(periodRange.start)} a ${escapeHtml(periodRange.end)} (Argentina).${periodMetrics.estimatedCosts ? ` ${periodMetrics.estimatedCosts} renglones sin costo histórico: estimación con costo actual.` : " Costos históricos guardados en la venta."}${periodMetrics.missingCosts ? ` ${periodMetrics.missingCosts} renglones sin costo disponible.` : ""}</p>
+      <p class="report-context">${periodMetrics.count} ventas pagadas · ${escapeHtml(periodRange.start)} a ${escapeHtml(periodRange.end)} (Argentina).${periodMetrics.estimatedCosts ? ` ${periodMetrics.estimatedCosts} renglones sin costo original: estimaciones históricas fijadas al migrar; no cambian al actualizar el catálogo.` : " Costos históricos guardados al confirmar la venta."}${periodMetrics.missingCosts ? ` ${periodMetrics.missingCosts} renglones sin costo disponible.` : ""}</p>
     </section>
 
     <section class="executive-report-section executive-products">
@@ -7121,7 +7120,7 @@ function getSalesMetricsForPeriod(startDate, endDate, source = orders) {
     const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
     const itemCost = getOrderItemCostForReports(item);
     if (!(itemCost > 0)) missingCosts++;
-    else if (!(Number(item.cost) > 0)) estimatedCosts++;
+    else if (item.costSource === "estimated") estimatedCosts++;
     return itemSum + itemCost * quantity;
   }, 0), 0);
   const profit = sales - cost;
@@ -7154,13 +7153,7 @@ function getProductStockSaleValueForReports(product) {
 
 function getOrderItemCostForReports(item) {
   const savedCost = Math.max(0, Number(item?.cost) || 0);
-  if (savedCost > 0) return savedCost;
-  const product = products.find((entry) => String(entry.id || "") === String(item?.id || ""));
-  const unitCost = getProductUnitCostForReports(product);
-  if (!unitCost) return 0;
-  const presentation = getBudgetItemPresentation(item) || getProductPresentation(product || {});
-  const stockUnit = normalizeStockUnit(item?.stockUnit || product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
-  return Math.round(unitCost * getStockUnitsPerSoldPresentation(presentation, stockUnit));
+  return savedCost;
 }
 function formatPercent(value) {
   return `${(Number(value) || 0).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
