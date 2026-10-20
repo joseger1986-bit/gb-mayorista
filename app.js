@@ -55,6 +55,7 @@ const catalogCategoryOrder = [
 
 const statuses = [
   "En revisión",
+  "Pendiente",
   "Pagado",
   "Cancelado"
 ];
@@ -256,6 +257,7 @@ let reportAdminCostById = new Map();
 let reportAdminCostsLoaded = false;
 let reportAdminCostsPromise = null;
 let internalCatalogSale = null;
+let manualOrderBusy = false;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
 let internalSaleCompletedHistoryActive = false;
@@ -1192,6 +1194,7 @@ async function loadOrdersFromSupabase() {
   const { data, error } = await client
     .from("orders")
     .select("*, order_items(*)")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data || []).map(mapSupabaseOrderToLocal).filter(Boolean);
@@ -1219,6 +1222,7 @@ function mergeRemoteOrders(remoteOrders) {
   const remoteById = new Map(remoteOrders.map((order) => [String(order.remoteId || order.id), order]));
   const localOnly = orders.filter((order) => {
     if (order.manualDraft) return true;
+    if (getOrderOrigin(order) === "manual" && order.remoteId) return false;
     const remoteId = String(order.remoteId || order.id || "");
     return !remoteById.has(remoteId);
   });
@@ -1240,6 +1244,9 @@ function mapSupabaseOrderToLocal(row) {
     deliveryNotes: row.delivery_notes || "",
     paymentMethod: row.payment_method || "Transferencia",
     origin: row.origin || "web",
+    deletedAt: row.deleted_at || null,
+    manualRevision: Number(row.manual_revision) || 0,
+    paidAt: row.paid_at || null,
     discountType: row.discount_type || "fixed",
     discountValue: Number(row.discount_value) || 0,
     discountAmount: Number(row.discount_amount) || 0,
@@ -1371,6 +1378,139 @@ async function saveLocalSaleToSupabase(order) {
   return remoteOrder;
 }
 
+function isPendingManualDetail(order) {
+  return Boolean(order?.partialDetail || (getOrderOrigin(order) === "manual" && !isConfirmed(order.status)));
+}
+
+async function persistManualOrder(order, action = "save") {
+  const client = getSupabaseCatalogClient();
+  const token = getStoredInternalProfileSessionToken();
+  if (!client || !token) throw new Error("La sesion de Gestion no esta disponible.");
+  const payload = buildSupabaseOrderPayload(order);
+  payload.delivery_type = order.deliveryType || "Retira en local";
+  const { data, error } = await withSupabaseTimeout(client.rpc("internal_manual_order", {
+    p_order_id: order.remoteId || order.id,
+    p_action: action,
+    p_profile_token: token,
+    p_revision: Number(order.manualRevision) || 0,
+    p_order_payload: payload,
+    p_items: buildSupabaseOrderItemRows(order, order.remoteId || order.id)
+  }), "No se pudo confirmar el guardado del pedido. Actualiza Pedidos antes de reintentar.");
+  if (error) throw new Error(error.message || "No se pudo guardar el pedido manual.");
+  if (!data?.order?.id || !Number(data.order.order_number)) throw new Error("Supabase no confirmo el pedido guardado.");
+  const remote = mapSupabaseOrderToLocal({ ...data.order, order_items: data.items || [] });
+  Object.assign(order, remote, { manualDraft: false });
+  orders = orders.filter((entry) => String(entry.remoteId || entry.id) !== String(remote.id));
+  if (!order.deletedAt) orders.unshift(order);
+  saveOrders();
+  return order;
+}
+
+async function saveInternalPendingOrder() {
+  if (manualOrderBusy || !internalCatalogSale?.items?.length) return;
+  if (!String(internalCatalogSale.customerName || "").trim()) {
+    const details = els.internalSaleDock.querySelector(".internal-sale-customer-options");
+    if (details) details.open = true;
+    els.internalSaleDock.querySelector('[data-internal-sale-customer="name"]')?.focus();
+    showToast("Completa el nombre del cliente para guardar el pedido.");
+    return;
+  }
+  manualOrderBusy = true;
+  try {
+    const pending = { ...internalCatalogSale, items: internalCatalogSale.items.map((item) => ({ ...item })), origin: "manual", status: "Pendiente", stockApplied: false, paidAt: null };
+    await persistManualOrder(pending);
+    collapseInternalSaleDetail({ fromHistory: true });
+    internalCatalogSale = null;
+    internalCatalogSaleExpanded = false;
+    renderAll();
+    showToast("Pedido pendiente guardado", "success");
+  } catch (error) { showToast(error.message); }
+  finally { manualOrderBusy = false; }
+}
+
+async function saveManualOrderChanges(order) {
+  if (manualOrderBusy || !canEditOrder(order)) return;
+  manualOrderBusy = true;
+  try {
+    await persistManualOrder(order);
+    renderAll();
+    showToast("Pedido guardado", "success");
+  } catch (error) { showToast(error.message); }
+  finally { manualOrderBusy = false; }
+}
+
+async function payManualOrder(id) {
+  const order = orders.find((entry) => entry.id === id);
+  if (!order || manualOrderBusy || getOrderOrigin(order) !== "manual" || order.deletedAt) return;
+  manualOrderBusy = true;
+  try {
+    readOrderDraftFieldsFromDom(id);
+    if (!order.stockApplied) order.status = "Pendiente";
+    await persistManualOrder(order, "pay");
+    await refreshCatalogFromSupabase("manual-order-paid", { silent: true });
+    await refreshStockMovementsFromSupabase("manual-order-paid", { silent: true });
+    syncClientsFromOrders();
+    renderAll();
+    showToast("Pedido pagado. Stock descontado una sola vez.", "success");
+  } catch (error) {
+    if (!order.stockApplied) order.status = "Pendiente";
+    renderOrders();
+    showToast(error.message);
+  }
+  finally { manualOrderBusy = false; }
+}
+
+async function deleteManualOrder(id) {
+  const order = orders.find((entry) => entry.id === id);
+  if (!order || getOrderOrigin(order) !== "manual" || !canEditOrder(order) || manualOrderBusy) return;
+  await requestDeleteConfirmation({
+    text: "¿Seguro que querés eliminar este pedido manual? Esta acción no se puede deshacer",
+    confirmText: "Eliminar pedido",
+    loadingText: "Eliminando...",
+    action: async () => {
+      if (manualOrderBusy) throw new Error("Hay un guardado en curso.");
+      manualOrderBusy = true;
+      try { await persistManualOrder(order, "delete"); closeOrderDetail(id); renderAll(); }
+      finally { manualOrderBusy = false; }
+    }
+  });
+}
+
+function buildManualPartialMessage(order) {
+  const totals = calculateBudgetTotals(order);
+  return ["PUNTO X MAYOR", "DETALLE DE PEDIDO — PENDIENTE",
+    "No es comprobante de pago. Mercaderia sin reserva de stock.",
+    ...(order.number && !order.manualDraft ? [formatRecordNumber(order)] : []),
+    `Cliente: ${getOrderCustomerName(order)}`, "",
+    ...order.items.flatMap((item) => [item.name,
+      [item.variant, getBudgetItemPresentation(item)].filter(Boolean).join(" · "),
+      formatOrderItemOperationalQuantity(item),
+      `Precio: ${formatMoney(item.price)} · Subtotal: ${formatMoney(item.price * item.quantity)}`, ""]),
+    `Subtotal: ${formatMoney(totals.subtotal)}`, `Descuento: ${formatMoney(totals.discountAmount)}`,
+    `Total: ${formatMoney(totals.total)}`].join("\n");
+}
+
+function shareInternalPartial(mode) {
+  if (manualOrderBusy || !internalCatalogSale?.items?.length) return;
+  const draft = { ...internalCatalogSale, origin: "manual", status: "Pendiente", partialDetail: true, manualDraft: true };
+  if (mode === "whatsapp") {
+    const phone = String(draft.customerPhone || "").replace(/\D/g, "");
+    const recipient = phone ? normalizeArgentinaWhatsappNumber(phone) : "";
+    window.open(`https://wa.me/${recipient}?text=${encodeURIComponent(buildManualPartialMessage(draft))}`, "_blank", "noreferrer");
+    return;
+  }
+  try {
+    const pdf = createOrderDocumentPdf(buildOrderPrintDocument(draft));
+    const blob = new Blob([pdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "detalle-de-pedido-pendiente.pdf";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) { showToast("No se pudo generar el detalle PDF."); }
+}
+
 function getRemoteOrderId(order) {
   return String(order?.remoteId || order?.id || "").trim();
 }
@@ -1468,6 +1608,7 @@ function buildSupabaseOrderItemRows(order, orderId) {
 }
 
 async function persistOrderToSupabase(order, options = {}) {
+  if (getOrderOrigin(order) === "manual") return persistManualOrder(order, "save");
   const client = getSupabaseCatalogClient();
   const orderId = getRemoteOrderId(order);
   if (!client || !orderId) return null;
@@ -5386,11 +5527,17 @@ function getPendingWebConsultations() {
   return orders
     .filter((order) => {
       if (order.manualDraft) return false;
+      if (order.deletedAt) return false;
       if (getOrderOrigin(order) !== "web") return false;
       if (String(order.status || "").trim() === "Cancelado") return false;
       return normalizeConsultationStatus(order.status) !== "Pagado";
     })
-    .sort((a, b) => (Number(b.number) || 0) - (Number(a.number) || 0));
+    .sort(compareOrdersNewestFirst);
+}
+
+function getPendingManualOrders() {
+  return orders.filter((order) => getOrderOrigin(order) === "manual" && !order.deletedAt
+    && order.status === "Pendiente" && !order.manualDraft).sort(compareOrdersNewestFirst);
 }
 
 function renderInternalWebPendingAccess() {
@@ -5403,7 +5550,9 @@ function renderInternalWebPendingAccess() {
     return;
   }
 
-  const pending = getPendingWebConsultations();
+  const webPending = getPendingWebConsultations();
+  const manualPending = getPendingManualOrders();
+  const pending = [...webPending, ...manualPending];
   const hasPending = pending.length > 0;
   if (!hasPending) internalWebPendingExpanded = false;
 
@@ -5412,23 +5561,25 @@ function renderInternalWebPendingAccess() {
       <button class="internal-web-pending-toggle" type="button" data-toggle-web-pending ${hasPending ? "" : "disabled"} aria-expanded="${internalWebPendingExpanded ? "true" : "false"}">
         <span class="internal-web-pending-title">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 4h6m-6 4h6m-6 4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Pedidos web pendientes
+          PEDIDOS PENDIENTES
           ${hasPending ? `<b>${pending.length}</b>` : ""}
         </span>
       </button>
       ${internalWebPendingExpanded && hasPending ? `
         <div class="internal-web-pending-list">
-          ${pending.map((order) => `
+          ${[{title:"PEDIDOS WEB",items:webPending},{title:"PEDIDOS MANUALES",items:manualPending}].map((group) => `
+            <h4 class="pending-group-title">${group.title} <b>${group.items.length}</b></h4>
+          ${group.items.map((order) => `
             <article class="internal-web-pending-row">
               <div>
                 <strong>${escapeHtml(formatRecordNumber(order))}</strong>
-                <em>PEDIDO WEB</em>
+                <em>${escapeHtml(getOrderOriginLabel(order).toUpperCase())}</em>
                 <span>${escapeHtml(getOrderCustomerName(order))} · ${escapeHtml(order.customerLocation || "Sin localidad")}</span>
                 <small>${order.items.length} producto${order.items.length === 1 ? "" : "s"} · ${formatMoney(order.total || order.catalogTotal || 0)} · ${escapeHtml(normalizeConsultationStatus(order.status))}</small>
               </div>
               <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
             </article>
-          `).join("")}
+          `).join("")}`).join("")}
         </div>
       ` : ""}
     </section>
@@ -5446,7 +5597,7 @@ function renderInternalWebPendingAccess() {
 
 function openPendingWebConsultation(orderId) {
   const order = orders.find((item) => item.id === orderId);
-  if (!order || getOrderOrigin(order) !== "web") return;
+  if (!order || !["web", "manual"].includes(getOrderOrigin(order)) || order.deletedAt) return;
   internalWebPendingExpanded = false;
   operationalWebOrderId = order.id;
   setView("pedidos", false, { preserveOrderState: true });
@@ -5484,6 +5635,7 @@ function renderOrdersToolbar() {
 function getFilteredOrders() {
   const terms = normalizeProductSearchText(orderListSearch).split(" ").filter(Boolean);
   return orders.filter((order) => {
+    if (order.deletedAt || order.manualDraft) return false;
     const matchesText = !terms.length || terms.every((term) => getOrderSearchText(order).includes(term));
     const matchesFilter = matchesOrderListFilter(order, orderListFilter);
     return matchesText && matchesFilter;
@@ -5512,13 +5664,14 @@ function getOrderSearchText(order) {
 }
 
 function normalizeConsultationStatus(status) {
+  if (String(status || "").trim() === "Pendiente") return "Pendiente";
   if (String(status || "").trim() === "Cancelado") return "Cancelado";
   return ["Pagado", "Entregado", "Preparado", "Preparados"].includes(status) ? "Pagado" : "En revisión";
 }
 function matchesOrderListFilter(order, filter) {
   if (filter === "Hoy") return isOrderCreatedOnRelativeDay(order, 0);
   if (filter === "Ayer") return isOrderCreatedOnRelativeDay(order, -1);
-  if (filter === "En revisión") return normalizeConsultationStatus(order.status) === "En revisión";
+  if (filter === "En revisión") return ["En revisión", "Pendiente"].includes(normalizeConsultationStatus(order.status));
   if (filter === "Pagadas") return normalizeConsultationStatus(order.status) === "Pagado";
   return true;
 }
@@ -5596,13 +5749,14 @@ function renderOrderCustomerBlock(order) {
 
 function renderOrderActionButtons(order, options = {}) {
   const readonly = !canEditOrder(order);
-  const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone ? "" : "disabled"}>Vista previa de WhatsApp</button>`;
+  const previewButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-preview-budget="${order.id}" ${order.customerPhone || getOrderOrigin(order) === "manual" ? "" : "disabled"}>${getOrderOrigin(order) === "manual" && !isConfirmed(order.status) ? "Enviar detalle parcial" : "Vista previa de WhatsApp"}</button>`;
   const documentButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-view-document="${order.id}">Ver / Imprimir</button>`;
   const backButtonLabel = options.operationalWeb ? "Volver al catálogo" : "Volver";
   const backButton = `<button class="secondary-button small-button order-secondary-action" type="button" data-close-order="${order.id}">${backButtonLabel}</button>`;
   if (readonly) return `${previewButton}${documentButton}${backButton}`;
   return `
     <button class="primary-button small-button order-primary-action" type="button" data-save-order="${order.id}">Guardar cambios</button>
+    ${getOrderOrigin(order) === "manual" ? `<button class="primary-button small-button" type="button" data-pay-manual="${order.id}">Confirmar pago</button><button class="danger-button small-button" type="button" data-delete-manual="${order.id}">Eliminar pedido</button>` : ""}
     ${previewButton}
     ${documentButton}
     ${backButton}
@@ -5894,7 +6048,7 @@ function renderInternalOrderCard(order, options = {}) {
             <label class="checkout-main-field">
               Estado
               <select data-record-status="${order.id}" ${canChangeOrderStatus(order) ? "" : "disabled"}>
-                ${statuses.map((status) => `<option value="${status}" ${normalizeConsultationStatus(order.status) === status ? "selected" : ""}>${status}</option>`).join("")}
+                ${(getOrderOrigin(order) === "manual" ? ["Pendiente", "Pagado"] : statuses.filter((status) => status !== "Pendiente")).map((status) => `<option value="${status}" ${normalizeConsultationStatus(order.status) === status ? "selected" : ""}>${status}</option>`).join("")}
               </select>
             </label>
             <label class="discount-control">
@@ -6353,16 +6507,17 @@ function sendBudgetPreviewByWhatsapp(orderId) {
   if (!order) return;
   const phone = normalizeArgentinaWhatsappNumber(order.customerPhone || "");
   const text = getBudgetPreviewText(orderId) || buildBudgetMessage(order);
-  if (!phone || phone === "549") {
+  if ((!phone || phone === "549") && getOrderOrigin(order) !== "manual") {
     showToast("El pedido no tiene teléfono de cliente");
     return;
   }
-  const opened = window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noreferrer");
+  const recipient = phone === "549" ? "" : phone;
+  const opened = window.open(`https://wa.me/${recipient}?text=${encodeURIComponent(text)}`, "_blank", "noreferrer");
   if (!opened) {
     showToast("No se pudo abrir WhatsApp");
     return;
   }
-  if (normalizeConsultationStatus(order.status) !== "Pagado") {
+  if (normalizeConsultationStatus(order.status) !== "Pagado" && getOrderOrigin(order) !== "manual") {
     order.status = "En revisión";
     order.updatedAt = new Date().toISOString();
     recalculateBudget(order);
@@ -6393,6 +6548,8 @@ function sendBudgetPreviewPdfByWhatsapp(orderId) {
   }
 }
 function bindBudgetEditor() {
+  els.ordersList.querySelectorAll("[data-pay-manual]").forEach((button) => button.addEventListener("click", () => payManualOrder(button.dataset.payManual)));
+  els.ordersList.querySelectorAll("[data-delete-manual]").forEach((button) => button.addEventListener("click", () => deleteManualOrder(button.dataset.deleteManual)));
   els.ordersList.querySelector("[data-orders-search]")?.addEventListener("input", (event) => {
     orderListSearch = event.target.value;
     persistUiState({ orderListSearch });
@@ -6635,6 +6792,10 @@ function bindBudgetEditor() {
       if (!canEditOrder(order)) return;
       openOrderId = button.dataset.saveOrder;
       readOrderDraftFieldsFromDom(order.id);
+      if (getOrderOrigin(order) === "manual") {
+        await saveManualOrderChanges(order);
+        return;
+      }
       if (order.manualDraft) {
         button.disabled = true;
         try {
@@ -7718,6 +7879,11 @@ function renderInternalCatalogSale(options = {}) {
             </fieldset>
           </div>
         </details>
+        <div class="manual-order-actions">
+          <button class="secondary-button" type="button" data-internal-partial-whatsapp>ENVIAR DETALLE PARCIAL</button>
+          <button class="secondary-button" type="button" data-internal-partial-pdf>DESCARGAR DETALLE PDF</button>
+          <button class="primary-button" type="button" data-internal-save-pending>GUARDAR PEDIDO PENDIENTE</button>
+        </div>
         <button class="primary-button internal-sale-finish-button" type="button" data-internal-sale-finish>
           FINALIZAR VENTA ${formatMoney(sale.total || 0)}
         </button>
@@ -7792,7 +7958,7 @@ function renderInternalSaleItem(item) {
       <div>
         <strong>${escapeHtml(item.name || "Producto")}</strong>
         <span>${item.variant ? `${escapeHtml(item.variant)} · ` : ""}${escapeHtml(formatCartPresentation(item))}</span>
-        <em>${escapeHtml(formatQuantityWithPresentationLabel(item.presentation || formatCartPresentation(item), quantity))} · ${formatMoney(item.price)} · Subtotal ${formatMoney(item.price * quantity)}</em>
+        <em>${escapeHtml(formatOrderItemOperationalQuantity(item))} · ${formatMoney(item.price)} · Subtotal ${formatMoney(item.price * quantity)}</em>
       </div>
       <div class="internal-sale-item-actions">
         <button class="quantity-stepper-button" type="button" data-internal-sale-decrease="${escapeHtml(item.id)}">−</button>
@@ -7806,6 +7972,9 @@ function renderInternalSaleItem(item) {
 
 function bindInternalCatalogSale() {
   if (!els.internalSaleDock) return;
+  els.internalSaleDock.querySelector("[data-internal-save-pending]")?.addEventListener("click", saveInternalPendingOrder);
+  els.internalSaleDock.querySelector("[data-internal-partial-whatsapp]")?.addEventListener("click", () => shareInternalPartial("whatsapp"));
+  els.internalSaleDock.querySelector("[data-internal-partial-pdf]")?.addEventListener("click", () => shareInternalPartial("pdf"));
   els.internalSaleDock.querySelectorAll("[data-internal-sale-toggle]").forEach((button) => {
     button.addEventListener("click", () => {
       if (internalCatalogSaleExpanded) {
@@ -7939,7 +8108,10 @@ function updateInternalSaleTotals() {
 }
 
 async function finalizeInternalCatalogSale() {
+  if (manualOrderBusy) return;
   if (!internalCatalogSale?.items?.length) return;
+  manualOrderBusy = true;
+  try {
   const sale = internalCatalogSale;
   sale.manualDraft = true;
   sale.origin = "local";
@@ -7956,6 +8128,7 @@ async function finalizeInternalCatalogSale() {
   renderCatalog();
   renderInternalCatalogSale();
   pushInternalSaleCompletedHistoryState();
+  } finally { manualOrderBusy = false; }
 }
 
 function startNewInternalCatalogSale() {
@@ -8868,6 +9041,10 @@ function updateBudget(id, changes) {
 async function updateRecordStatus(id, status) {
   const order = orders.find((item) => item.id === id);
   if (!order || !statuses.includes(status)) return;
+  if (getOrderOrigin(order) === "manual") {
+    if (status === "Pagado") await payManualOrder(id);
+    return;
+  }
   const currentStatus = normalizeConsultationStatus(order.status);
   if (currentStatus === "Pagado") return;
   if (status === "Pagado" && !order.stockApplied) {
@@ -9239,6 +9416,7 @@ async function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   if (!hasPermission("orders")) return;
   const order = orders.find((item) => item.id === id);
   if (!order) return;
+  if (getOrderOrigin(order) === "manual") return payManualOrder(id);
   if (order.stockApplied) {
     order.status = "Pagado";
     try {
@@ -9376,9 +9554,10 @@ function buildOrderPrintDocument(order) {
   }));
   return {
     title: getOrderDocumentTitle(order),
+    pending: isPendingManualDetail(order),
     record: formatOrderDocumentNumber(order),
     date: formatDocumentDateTime(order.createdAt),
-    status: normalizeConsultationStatus(order.status),
+    status: isPendingManualDetail(order) ? "Pendiente" : normalizeConsultationStatus(order.status),
     customer: getOrderCustomerName(order),
     phone: order.customerPhone || "Sin teléfono",
     location: order.customerLocation || "Sin localidad",
@@ -9419,6 +9598,7 @@ function buildOrderDocumentHtml(order) {
             </div>
             <div class="compact-document-title">
               <strong>${escapeHtml(document.record)}</strong>
+              ${document.pending ? `<span>${escapeHtml(document.title)}</span><span>No es comprobante de pago. Sin reserva de stock.</span>` : ""}
               <span>Fecha: ${escapeHtml(document.date)}</span>
               <span>Estado: ${escapeHtml(document.status)}</span>
             </div>
@@ -9525,10 +9705,12 @@ function formatDocumentDateTime(value) {
 }
 
 function getOrderDocumentTitle(order) {
+  if (isPendingManualDetail(order)) return "DETALLE DE PEDIDO — PENDIENTE";
   return formatOrderDocumentNumber(order);
 }
 
 function formatOrderDocumentNumber(order) {
+  if (isPendingManualDetail(order)) return order.number && !order.manualDraft ? `PEDIDO #${String(order.number).padStart(4,"0")}` : "SIN CONFIRMAR";
   const number = Math.max(1, Number(order?.number) || 1);
   const prefix = getOrderOrigin(order) === "local" ? "VENTA" : "PEDIDO";
   return `${prefix} #${String(number).padStart(4, "0")}`;
@@ -9794,6 +9976,13 @@ function createOrderDocumentPdf(document) {
     y -= 10;
     addLine(margin, y, pageWidth - margin, y, 1);
     y -= 16;
+
+    if (document.pending) {
+      addText("DETALLE DE PEDIDO - PENDIENTE", margin, y, 11, true);
+      y -= 13;
+      addText("No es comprobante de pago. Mercaderia sin reserva de stock.", margin, y, 8.5, false);
+      y -= 16;
+    }
 
     if (firstPage) {
       addText("Datos del cliente", margin, y, 9.5, true);
@@ -10284,11 +10473,11 @@ async function removeBudgetItem(orderId, productId) {
 }
 
 function canEditOrder(order) {
-  return hasPermission("orders") && normalizeConsultationStatus(order?.status) !== "Pagado" && order?.status !== "Cancelado" && !order?.stockApplied;
+  return hasPermission("orders") && !order?.deletedAt && normalizeConsultationStatus(order?.status) !== "Pagado" && order?.status !== "Cancelado" && !order?.stockApplied;
 }
 
 function canChangeOrderStatus(order) {
-  return hasPermission("orders") && normalizeConsultationStatus(order?.status) !== "Pagado" && order?.status !== "Cancelado" && !order?.stockApplied;
+  return canEditOrder(order);
 }
 
 function restoreConfirmedStock(order) {
@@ -10412,6 +10601,7 @@ function buildCustomerWhatsappChatUrl(order) {
 }
 
 function buildBudgetMessage(order) {
+  if (isPendingManualDetail(order)) return buildManualPartialMessage(order);
   const totals = calculateBudgetTotals(order);
   const lines = [
     "PUNTO X MAYOR",
@@ -12017,7 +12207,8 @@ function getRecordNumberPrefix(order) {
 }
 
 function normalizeOrderOrigin(value) {
-  return String(value || "").trim().toLowerCase() === "local" ? "local" : "web";
+  const origin = String(value || "").trim().toLowerCase();
+  return ["manual", "local"].includes(origin) ? origin : "web";
 }
 
 function getOrderOrigin(order) {
@@ -12025,6 +12216,7 @@ function getOrderOrigin(order) {
 }
 
 function getOrderOriginLabel(order) {
+  if (getOrderOrigin(order) === "manual") return "Pedido manual";
   return getOrderOrigin(order) === "local" ? "Venta local" : "Pedido web";
 }
 
@@ -12166,7 +12358,7 @@ function normalizeBudgets(budgetList) {
       "Cancelado": "Cancelado",
       "Pendiente": "Pendiente de pago"
     };
-    const status = legacyStatusMap[order.status] || order.status;
+    const status = getOrderOrigin(order) === "manual" && order.status === "Pendiente" ? "Pendiente" : legacyStatusMap[order.status] || order.status;
     const recordType = order.type === "consultation" ? "consultation" : "order";
     const deliveryType = getNormalizedDeliveryType(order.deliveryType);
     const normalized = {

@@ -2581,6 +2581,37 @@ th .table-sort-button[data-sort-products="stock"] {
   overflow-wrap: anywhere;
 }
 
+.manual-order-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.manual-order-actions > button {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.manual-order-actions > button:last-child {
+  grid-column: 1 / -1;
+}
+
+.pending-group-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 0.85rem;
+}
+
+.order-origin-manual {
+  background: #edf4ee;
+  color: #245636;
+}
+
 .report-product-sort {
   display: flex;
   align-items: center;
