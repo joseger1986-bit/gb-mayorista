@@ -219,6 +219,7 @@ let previewMode = "budget";
 let currentPrintOrderId = "";
 let openOrderId = "";
 let operationalWebOrderId = "";
+let manualCatalogEdit = null;
 let orderListSearch = "";
 let orderListFilter = "Todas";
 let ordersLastSeenNumber = loadOrdersLastSeenNumber();
@@ -919,6 +920,7 @@ function unlockInternalSession(session, context = null) {
 }
 
 function lockInternalSession(options = {}) {
+  manualCatalogEdit = null;
   const clearStoredProfile = options.clearStoredProfile !== false;
   internalAuthenticated = false;
   internalUnlocked = false;
@@ -1221,6 +1223,8 @@ async function detectSupabaseOrderItemPreparedSupport(client) {
 }
 
 function mergeRemoteOrders(remoteOrders) {
+  // Keep this explicit edit in progress; the RPC checks its revision on save.
+  remoteOrders = remoteOrders.map((order) => manualCatalogEdit?.order.id === order.id ? manualCatalogEdit.order : order);
   const remoteById = new Map(remoteOrders.map((order) => [String(order.remoteId || order.id), order]));
   const localOnly = orders.filter((order) => {
     if (order.manualDraft) return true;
@@ -1229,6 +1233,10 @@ function mergeRemoteOrders(remoteOrders) {
     return !remoteById.has(remoteId);
   });
   orders = normalizeBudgets([...remoteOrders, ...localOnly]);
+  if (manualCatalogEdit) {
+    const editingOrder = orders.find((order) => order.id === manualCatalogEdit.order.id);
+    if (editingOrder) manualCatalogEdit.order = editingOrder;
+  }
 }
 
 function mapSupabaseOrderToLocal(row) {
@@ -1497,6 +1505,7 @@ async function saveManualOrderChanges(order) {
   manualOrderBusy = true;
   try {
     await persistManualOrder(order);
+    if (manualCatalogEdit?.order.id === order.id) manualCatalogEdit = null;
     renderAll();
     showToast("Pedido guardado", "success");
   } catch (error) { showToast(error.message); }
@@ -5629,6 +5638,15 @@ function renderInternalWebPendingAccess() {
   els.internalWebPendingSlot.innerHTML = renderPendingOrderBar("web", webPending, internalWebPendingExpanded)
     + renderPendingOrderBar("manual", manualPending, internalManualPendingExpanded)
     + `<button class="primary-button internal-new-sale-button" type="button" data-start-internal-sale>NUEVA VENTA</button>`;
+  const editingOrder = getManualCatalogTarget();
+  if (editingOrder) {
+    els.internalWebPendingSlot.innerHTML = `<section class="manual-catalog-context">
+      <div><strong>Agregando a ${escapeHtml(formatRecordNumber(editingOrder))}</strong>
+      <span>${escapeHtml(getOrderCustomerName(editingOrder))} · ${editingOrder.items.length} productos · ${formatMoney(editingOrder.total || 0)}</span></div>
+      <button class="primary-button" type="button" data-return-manual-order>VOLVER AL PEDIDO</button>
+    </section>` + els.internalWebPendingSlot.innerHTML;
+    els.internalWebPendingSlot.querySelector("[data-return-manual-order]")?.addEventListener("click", () => returnToManualOrderDetail());
+  }
   els.internalWebPendingSlot.querySelector("[data-start-internal-sale]")?.addEventListener("click", startNewInternalCatalogSale);
 
   els.internalWebPendingSlot.querySelectorAll("[data-toggle-pending]").forEach((button) => {
@@ -6077,6 +6095,7 @@ function renderInternalOrderCard(order, options = {}) {
 
         <section class="compact-order-section">
           ${canEditOrder(order) ? `
+            ${getOrderOrigin(order) === "manual" && order.status === "Pendiente" ? `<button class="secondary-button manual-order-catalog-button" type="button" data-manual-order-catalog="${escapeHtml(order.id)}">SEGUIR AGREGANDO DESDE EL CATÁLOGO</button>` : ""}
             <div class="budget-product-search compact-budget-search">
               <label>
                 Agregar producto
@@ -6496,6 +6515,7 @@ function formatCompactDateTime(value) {
 }
 
 function openOrderDetail(orderId, options = {}) {
+  if (manualCatalogEdit && manualCatalogEdit.order.id !== orderId) manualCatalogEdit = null;
   operationalWebOrderId = options.source === "catalogo" ? orderId : "";
   updateOperationalWebDetailModeClass();
   openOrderId = orderId;
@@ -6505,6 +6525,7 @@ function openOrderDetail(orderId, options = {}) {
 }
 
 function closeOrderDetail(orderId = openOrderId, options = {}) {
+  if (manualCatalogEdit?.order.id === orderId) manualCatalogEdit = null;
   const shouldReturnToCatalog = operationalWebOrderId === orderId;
   removeManualDraft(orderId);
   if (editingOrderCustomerId === orderId) editingOrderCustomerId = "";
@@ -6546,6 +6567,7 @@ function clearCompletedQuickSaleViewState() {
 }
 
 function clearOrdersListViewState() {
+  manualCatalogEdit = null;
   openOrderId = "";
   previewOrderId = "";
   operationalWebOrderId = "";
@@ -6627,6 +6649,7 @@ function sendBudgetPreviewPdfByWhatsapp(orderId) {
   }
 }
 function bindBudgetEditor() {
+  els.ordersList.querySelectorAll("[data-manual-order-catalog]").forEach((button) => button.addEventListener("click", () => openManualOrderCatalog(button.dataset.manualOrderCatalog)));
   els.ordersList.querySelectorAll("[data-share-manual-pdf]").forEach((button) => button.addEventListener("click", () => sendBudgetPreviewPdfByWhatsapp(button.dataset.shareManualPdf)));
   els.ordersList.querySelectorAll("[data-pay-manual]").forEach((button) => button.addEventListener("click", () => payManualOrder(button.dataset.payManual)));
   els.ordersList.querySelectorAll("[data-delete-manual]").forEach((button) => button.addEventListener("click", () => deleteManualOrder(button.dataset.deleteManual)));
@@ -7857,9 +7880,51 @@ function getInternalCatalogSale() {
   return internalCatalogSale;
 }
 
+function getManualCatalogTarget() {
+  const order = manualCatalogEdit?.catalogActive ? manualCatalogEdit.order : null;
+  return order && isInternalCatalogQuickSaleMode() && getOrderOrigin(order) === "manual"
+    && order.status === "Pendiente" && canEditOrder(order) ? order : null;
+}
+
+function openManualOrderCatalog(orderId) {
+  if (manualOrderBusy || !isPrivateManagementRoute() || !internalUnlocked) return;
+  const order = orders.find((entry) => entry.id === orderId);
+  if (!order || getOrderOrigin(order) !== "manual" || order.status !== "Pendiente" || !canEditOrder(order)) return;
+  readOrderDraftFieldsFromDom(orderId);
+  recalculateBudget(order);
+  manualCatalogEdit = { order, catalogActive: true, fromCatalog: operationalWebOrderId === orderId };
+  openOrderId = "";
+  previewOrderId = "";
+  operationalWebOrderId = "";
+  orderDetailHistoryActive = false;
+  setView("catalogo", true);
+  renderInternalCatalogSale();
+}
+
+function returnToManualOrderDetail(options = {}) {
+  if (!manualCatalogEdit || manualOrderBusy) return;
+  const { order, fromCatalog } = manualCatalogEdit;
+  manualCatalogEdit.catalogActive = false;
+  openOrderId = order.id;
+  operationalWebOrderId = fromCatalog ? order.id : "";
+  setView("pedidos", true, { preserveOrderState: true, skipHistory: Boolean(options.fromHistory) });
+  if (options.fromHistory) {
+    updateOperationalWebDetailModeClass();
+    renderOrders();
+  } else {
+    openOrderDetail(order.id, { source: fromCatalog ? "catalogo" : "gestion" });
+  }
+}
+
 function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct = null) {
-  const sale = getInternalCatalogSale();
-  internalCatalogCompletedSaleId = "";
+  if (manualOrderBusy) return;
+  const editingOrder = getManualCatalogTarget();
+  if (manualCatalogEdit?.catalogActive && !editingOrder) {
+    showToast("Este pedido ya no permite agregar productos. Volvé al detalle.");
+    return;
+  }
+  const sale = editingOrder || getInternalCatalogSale();
+  if (!editingOrder) internalCatalogCompletedSaleId = "";
   const cleanQuantity = Math.max(group.minimum || 1, Math.round(Number(quantity) || group.minimum || 1));
   const productId = variant.productId;
   const existing = sale.items.find((item) => String(item.id) === String(productId));
@@ -7882,6 +7947,11 @@ function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct
     });
   }
   recalculateBudget(sale);
+  if (editingOrder) {
+    renderInternalWebPendingAccess();
+    showToast(`Producto agregado a ${formatRecordNumber(editingOrder)}. Guardá los cambios en el pedido.`);
+    return;
+  }
   internalCatalogSaleExpanded = false;
   renderInternalCatalogSale();
   showToast("Producto agregado a la venta");
@@ -7890,7 +7960,7 @@ function addCatalogGroupToInternalSale(group, variant, quantity, internalProduct
 function renderInternalCatalogSale(options = {}) {
   if (!els.internalSaleDock) return;
   const completedSale = internalCatalogCompletedSaleId ? orders.find((order) => order.id === internalCatalogCompletedSaleId) : null;
-  const active = isInternalCatalogQuickSaleMode() && (internalCatalogSale || completedSale);
+  const active = isInternalCatalogQuickSaleMode() && !manualCatalogEdit?.catalogActive && (internalCatalogSale || completedSale);
   const detail = els.internalSaleDock.querySelector(".internal-sale-detail");
   const previousScrollTop = options.preservePanelScroll ? detail?.scrollTop || 0 : 0;
   els.internalSaleDock.classList.toggle("hidden", !active);
@@ -8214,6 +8284,11 @@ async function finalizeInternalCatalogSale() {
 
 async function startNewInternalCatalogSale() {
   if (manualOrderBusy || !isInternalCatalogQuickSaleMode()) return;
+  if (manualCatalogEdit?.catalogActive) {
+    returnToManualOrderDetail();
+    showToast("Guardá los cambios del pedido antes de comenzar otra venta.");
+    return;
+  }
   if (internalCatalogSale?.items?.length) {
     readInternalSaleCustomerFields();
     if (!String(internalCatalogSale.customerName || "").trim()) {
@@ -11030,6 +11105,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     clearCompletedQuickSaleViewState();
   }
   localStorage.setItem(STORAGE_ROLE, currentRole);
+  if (manualCatalogEdit?.catalogActive && view !== "catalogo") manualCatalogEdit.catalogActive = false;
   currentView = view;
   persistUiState({ view });
   document.body.classList.toggle("private-management-mode", isPrivateManagementRoute());
@@ -11157,6 +11233,10 @@ function handleAppPopState(event) {
   }
   if (stockMovementsHistoryActive && els.stockMovementsOverlay && !els.stockMovementsOverlay.classList.contains("hidden")) {
     closeStockMovementsPanel({ fromHistory: true });
+    return;
+  }
+  if (manualCatalogEdit?.catalogActive && currentView === "catalogo") {
+    returnToManualOrderDetail({ fromHistory: true });
     return;
   }
   if (internalSaleDetailClosingByCode) {
@@ -12035,6 +12115,10 @@ function hasPermission(permission) {
 }
 
 function openCart() {
+  if (getManualCatalogTarget()) {
+    returnToManualOrderDetail();
+    return;
+  }
   els.cartDrawer.classList.add("open");
   document.body.classList.add("cart-is-open");
   els.cartDrawer.setAttribute("aria-hidden", "false");

@@ -2621,6 +2621,43 @@ th .table-sort-button[data-sort-products="stock"] {
   min-height: 42px;
 }
 
+.manual-catalog-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.manual-catalog-context > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.manual-order-catalog-button,
+.manual-catalog-context > button {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.manual-order-catalog-button {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 600px) {
+  .manual-catalog-context {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .pending-title-label {
   min-width: 0;
   white-space: normal;
