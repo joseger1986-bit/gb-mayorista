@@ -17,7 +17,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=manual-catalog-clean-1">
+    <link rel="stylesheet" href="/styles.css?v=profitability-consistency-1">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -631,6 +631,7 @@
           <input id="stockModalQuantity" type="number" min="0" step="1" placeholder="0" required>
         </label>
         <label class="stock-modal-reason hidden" id="stockModalReasonWrap">
+          <!-- El costo de compra se solicita solamente al Administrador. -->
           Motivo de salida
           <select id="stockModalReason" name="stockReason">
             <option value="Ajuste">Ajuste</option>
@@ -639,6 +640,14 @@
             <option value="Traslado">Traslado</option>
             <option value="Otro">Otro</option>
           </select>
+        </label>
+        <label class="hidden" id="stockPurchaseCostWrap">
+          <span id="stockPurchaseCostLabel">Costo de compra por unidad de stock</span>
+          <input id="stockPurchaseCost" type="number" min="0.000001" step="any" inputmode="decimal">
+          <small>Con costo: compra y promedio ponderado. Vacío: ajuste de cantidad, conserva el costo.</small>
+        </label>
+        <label class="hidden" id="stockPurchaseVariantWrap">Talle / variante de la compra
+          <select id="stockPurchaseVariant"></select>
         </label>
         <div class="stock-modal-actions">
           <button class="secondary-button small-button" id="stockModalCancel" type="button">Cancelar</button>
@@ -686,7 +695,7 @@
           </label>
           <label id="editProductCostWrap">
             Precio de costo
-            <input id="editProductCost" name="cost" type="text" inputmode="numeric" data-money-input>
+            <input id="editProductCost" name="cost" type="number" min="0" step="any" inputmode="decimal">
           </label>
           <label>
             Precio de venta
@@ -770,7 +779,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=manual-catalog-clean-1"></script>
+    <script src="/app.js?v=profitability-consistency-1"></script>
   </body>
 </html>
 

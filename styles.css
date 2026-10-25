@@ -2664,6 +2664,26 @@ th .table-sort-button[data-sort-products="stock"] {
   margin-bottom: 10px;
 }
 
+.historical-cost-lines {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.historical-cost-lines article {
+  display: grid;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+#stockPurchaseCostWrap, #stockPurchaseVariantWrap {
+  min-width: 0;
+}
+#stockPurchaseCostWrap small {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
 .pending-title-label {
   min-width: 0;
   white-space: normal;

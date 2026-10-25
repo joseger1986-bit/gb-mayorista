@@ -246,6 +246,7 @@ let currentPrintDocument = null;
 let stockModalProductId = "";
 let stockModalDefaultMode = "add";
 let stockModalSaving = false;
+let stockReceiptAttempt = null;
 let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
 const stockMovementOperationLocks = new Set();
@@ -433,6 +434,11 @@ const els = {
   stockModalReason: document.querySelector("#stockModalReason"),
   stockModalSubmit: document.querySelector("#stockModalSubmit"),
   stockModalCancel: document.querySelector("#stockModalCancel"),
+  stockPurchaseCostWrap: document.querySelector("#stockPurchaseCostWrap"),
+  stockPurchaseCostLabel: document.querySelector("#stockPurchaseCostLabel"),
+  stockPurchaseCost: document.querySelector("#stockPurchaseCost"),
+  stockPurchaseVariantWrap: document.querySelector("#stockPurchaseVariantWrap"),
+  stockPurchaseVariant: document.querySelector("#stockPurchaseVariant"),
   editProductOverlay: document.querySelector("#editProductOverlay"),
   editProductForm: document.querySelector("#editProductForm"),
   editProductClose: document.querySelector("#editProductClose"),
@@ -1937,10 +1943,15 @@ async function loadProductRowsFromSupabase(client) {
       p_profile_token: profileToken
     });
     if (costError) throw new Error(costError.message || "No se pudieron leer los costos reales.");
-    const costById = new Map((costRows || []).map((row) => [String(row.id || ""), row.cost_price]));
+    if (!Array.isArray(costRows)) throw new Error("Supabase no devolvió los costos del Administrador.");
+    const costById = new Map(costRows.map((row) => [String(row.id || ""), row]));
+    if (productRows.some((row) => !costById.has(String(row.id)))) {
+      throw new Error("La lista de costos está incompleta. Reintentá la carga antes de editar productos.");
+    }
     productRows = productRows.map((row) => ({
       ...row,
-      cost_price: costById.has(String(row.id || "")) ? costById.get(String(row.id || "")) : row.cost_price
+      cost_price: costById.get(String(row.id || ""))?.cost_price,
+      variant_costs: costById.get(String(row.id || ""))?.variant_costs || {}
     }));
   }
   const productIds = productRows.map((row) => row.id).filter(Boolean);
@@ -2607,7 +2618,7 @@ function verifyEditedProductPersisted(expected, saved) {
   if (Math.round(Number(saved.price) || 0) !== Math.round(Number(expected.price) || 0)) {
     throw new Error("Supabase guardó el producto, pero el precio de venta no coincide al releerlo.");
   }
-  if (canAccess("admin") && Math.round(Number(saved.cost) || 0) !== Math.round(Number(expected.cost) || 0)) {
+  if (canAccess("admin") && Math.abs((Number(saved.cost) || 0) - (Number(expected.cost) || 0)) > 0.000001) {
     throw new Error("Supabase guardó el producto, pero el precio de costo no coincide al releerlo.");
   }
   const failed = checks.find(([, actual, wanted]) => String(actual || "").trim() !== String(wanted || "").trim());
@@ -2871,6 +2882,7 @@ function mapSupabaseProductsToLocal(rows) {
       price: Math.max(0, Number(row.sale_price) || 0),
       packQuantity: getPackQuantityFromPresentation(presentation),
       cost: canAccess("admin") ? Math.max(0, Number(row.cost_price) || 0) : 0,
+      variantCosts: canAccess("admin") ? row.variant_costs || {} : {},
       stock: Math.max(0, Number(row.stock) || 0),
       stockUnit: normalizeStockUnit(row.stock_unit || inferDefaultStockUnitFromPresentation(presentation)),
       minimum: 1,
@@ -3672,7 +3684,7 @@ function getProductSalePriceForPresentation(product) {
 function getProductCostForPresentation(product) {
   const baseCost = Number(product?.cost) || 0;
   if (!baseCost) return 0;
-  return Math.round(baseCost * getPresentationPriceMultiplier(product));
+  return baseCost * getPresentationPriceMultiplier(product);
 }
 
 function getPresentationPriceMultiplier(product) {
@@ -4229,7 +4241,7 @@ async function openEditProductModal(productId) {
   if (els.editProductAssortment) els.editProductAssortment.value = getProductSurtidoValue(product);
   const presentation = getProductPresentation(product);
   setPresentationMoneyInputValue(els.editProductPrice, product.price, presentation);
-  setPresentationMoneyInputValue(els.editProductCost, product.cost, presentation);
+  if (els.editProductCost) els.editProductCost.value = product.cost > 0 ? String(product.cost) : "";
   if (els.editProductPresentation) els.editProductPresentation.value = presentation;
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
@@ -4641,8 +4653,12 @@ async function saveEditedProduct(event) {
   nextProduct.price = getPresentationTotalFromMoneyInput(els.editProductPrice, nextProduct.presentation);
   if (canAccess("admin")) {
     const rawCostInput = String(els.editProductCost?.value || "").trim();
-    nextProduct.cost = rawCostInput
-      ? getPresentationTotalFromMoneyInput(els.editProductCost, nextProduct.presentation)
+    if (rawCostInput && (!Number.isFinite(Number(rawCostInput)) || Number(rawCostInput) < 0)) {
+      showEditProductSaveError("Ingresá un costo válido mayor o igual a cero.");
+      return;
+    }
+    nextProduct.cost = rawCostInput && Number(rawCostInput) > 0
+      ? Math.max(0, Number(rawCostInput))
       : Math.max(0, Number(product.cost) || 0);
   }
   nextProduct.saleType = getSaleTypeFromPresentation(nextProduct.presentation);
@@ -4774,6 +4790,17 @@ function updateStockModalMode() {
   const mode = String(form.get("stockMode") || stockModalDefaultMode || "add");
   els.stockModalReasonWrap?.classList.toggle("hidden", mode !== "subtract");
   const product = products.find((item) => item.id === stockModalProductId);
+  const purchaseCostVisible = mode !== "subtract" && canAccess("admin");
+  els.stockPurchaseCostWrap?.classList.toggle("hidden", !purchaseCostVisible);
+  if (els.stockPurchaseCost) els.stockPurchaseCost.disabled = !purchaseCostVisible;
+  if (els.stockPurchaseCostLabel && product) {
+    els.stockPurchaseCostLabel.textContent = `Costo de compra por ${getStockUnitLabelFromUnit(product.stockUnit, 1)}`;
+  }
+  const variantNames = product ? parseVariantNames(product.variants) : [];
+  els.stockPurchaseVariantWrap?.classList.toggle("hidden", !purchaseCostVisible || !variantNames.length);
+  if (els.stockPurchaseVariant) {
+    els.stockPurchaseVariant.innerHTML = variantNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  }
   if (els.stockModalTitle && product) {
     els.stockModalTitle.textContent = `${mode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
   }
@@ -4807,16 +4834,27 @@ async function confirmStockModal(event) {
   const reason = movementType === "salida"
     ? String(form.get("stockReason") || "Ajuste").trim() || "Ajuste"
     : "Ingreso";
+  const purchaseCostText = canAccess("admin") && movementType === "entrada"
+    ? String(els.stockPurchaseCost?.value || "").trim() : "";
+  const purchaseUnitCost = purchaseCostText ? Number(purchaseCostText) : null;
+  if (purchaseCostText && (!Number.isFinite(purchaseUnitCost) || purchaseUnitCost <= 0)) {
+    showToast("Ingresá un costo de compra mayor a cero o dejalo vacío para un ajuste de cantidad.");
+    return;
+  }
   setStockModalSaving(true);
   try {
-    await applyStockMovement(product, {
-      movementType,
-      quantity,
-      reason,
-      orderId: null,
-      variant: "Base / sin variante",
-      deferRender: true
-    });
+    if (purchaseUnitCost !== null) {
+      await receiveStockWithPurchaseCost(product, quantity, purchaseUnitCost);
+    } else {
+      await applyStockMovement(product, {
+        movementType,
+        quantity,
+        reason,
+        orderId: null,
+        variant: "Base / sin variante",
+        deferRender: true
+      });
+    }
     closeStockModal();
     renderAdmin();
     renderCatalog();
@@ -7280,6 +7318,7 @@ async function renderReports() {
     if (!Array.isArray(data)) throw new Error("No se recibieron los registros financieros históricos.");
     reportOrders = data.map((row) => ({
       id: row.id, remoteId: row.id, status: row.status,
+      number: row.order_number, origin: row.origin,
       createdAt: row.created_at, paidAt: row.paid_at,
       total: Number(row.total) || 0,
       items: (row.order_items || []).map(mapSupabaseOrderItemToLocal)
@@ -7291,7 +7330,7 @@ async function renderReports() {
     }
     return;
   }
-  if (canAccess("admin") && !reportAdminCostsLoaded) {
+  if (canAccess("admin")) {
     if (currentView === "reportes") els.reportGrid.innerHTML = `<div class="empty-state">Cargando costos reales...</div>`;
     await refreshAdminCostsForReports();
     if (currentView !== "reportes") return;
@@ -7310,6 +7349,7 @@ async function renderReports() {
     ? confirmedOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) / confirmedOrders.length
     : 0;
   const stockMargin = totals.stockSaleValue - totals.stockCostValue;
+  const missingInventoryCosts = products.filter(hasMissingInventoryCost).length;
   const topProducts = getProductSalesSummary(reportOrders, periodRange.start, periodRange.end)
     .sort((a, b) => b[reportProductSort] - a[reportProductSort] || a.name.localeCompare(b.name)).slice(0, 10);
   const monthChange = totals.previousMonthSales > 0
@@ -7337,12 +7377,14 @@ async function renderReports() {
     <section class="executive-report-section executive-stock">
       <div class="executive-section-head">
         <span>Inventario</span>
-        <strong>Valor del stock</strong>
+        <strong>Rentabilidad potencial del stock actual</strong>
       </div>
       <div class="executive-card-grid three-cards">
-        ${renderExecutiveCard("Stock a costo", formatMoney(totals.stockCostValue))}
+        ${renderExecutiveCard("Stock a costo", missingInventoryCosts ? "Costo incompleto" : formatMoney(totals.stockCostValue))}
         ${renderExecutiveCard("Stock a venta", formatMoney(totals.stockSaleValue))}
-        ${renderExecutiveCard("Margen potencial", formatMoney(stockMargin), "highlight")}
+        ${renderExecutiveCard("Ganancia potencial", missingInventoryCosts ? "No disponible" : formatMoney(stockMargin), "highlight")}
+        ${renderExecutiveCard("Margen potencial sobre ventas", missingInventoryCosts ? "No disponible" : formatPercent(totals.stockSaleValue > 0 ? stockMargin / totals.stockSaleValue * 100 : 0))}
+        ${renderExecutiveCard("Marcación potencial sobre costo", missingInventoryCosts || totals.stockCostValue <= 0 ? "No disponible" : formatPercent(stockMargin / totals.stockCostValue * 100))}
       </div>
     </section>
 
@@ -7371,6 +7413,7 @@ async function renderReports() {
       <p class="report-context">${periodMetrics.count} ventas pagadas · ${escapeHtml(periodRange.start)} a ${escapeHtml(periodRange.end)} (Argentina).${periodMetrics.estimatedCosts ? ` ${periodMetrics.estimatedCosts} renglones sin costo original: estimaciones históricas fijadas al migrar; no cambian al actualizar el catálogo.` : " Costos históricos guardados al confirmar la venta."}${periodMetrics.missingCosts ? ` ${periodMetrics.missingCosts} renglones sin costo disponible.` : ""}</p>
     </section>
 
+    ${renderHistoricalCostAudit(reportOrders, periodRange.start, periodRange.end)}
     <section class="executive-report-section executive-products">
       <div class="executive-section-head">
         <span>Estadísticas de ventas</span>
@@ -7434,7 +7477,7 @@ function getSalesMetricsForPeriod(startDate, endDate, source = orders) {
   let missingCosts = 0;
   let estimatedCosts = 0;
   const cost = periodOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
-    const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
+    const quantity = Math.max(0, Number(item.quantity) || 0);
     const itemCost = getOrderItemCostForReports(item);
     if (!(itemCost > 0)) missingCosts++;
     else if (item.costSource === "estimated") estimatedCosts++;
@@ -7461,11 +7504,36 @@ function getProductUnitCostForReports(product) {
 }
 
 function getProductStockCostValueForReports(product) {
+  const variants = Object.entries(product?.variantCosts || {});
+  if (variants.length) return variants.reduce((sum, [name, cost]) => sum + getProductStock(product, name) * Number(cost), 0);
   return getProductUnitCostForReports(product) * getProductTotalStock(product);
 }
 
+function hasMissingInventoryCost(product) {
+  const variants = Object.entries(product?.variantCosts || {});
+  if (variants.length) return variants.some(([name, cost]) => getProductStock(product, name) > 0 && !(Number(cost) > 0));
+  return getProductTotalStock(product) > 0 && !(getProductUnitCostForReports(product) > 0);
+}
+
 function getProductStockSaleValueForReports(product) {
+  const variants = Object.keys(product?.variantCosts || {});
+  if (variants.length) return variants.reduce((sum, name) => sum + getProductStock(product, name) * (Number(product.price) || 0), 0);
   return (Number(product?.price) || 0) * getProductTotalStock(product);
+}
+
+function renderHistoricalCostAudit(source, start, end) {
+  const rows = getReportPaidOrders(source).filter((order) => isReportOrderInPeriod(order, start, end))
+    .flatMap((order) => order.items.filter((item) => ["estimated", "missing"].includes(item.costSource)).map((item) => ({ order, item })));
+  if (!rows.length) return "";
+  return `<section class="executive-report-section historical-cost-audit"><details>
+    <summary>${rows.length} renglones con costo estimado o faltante</summary>
+    <p class="report-context">Estimaciones fijadas en la migración, no costos originales recuperados. No se recalculan con el catálogo actual.</p>
+    <div class="historical-cost-lines">${rows.map(({ order, item }) => `<article>
+      <strong>${escapeHtml(order.number ? formatRecordNumber(order) : `Operación ${order.id}`)}</strong>
+      <span>${escapeHtml([item.name, item.variant, item.presentation].filter(Boolean).join(" · "))}</span>
+      <span>${Number(item.quantity)} presentaciones · ${item.costSource === "missing" ? "Sin costo disponible" : `Costo fijado por presentación: ${formatMoney(item.cost)} · Total: ${formatMoney(item.cost * item.quantity)}`}</span>
+      <small>${item.costSource === "missing" ? "Faltante" : "Estimación histórica"}</small>
+    </article>`).join("")}</div></details></section>`;
 }
 
 function getOrderItemCostForReports(item) {
@@ -8507,6 +8575,29 @@ function setProductStock(id, nextStock, reason = "Ajuste manual", variantName = 
   if (!options.silent) showToast("Stock modificado");
 }
 
+async function receiveStockWithPurchaseCost(product, quantity, unitCost) {
+  if (!canAccess("admin") || !hasPermission("stock")) throw new Error("Se requiere el perfil Administrador.");
+  const client = getSupabaseAuthClient();
+  const profileToken = getStoredInternalProfileSessionToken();
+  if (!client || !profileToken) throw new Error("La sesión del Administrador no está disponible.");
+  const variant = String(els.stockPurchaseVariant?.value || "");
+  const signature = JSON.stringify([product.id, quantity, unitCost, variant]);
+  if (stockReceiptAttempt?.signature !== signature) stockReceiptAttempt = { signature, id: crypto.randomUUID() };
+  const { data, error } = await withSupabaseTimeout(client.rpc("internal_receive_stock_weighted", {
+    p_product_id: product.id, p_quantity: quantity, p_unit_cost: unitCost,
+    p_profile_token: profileToken, p_operation_id: stockReceiptAttempt.id,
+    p_variant_name: variant, p_reason: "Ingreso de mercadería"
+  }), "No se pudo confirmar la compra. Reintentá sin cambiar los datos para verificar la misma operación.");
+  if (error) throw new Error(error.message || "No se pudo registrar la compra.");
+  if (!data?.movement?.id) throw new Error("Supabase no confirmó el movimiento de la compra.");
+  // La respuesta no reemplaza el catálogo con datos parciales ni vuelve a escribirlo.
+  const refreshed = await refreshCatalogFromSupabase("weighted-purchase");
+  if (!refreshed?.ok) throw new Error("La compra quedó guardada, pero no se pudo actualizar el catálogo. Reintentá la misma operación para verificarla sin duplicarla.");
+  await refreshAdminProductCosts("weighted-purchase");
+  await refreshStockMovementsFromSupabase("weighted-purchase");
+  stockReceiptAttempt = null;
+}
+
 async function applyStockMovement(product, options = {}) {
   if (!hasPermission("stock")) throw new Error("No tenés permiso para modificar stock.");
   if (!product?.id) throw new Error("No se encontró el producto para modificar stock.");
@@ -8901,7 +8992,13 @@ async function getAdminProductCostMapForExport() {
     p_profile_token: profileToken
   });
   if (error) throw new Error(error.message || "No se pudieron leer los costos reales.");
-  return new Map((data || []).map((row) => [String(row.id || ""), Math.max(0, Number(row.cost_price) || 0)]));
+  if (!Array.isArray(data)) throw new Error("Supabase no devolvió la lista de costos del Administrador.");
+  const costs = new Map();
+  for (const row of data) {
+    costs.set(String(row.id), Math.max(0, Number(row.cost_price) || 0));
+    for (const [name, value] of Object.entries(row.variant_costs || {})) costs.set(`${row.id}|${name}`, Math.max(0, Number(value) || 0));
+  }
+  return costs;
 }
 
 async function refreshAdminProductCosts(reason = "admin-costs") {
@@ -8916,6 +9013,8 @@ async function refreshAdminProductCosts(reason = "admin-costs") {
     if (!costById.has(key)) return;
     const cost = Math.max(0, Number(costById.get(key)) || 0);
     product.cost = cost;
+    product.variantCosts = Object.fromEntries(parseVariantNames(product.variants).filter((name) => costById.has(`${key}|${name}`))
+      .map((name) => [name, costById.get(`${key}|${name}`)]));
     applied += 1;
     if (cost > 0 && getProductTotalStock(product) > 0) positive += 1;
   });
@@ -12823,7 +12922,7 @@ function buildImportedProductUpdates(rows) {
     const price = priceIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation) : existing.price;
     const rawCostCell = costIndex >= 0 ? String(row[costIndex] ?? "").trim() : "";
     const cost = rawCostCell
-      ? getPresentationTotalFromNumericUnit(parseImportNumber(row[costIndex]), presentation)
+      ? parseProductCostValue(row[costIndex]) || existing.cost
       : existing.cost;
     if (!name || !category || price <= 0) {
       skipped += 1;
@@ -12997,6 +13096,15 @@ function normalizeHeader(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+function parseProductCostValue(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? Math.max(0, value) : 0;
+  let text = String(value ?? "").replace(/[^\d,.-]/g, "");
+  if (text.includes(",")) text = text.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(text)) text = text.replace(/\./g, "");
+  const number = Number(text);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
 }
 
 function parseImportNumber(value) {
@@ -13654,9 +13762,6 @@ function formatMoney(value) {
   }).format(value);
 }
 
-function formatPercent(value) {
-  return `${Math.round(value)}%`;
-}
 
 function formatDateTime(value) {
   return new Intl.DateTimeFormat("es-AR", {
