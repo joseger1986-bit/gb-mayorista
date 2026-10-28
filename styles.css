@@ -8812,7 +8812,12 @@ body.cart-is-open {
 }
 
 #adminView .admin-table {
-  min-width: 900px;
+  min-width: 1000px;
+}
+
+#adminView .product-markup-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 #adminView .admin-table th,

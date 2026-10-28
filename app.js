@@ -269,6 +269,7 @@ let internalManualPendingExpanded = false;
 let internalPendingSaveError = "";
 let editingProductId = "";
 let editProductInitialState = "";
+let editProductMarkupReference = null;
 let editProductRemoveImagePending = false;
 let productDetailsMenuHistoryActive = false;
 let productDetailsMenuClosingByCode = false;
@@ -450,6 +451,8 @@ const els = {
   editProductPrice: document.querySelector("#editProductPrice"),
   editProductCostWrap: document.querySelector("#editProductCostWrap"),
   editProductCost: document.querySelector("#editProductCost"),
+  editProductMarkupWrap: document.querySelector("#editProductMarkupWrap"),
+  editProductMarkup: document.querySelector("#editProductMarkup"),
   editProductPresentation: document.querySelector("#editProductPresentation"),
   editProductDescription: document.querySelector("#editProductDescription"),
   editProductCatalog: document.querySelector("#editProductCatalog"),
@@ -578,6 +581,9 @@ els.clientsSort?.addEventListener("change", renderClients);
 els.exportClientsButton?.addEventListener("click", exportClientsToExcel);
 els.adminSearchInput?.addEventListener("input", () => { persistUiState({ adminSearch: els.adminSearchInput?.value || "" }); renderAdmin(); });
 document.querySelectorAll("[data-money-input]").forEach(setupMoneyInput);
+els.editProductCost?.addEventListener("input", () => updateEditProductPricing("cost"));
+els.editProductPrice?.addEventListener("input", () => updateEditProductPricing("price"));
+els.editProductMarkup?.addEventListener("input", () => updateEditProductPricing("markup"));
 setupEnterToNextField(els.productForm);
 els.manageCategoriesButton?.addEventListener("click", () => {
   if (!hasPermission("manageProducts")) return;
@@ -2615,7 +2621,7 @@ function verifyEditedProductPersisted(expected, saved) {
     ["unidad de stock", normalizeStockUnit(saved.stockUnit), normalizeStockUnit(expected.stockUnit)],
     ["mostrar en catálogo", saved.showInCatalog !== false ? "yes" : "no", expected.showInCatalog !== false ? "yes" : "no"]
   ];
-  if (Math.round(Number(saved.price) || 0) !== Math.round(Number(expected.price) || 0)) {
+  if (Math.abs((Number(saved.price) || 0) - (Number(expected.price) || 0)) > 0.000001) {
     throw new Error("Supabase guardó el producto, pero el precio de venta no coincide al releerlo.");
   }
   if (canAccess("admin") && Math.abs((Number(saved.cost) || 0) - (Number(expected.cost) || 0)) > 0.000001) {
@@ -3753,7 +3759,7 @@ function renderAdmin() {
   const isAdmin = canAccess("admin");
   const canManageProducts = hasPermission("manageProducts") || isAdmin;
   const canEditSaleData = hasPermission("editSaleData") || isAdmin;
-  const adminColumnCount = 8 + (isAdmin ? 1 : 0) + (canManageProducts ? 1 : 0);
+  const adminColumnCount = 8 + (isAdmin ? 2 : 0) + (canManageProducts ? 1 : 0);
   const adminHead = els.adminProducts?.closest("table")?.querySelector("thead tr");
   if (adminHead) {
     adminHead.innerHTML = `
@@ -3764,6 +3770,7 @@ function renderAdmin() {
       <th>${renderSortHeader("category", "Categoría")}</th>
       ${isAdmin ? "<th>Costo</th>" : ""}
       <th>${renderSortHeader("price", "Venta")}</th>
+      ${isAdmin ? "<th>Marcación %</th>" : ""}
       <th>${renderSortHeader("stock", "Stock")}</th>
       <th>Catálogo</th>
       ${canManageProducts ? "<th>Editar</th>" : ""}
@@ -3816,6 +3823,7 @@ function renderAdmin() {
             <strong>${escapeHtml(getProductBaseName(product))}</strong>
             <span>${escapeHtml(formatProductVariantSummary(product))}</span>
             <small>${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"} · Stock ${escapeHtml(formatProductStock(product))} · Catálogo ${product.showInCatalog !== false ? "Sí" : "No"}</small>
+            ${isAdmin ? `<small>Marcación ${formatProductMarkup(product.cost, product.price)}</small>` : ""}
           </div>
           ${canManageProducts ? `
             <div class="mobile-product-actions">
@@ -3831,6 +3839,7 @@ function renderAdmin() {
       <td data-label="Categoría" class="product-category-cell">${escapeHtml(product.category)}</td>
       ${isAdmin ? `<td data-label="Costo" class="metric-cell price-column product-cost-cell">${formatMoney(product.cost || 0)}</td>` : ""}
       <td data-label="Venta" class="metric-cell price-column product-price-cell ${Number(product.price) > 0 ? "" : "missing-price"}">${Number(product.price) > 0 ? formatMoney(product.price) : "Falta precio"}</td>
+      ${isAdmin ? `<td data-label="Marcación %" class="metric-cell product-markup-cell">${formatProductMarkup(product.cost, product.price)}</td>` : ""}
       <td data-label="Stock" class="stock-column product-stock-cell">
         <span class="stock-cell"><strong>${escapeHtml(formatProductStock(product))}</strong><button class="stock-button" type="button" data-open-stock-modal="${product.id}">Stock</button></span>
       </td>
@@ -4183,6 +4192,51 @@ function restoreAdminTableScroll(scrollTop) {
   });
 }
 
+function getProductMarkup(cost, price) {
+  const c = Number(cost), p = Number(price);
+  if (!Number.isFinite(c) || c <= 0 || !Number.isFinite(p) || p < 0) return null;
+  const markup = (p / c - 1) * 100;
+  return Number.isFinite(markup) ? markup : null;
+}
+
+function formatProductMarkup(cost, price) {
+  const markup = getProductMarkup(cost, price);
+  return markup === null ? "-" : `${markup.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
+
+function calculateMarkedSalePrice(cost, markup) {
+  const c = Number(cost), m = Number(markup);
+  if (!Number.isFinite(c) || c <= 0 || !Number.isFinite(m) || m < -100) throw new Error("Costo o marcación inválidos.");
+  const raw = c * (1 + m / 100);
+  if (!Number.isFinite(raw)) throw new Error("El precio calculado excede el rango permitido.");
+  // Evita subir otra centena por el error binario de una operación exacta.
+  const hundreds = raw / 100;
+  const nearest = Math.round(hundreds);
+  return (Math.abs(hundreds - nearest) <= Number.EPSILON * Math.max(1, Math.abs(hundreds)) * 8 ? nearest : Math.ceil(hundreds)) * 100;
+}
+
+function updateEditProductPricing(changedField) {
+  if (!canAccess("admin")) return;
+  const cost = Number(els.editProductCost?.value);
+  const price = Number(els.editProductPrice?.value);
+  if (changedField === "price") {
+    editProductMarkupReference = getProductMarkup(cost, price);
+  } else if (changedField === "markup") {
+    if (!String(els.editProductMarkup?.value || "").trim()) return;
+    const value = Number(els.editProductMarkup.value);
+    if (!Number.isFinite(value) || value < -100) return;
+    editProductMarkupReference = value;
+  }
+  if (changedField !== "price" && cost > 0 && Number.isFinite(cost) && editProductMarkupReference !== null) {
+    try { els.editProductPrice.value = String(calculateMarkedSalePrice(cost, editProductMarkupReference)); }
+    catch (error) { showEditProductSaveError(error.message); return; }
+  }
+  if (changedField !== "markup" && els.editProductMarkup) {
+    const actual = getProductMarkup(cost, Number(els.editProductPrice?.value));
+    els.editProductMarkup.value = actual === null ? "" : actual.toFixed(2);
+  }
+}
+
 function parseMoneyInput(value) {
   const normalized = String(value ?? "").replace(/[^\d]/g, "");
   return Number(normalized) || 0;
@@ -4240,8 +4294,12 @@ async function openEditProductModal(productId) {
   if (els.editProductOption) els.editProductOption.value = getProductTalleValue(product);
   if (els.editProductAssortment) els.editProductAssortment.value = getProductSurtidoValue(product);
   const presentation = getProductPresentation(product);
-  setPresentationMoneyInputValue(els.editProductPrice, product.price, presentation);
+  if (els.editProductPrice) els.editProductPrice.value = String(product.price || 0);
   if (els.editProductCost) els.editProductCost.value = product.cost > 0 ? String(product.cost) : "";
+  editProductMarkupReference = canAccess("admin") ? getProductMarkup(product.cost, product.price) : null;
+  if (els.editProductMarkup) els.editProductMarkup.value = editProductMarkupReference === null ? "" : editProductMarkupReference.toFixed(2);
+  els.editProductMarkupWrap?.classList.toggle("hidden", !canAccess("admin"));
+  if (els.editProductMarkup) els.editProductMarkup.disabled = !canAccess("admin");
   if (els.editProductPresentation) els.editProductPresentation.value = presentation;
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
@@ -4650,7 +4708,11 @@ async function saveEditedProduct(event) {
   };
   nextProduct.baseName = stripProductVariantFromName(String(els.editProductName?.value || "").trim() || getProductBaseName(product), nextProduct.optionName, nextProduct.surtidoName);
   nextProduct.name = nextProduct.baseName;
-  nextProduct.price = getPresentationTotalFromMoneyInput(els.editProductPrice, nextProduct.presentation);
+  nextProduct.price = Number(els.editProductPrice?.value);
+  if (!Number.isFinite(nextProduct.price) || nextProduct.price < 0) {
+    showEditProductSaveError("Ingresá un precio de venta válido.");
+    return;
+  }
   if (canAccess("admin")) {
     const rawCostInput = String(els.editProductCost?.value || "").trim();
     if (rawCostInput && (!Number.isFinite(Number(rawCostInput)) || Number(rawCostInput) < 0)) {
@@ -9284,6 +9346,7 @@ function getEditProductFormState() {
     presentation: els.editProductPresentation?.value || "",
     cost: els.editProductCost?.value || "",
     price: els.editProductPrice?.value || "",
+    markup: canAccess("admin") ? els.editProductMarkup?.value || "" : "",
     stockUnit: els.editProductStockUnitSelect?.value || "",
     stock: els.editProductStock?.value || "",
     catalog: els.editProductCatalog?.value || "",
@@ -11936,6 +11999,9 @@ function toggleInternalPasswordVisibility() {
 function clearAdminOnlyState() {
   if (currentView === "reportes") currentView = "admin";
   if (els.editProductCost) els.editProductCost.value = "";
+  editProductMarkupReference = null;
+  if (els.editProductMarkup) { els.editProductMarkup.value = ""; els.editProductMarkup.disabled = true; }
+  els.editProductMarkupWrap?.classList.add("hidden");
   if (els.reportGrid) els.reportGrid.innerHTML = "";
 }
 
@@ -12843,40 +12909,85 @@ function getProductEstimatedProfit(product) {
 }
 
 async function importProductsFromFile(event) {
-  if (!hasPermission("importExport")) return;
+  if (!hasPermission("importExport") || !canAccess("admin")) return;
   const file = event.target.files?.[0];
   if (!file) return;
 
   try {
     const rows = await readProductImportRows(file);
-    const newCategories = getNewCategoriesFromImportRows(rows);
+    if (getSupabaseCatalogClient()) {
+      await waitForCatalogSyncIdle();
+      const refreshed = await refreshCatalogFromSupabase("before-product-import");
+      if (!refreshed?.ok) throw new Error("No se pudo leer el catálogo vigente. No se importó ningún producto.");
+    }
+    const { updates, skipped, manualPrices } = buildImportedProductUpdates(rows);
+    if (!updates.length) {
+      showToast(skipped ? `Sin cambios para guardar · ${skipped} fila(s) sin ID activo reconocido` : "Sin modificaciones para guardar");
+      return;
+    }
+    const newCategories = [...new Set(updates.map((product) => product.category))]
+      .filter((name) => !categories.some((category) => normalizeCategoryNameForCompare(category.name) === normalizeCategoryNameForCompare(name)));
     if (newCategories.length) {
       const shouldCreate = window.confirm(`Se detectó una categoría nueva. ¿Desea crearla?\n\n${newCategories.join("\n")}`);
       if (!shouldCreate) {
         showToast("Importación cancelada");
         return;
       }
-      newCategories.forEach((category) => addCategory(category, { makeVisible: true }));
+      const { error } = await getSupabaseCatalogClient().from("categories").upsert(
+        newCategories.map((name, index) => ({ name, active: true, sort_order: (categories.length + index + 1) * 10 })),
+        { onConflict: "name", ignoreDuplicates: true }
+      );
+      if (error) throw error;
+      newCategories.forEach((name) => categories.push({ name, active: true }));
     }
-    const { updates, skipped } = buildImportedProductUpdates(rows);
-
-    if (!updates.length) {
-      showToast(skipped ? "No se encontró ningún ID de producto existente para actualizar" : "No se encontraron productos para importar");
-      return;
-    }
-
-    const updatesById = new Map(updates.map((product) => [String(product.id || ""), product]));
-    products = products.map((product) => updatesById.get(String(product.id || "")) || product);
-    saveProducts();
+    await persistImportedProductUpdates(updates);
     currentAdminCategory = updates[0].category;
     renderAll();
-    showToast(`${updates.length} producto(s) actualizado(s)${skipped ? ` · ${skipped} fila(s) omitida(s)` : ""}`);
+    showToast(`${updates.length} producto(s) actualizado(s)${manualPrices ? ` · ${manualPrices} precio(s) de venta manuales respetados` : ""}${skipped ? ` · ${skipped} fila(s) omitida(s)` : ""}`);
   } catch (error) {
     console.error("Punto X Mayor import products:", error);
-    showToast("No se pudo importar la planilla");
+    showToast(error.message || "No se pudo importar la planilla");
   } finally {
     event.target.value = "";
   }
+}
+
+async function persistImportedProductUpdates(updates) {
+  const client = getSupabaseCatalogClient();
+  if (!canAccess("admin") || !client) throw new Error("Se requiere conexión y perfil Administrador para importar.");
+  let saved = 0;
+  for (const next of updates) {
+    const previous = products.find((product) => String(product.id) === String(next.id));
+    if (!previous) throw new Error("El producto ya no está disponible.");
+    try {
+      const categoryId = await getExistingSupabaseCategoryIdForProduct(client, next);
+      if (!categoryId) throw new Error("No se encontró la categoría del producto.");
+      const beforeRow = buildSupabaseProductEditRow(previous, categoryId);
+      const afterRow = buildSupabaseProductEditRow(next, categoryId);
+      const patch = {};
+      for (const [key, value] of Object.entries(afterRow)) {
+        if (key === "updated_at") continue;
+        if (key === "category_id" ? next.category !== previous.category : JSON.stringify(value) !== JSON.stringify(beforeRow[key])) patch[key] = value;
+      }
+      if (Number(next.stock) !== Number(previous.stock)) patch.stock = next.stock;
+      if (!Object.keys(patch).length) continue;
+      patch.updated_at = new Date().toISOString();
+      let query = client.from("products").update(patch, { count: "exact" }).eq("id", next.id).eq("active", true);
+      if (Object.hasOwn(patch, "sale_price")) query = Number(previous.price) === 0
+        ? query.or("sale_price.is.null,sale_price.eq.0") : query.eq("sale_price", previous.price);
+      if (Object.hasOwn(patch, "cost_price")) query = Number(previous.cost) === 0
+        ? query.or("cost_price.is.null,cost_price.eq.0") : query.eq("cost_price", previous.cost);
+      const { error, count } = await query;
+      if (error) throw error;
+      if (count !== 1) throw new Error("El producto cambió durante la importación o no hay permiso para actualizarlo.");
+      Object.assign(previous, next);
+      if (Object.hasOwn(patch, "cost_price")) reportAdminCostById.set(String(next.id), next.cost);
+      saved++;
+    } catch (error) {
+      throw new Error(`${saved} producto(s) guardado(s). Error en ${getProductBaseName(next)}: ${error.message || "No se pudo guardar"}`);
+    }
+  }
+  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
 }
 
 async function readProductImportRows(file) {
@@ -12886,70 +12997,101 @@ async function readProductImportRows(file) {
 }
 
 function buildImportedProductUpdates(rows) {
-  if (!rows.length) return { updates: [], skipped: 0 };
+  if (!canAccess("admin")) throw new Error("Solo Administrador puede importar costos y marcaciones.");
+  if (!rows.length) return { updates: [], skipped: 0, manualPrices: 0 };
   const headers = rows[0].map(normalizeHeader);
   const idIndex = findImportHeaderIndex(headers, ["id", "id producto", "producto id"]);
-  const productIndex = headers.indexOf("producto");
-  const optionIndex = headers.indexOf("talle");
-  const legacyOptionIndex = headers.indexOf("opcion");
-  const assortmentIndex = headers.indexOf("surtido");
-  const categoryIndex = headers.indexOf("categoria");
-  const costIndex = findImportHeaderIndex(headers, ["precio de costo", "precio costo"]);
-  const priceIndex = findImportHeaderIndex(headers, ["precio de venta", "precio venta"]);
-  const presentationIndex = headers.indexOf("presentacion");
-  const stockUnitIndex = headers.indexOf("unidad de stock");
-  const stockIndex = headers.indexOf("stock");
-  const showInCatalogIndex = headers.indexOf("mostrar catalogo");
-  let skipped = 0;
-  const updates = rows.slice(1).map((row) => {
+  const originalIndex = headers.indexOf(normalizeHeader("__PXM_ORIGINAL_V1"));
+  const columns = {
+    name: ["producto"], optionName: ["talle", "opcion"], surtidoName: ["surtido"], category: ["categoria"],
+    cost: ["precio de costo", "precio costo"], price: ["precio de venta", "precio venta"],
+    markup: ["marcacion %", "marcacion"], presentation: ["presentacion"], stock: ["stock"],
+    stockUnit: ["unidad de stock"], showInCatalog: ["mostrar catalogo"]
+  };
+  let skipped = 0, manualPrices = 0;
+  const seen = new Set();
+  const updates = [];
+  for (const [offset, row] of rows.slice(1).entries()) {
     const id = idIndex >= 0 ? String(row[idIndex] || "").trim() : "";
-    const existing = id ? products.find((product) => String(product.id || "") === id) : null;
-    if (!existing) {
-      skipped += 1;
-      return null;
+    const existing = products.find((product) => String(product.id) === id && product.active !== false);
+    if (!existing) { skipped++; continue; }
+    if (seen.has(id)) throw new Error(`Fila ${offset + 2}: ID de producto repetido.`);
+    seen.add(id);
+    const current = getProductImportSnapshot(existing);
+    let original = current;
+    if (originalIndex >= 0 && row[originalIndex]) {
+      try { original = JSON.parse(row[originalIndex]); }
+      catch { throw new Error(`Fila ${offset + 2}: referencia original inválida. Volvé a exportar el Excel.`); }
+      if (original.version !== 1 || String(original.id) !== id) throw new Error(`Fila ${offset + 2}: el ID no coincide con su referencia original.`);
     }
-    const rawName = productIndex >= 0 ? String(row[productIndex] || "").trim() : getProductBaseName(existing);
-    const rawOption = optionIndex >= 0
-      ? String(row[optionIndex] || "").trim()
-      : legacyOptionIndex >= 0
-        ? String(row[legacyOptionIndex] || "").trim()
-        : getProductTalleValue(existing);
-    const rawSurtido = assortmentIndex >= 0 ? String(row[assortmentIndex] || "").trim() : getProductSurtidoValue(existing);
-    const identity = getProductIdentityFromName(rawName || getProductBaseName(existing), rawOption, rawSurtido);
-    const name = identity.baseName;
-    const category = categoryIndex >= 0 ? String(row[categoryIndex] || "").trim() : existing.category;
-    const presentation = presentationIndex >= 0 ? String(row[presentationIndex] || "").trim() || getProductPresentation(existing) : getProductPresentation(existing);
-    const price = priceIndex >= 0 ? getPresentationTotalFromNumericUnit(parseImportNumber(row[priceIndex]), presentation) : existing.price;
-    const rawCostCell = costIndex >= 0 ? String(row[costIndex] ?? "").trim() : "";
-    const cost = rawCostCell
-      ? parseProductCostValue(row[costIndex]) || existing.cost
-      : existing.cost;
-    if (!name || !category || price <= 0) {
-      skipped += 1;
-      return null;
+    const changes = {};
+    for (const [field, aliases] of Object.entries(columns)) {
+      const index = findImportHeaderIndex(headers, aliases);
+      if (index < 0) continue;
+      const raw = String(row[index] ?? "").trim();
+      if (!raw && !["optionName", "surtidoName"].includes(field)) continue;
+      let value = raw;
+      if (["cost", "price", "stock", "markup"].includes(field)) {
+        if (field === "markup" && raw === "-" && original.markup === null) continue;
+        value = parseMarkupImportNumber(row[index], field);
+      } else if (field === "showInCatalog") value = parseImportCatalogVisibility(raw, original.showInCatalog);
+      else if (field === "stockUnit") value = normalizeStockUnit(raw);
+      if (!sameProductImportValue(value, original[field])) changes[field] = value;
     }
+    const costChanged = Object.hasOwn(changes, "cost");
+    const priceChanged = Object.hasOwn(changes, "price");
+    const markupChanged = Object.hasOwn(changes, "markup");
+    if (costChanged && !(changes.cost > 0)) throw new Error(`Fila ${offset + 2}: el costo debe ser mayor a cero; dejalo vacío para conservarlo.`);
+    const next = { ...current, ...changes };
+    if (priceChanged) {
+      if (costChanged || markupChanged) manualPrices++;
+    } else if (markupChanged || costChanged) {
+      const reference = markupChanged ? changes.markup : getProductMarkup(original.cost, original.price);
+      if (reference === null) throw new Error(`Fila ${offset + 2}: falta un costo anterior válido. Indicá venta o marcación.`);
+      next.price = calculateMarkedSalePrice(next.cost, reference);
+    }
+    const fields = Object.keys(columns).filter((field) => field !== "markup" && !sameProductImportValue(next[field], current[field]));
+    if (!fields.length) continue;
+    for (const field of fields) {
+      if (!sameProductImportValue(current[field], original[field]) && !sameProductImportValue(current[field], next[field])) {
+        throw new Error(`Fila ${offset + 2}: ${field} cambió en Gestión después de exportar. Exportá nuevamente para no sobrescribirlo.`);
+      }
+    }
+    const identity = getProductIdentityFromName(next.name, next.optionName, next.surtidoName);
+    const { version, markup, ...data } = next;
+    updates.push({ ...existing, ...data, name: identity.baseName, baseName: identity.baseName,
+      optionName: identity.optionName, surtidoName: identity.surtidoName, category: normalizeCategory(next.category),
+      saleType: getSaleTypeFromPresentation(next.presentation), packQuantity: getPackQuantityFromPresentation(next.presentation) });
+  }
+  return { updates, skipped, manualPrices };
+}
 
-    return {
-      ...existing,
-      name,
-      baseName: identity.baseName,
-      optionName: identity.optionName,
-      surtidoName: identity.surtidoName,
-      category: normalizeCategory(category),
-      presentation,
-      saleType: getSaleTypeFromPresentation(presentation),
-      price,
-      packQuantity: getPackQuantityFromPresentation(presentation),
-      stock: stockIndex >= 0 ? Math.max(0, parseImportNumber(row[stockIndex])) : existing.stock,
-      stockUnit: stockUnitIndex >= 0
-        ? normalizeStockUnit(row[stockUnitIndex])
-        : normalizeStockUnit(existing.stockUnit || inferDefaultStockUnitFromPresentation(presentation)),
-      cost: canAccess("admin") ? cost : existing.cost,
-      active: existing.active !== false,
-      showInCatalog: showInCatalogIndex >= 0 ? parseImportCatalogVisibility(row[showInCatalogIndex], existing.showInCatalog !== false) : existing.showInCatalog !== false
-    };
-  }).filter(Boolean);
-  return { updates, skipped };
+function getProductImportSnapshot(product, cost = product.cost) {
+  const markup = getProductMarkup(cost, product.price);
+  return { version: 1, id: String(product.id), name: getProductBaseName(product), optionName: getProductTalleValue(product),
+    surtidoName: getProductSurtidoValue(product), category: product.category, cost: Number(cost) || 0,
+    price: Number(product.price) || 0, markup: markup === null ? null : Number(markup.toFixed(2)),
+    presentation: getProductPresentation(product), stock: getProductTotalStock(product),
+    stockUnit: normalizeStockUnit(product.stockUnit), showInCatalog: product.showInCatalog !== false };
+}
+
+function sameProductImportValue(a, b) {
+  return typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 0.00000001 : a === b;
+}
+
+function parseMarkupImportNumber(value, field) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < (field === "markup" ? -100 : 0)) throw new Error(`Valor fuera de rango en ${field}.`);
+    return value;
+  }
+  let text = String(value ?? "").trim().replace(/\s/g, "").replace(/\$$/, "").replace(/^\$/, "");
+  if (field === "markup") text = text.replace(/%$/, "");
+  if (text.includes(",")) text = text.replace(/\./g, "").replace(",", ".");
+  else if (field !== "markup" && /^\d{1,3}(\.\d{3})+$/.test(text)) text = text.replace(/\./g, "");
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(text)) throw new Error(`Valor inválido en ${field}: ${value}`);
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < (field === "markup" ? -100 : 0)) throw new Error(`Valor fuera de rango en ${field}.`);
+  return number;
 }
 
 function getNewCategoriesFromImportRows(rows) {
@@ -12998,7 +13140,7 @@ async function parseXlsxRows(arrayBuffer) {
       const value = parseXlsxCellValue(body, type, sharedStrings);
       cells[index] = value;
     });
-    return cells.map((cell) => String(cell ?? "").trim());
+    return cells.map((cell) => typeof cell === "number" ? cell : String(cell ?? "").trim());
   }).filter((row) => row.some(Boolean));
 }
 
@@ -13058,6 +13200,7 @@ function parseXlsxCellValue(body, type, sharedStrings) {
   if (type === "inlineStr") return decodeXml(body.match(/<t\b[^>]*>([\s\S]*?)<\/t>/)?.[1] || "");
   const value = decodeXml(body.match(/<v>([\s\S]*?)<\/v>/)?.[1] || "");
   if (type === "s") return sharedStrings[Number(value) || 0] || "";
+  if ((type === "" || type === "n") && value.trim() && Number.isFinite(Number(value))) return Number(value);
   return value;
 }
 
@@ -13175,29 +13318,40 @@ async function exportProductsToExcel() {
     `Categor${String.fromCharCode(237)}a`,
     "Precio de costo",
     "Precio de venta",
+    "Marcación %",
     `Presentaci${String.fromCharCode(243)}n`,
     "Stock",
     "Unidad de stock",
-    `Mostrar cat${String.fromCharCode(225)}logo`
+    `Mostrar cat${String.fromCharCode(225)}logo`,
+    "__PXM_ORIGINAL_V1"
   ];
   try {
     const costById = await getAdminProductCostMapForExport();
-    const rows = getProductsForProductExport().map((product) => [
-      product.id || "",
-      getProductBaseName(product),
-      getProductTalleValue(product),
-      getProductSurtidoValue(product),
-      product.category,
-      costById.has(String(product.id || "")) ? costById.get(String(product.id || "")) : product.cost || 0,
-      product.price || 0,
-      getProductPresentation(product),
-      getProductTotalStock(product),
-      getStockUnitLabelFromUnit(product.stockUnit, 2),
-      formatCatalogVisibility(product.showInCatalog)
-    ]);
+    const rows = getProductsForProductExport().map((product) => {
+      const cost = costById.get(String(product.id));
+      if (!costById.has(String(product.id))) throw new Error("Faltan costos en la lectura Admin. Reintentá antes de exportar.");
+      const original = getProductImportSnapshot(product, cost);
+      return [
+        product.id || "",
+        getProductBaseName(product),
+        getProductTalleValue(product),
+        getProductSurtidoValue(product),
+        product.category,
+        cost,
+        product.price || 0,
+        original.markup === null ? "-" : original.markup,
+        getProductPresentation(product),
+        getProductTotalStock(product),
+        getStockUnitLabelFromUnit(product.stockUnit, 2),
+        formatCatalogVisibility(product.showInCatalog),
+        JSON.stringify(original)
+      ];
+    });
     downloadXlsxWorkbook(`productos-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.xlsx`, "Productos", headers, rows, {
-      numericColumns: [6, 7, 9],
-      moneyColumns: [6, 7]
+      numericColumns: [6, 7, 8, 10],
+      moneyColumns: [6, 7],
+      decimalColumns: [8],
+      hiddenColumns: [13]
     });
     showToast("Productos exportados en Excel");
   } catch (error) {
@@ -13582,7 +13736,7 @@ function buildXlsxWorkbook(sheetName, headers, rows, options = {}) {
   const numericColumns = new Set(options.numericColumns || []);
   const moneyColumns = new Set(options.moneyColumns || []);
   const allRows = [headers, ...rows];
-  const sheetXml = buildXlsxSheetXml(allRows, numericColumns, moneyColumns);
+  const sheetXml = buildXlsxSheetXml(allRows, numericColumns, moneyColumns, options);
   const now = new Date().toISOString();
   const safeSheetName = escapeXml(String(sheetName || "Datos").slice(0, 31));
   const files = [
@@ -13602,19 +13756,27 @@ function buildXlsxWorkbook(sheetName, headers, rows, options = {}) {
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="$ #,##0"/></numFmts><fonts count="2"><font><sz val="11"/><color rgb="FF111111"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF111111"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD8D8D8"/></left><right style="thin"><color rgb="FFD8D8D8"/></right><top style="thin"><color rgb="FFD8D8D8"/></top><bottom style="thin"><color rgb="FFD8D8D8"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
     ["xl/worksheets/sheet1.xml", sheetXml]
   ];
+  if (options.decimalColumns?.length) {
+    const styles = files.find(([name]) => name === "xl/styles.xml");
+    styles[1] = styles[1]
+      .replace('<numFmts count="1">', '<numFmts count="2">')
+      .replace('</numFmts>', '<numFmt numFmtId="165" formatCode="0.00"/></numFmts>')
+      .replace('<cellXfs count="4">', '<cellXfs count="5">')
+      .replace('</cellXfs>', '<xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/></cellXfs>');
+  }
   return createZipArchive(files);
 }
 
-function buildXlsxSheetXml(rows, numericColumns, moneyColumns) {
+function buildXlsxSheetXml(rows, numericColumns, moneyColumns, options = {}) {
   const columnCount = rows[0]?.length || 0;
   const lastColumn = getExcelColumnName(columnCount);
   const lastRow = Math.max(1, rows.length);
-  const colsXml = calculateXlsxColumnWidths(rows).map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
+  const colsXml = calculateXlsxColumnWidths(rows).map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"${options.hiddenColumns?.includes(index + 1) ? ' hidden="1"' : ""}/>`).join("");
   const rowsXml = rows.map((row, rowIndex) => {
     const rowNumber = rowIndex + 1;
     const cells = row.map((value, columnIndex) => {
       const ref = `${getExcelColumnName(columnIndex + 1)}${rowNumber}`;
-      const style = rowIndex === 0 ? 1 : moneyColumns.has(columnIndex + 1) ? 2 : 3;
+      const style = rowIndex === 0 ? 1 : options.decimalColumns?.includes(columnIndex + 1) ? 4 : moneyColumns.has(columnIndex + 1) ? 2 : 3;
       if (rowIndex > 0 && numericColumns.has(columnIndex + 1) && Number.isFinite(Number(value))) {
         return `<c r="${ref}" s="${style}"><v>${Number(value)}</v></c>`;
       }

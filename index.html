@@ -17,7 +17,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=profitability-consistency-1">
+    <link rel="stylesheet" href="/styles.css?v=product-markup-1">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -699,7 +699,11 @@
           </label>
           <label>
             Precio de venta
-            <input id="editProductPrice" name="price" type="text" inputmode="numeric" data-money-input>
+            <input id="editProductPrice" name="price" type="number" min="0" step="any" inputmode="decimal">
+          </label>
+          <label id="editProductMarkupWrap" class="full-field hidden">
+            Marcación %
+            <input id="editProductMarkup" name="markup" type="number" min="-100" step="any" inputmode="decimal">
           </label>
           <div class="edit-product-stock-block full-field">
             <span class="edit-section-title">Stock</span>
@@ -779,7 +783,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=profitability-consistency-1"></script>
+    <script src="/app.js?v=product-markup-1"></script>
   </body>
 </html>
 
