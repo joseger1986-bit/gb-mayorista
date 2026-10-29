@@ -4081,18 +4081,22 @@ th .table-sort-button[data-sort-products="stock"] {
 }
 
 @media print {
-  body {
-    margin: 0;
+  html:has(#printPreviewOverlay:not(.hidden)),
+  body:has(> #printPreviewOverlay:not(.hidden)) {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    position: static !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
     background: #fff !important;
   }
 
-  body * {
-    visibility: hidden !important;
-  }
-
-  .print-area,
-  .print-area * {
-    visibility: visible !important;
+  /* visibility:hidden conservaba el alto de Gestion y producia hojas vacias. */
+  body > :not(#printPreviewOverlay) {
+    display: none !important;
   }
 
   .print-preview-overlay {
@@ -4100,6 +4104,10 @@ th .table-sort-button[data-sort-products="stock"] {
     display: block !important;
     inset: auto !important;
     padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
     background: #fff !important;
   }
 
@@ -4107,6 +4115,8 @@ th .table-sort-button[data-sort-products="stock"] {
     display: block !important;
     width: 100% !important;
     height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -4114,16 +4124,18 @@ th .table-sort-button[data-sort-products="stock"] {
     background: #fff !important;
   }
 
+  .pdf-download-slot,
   .print-preview-actions,
   .print-preview-actions * {
     display: none !important;
   }
 
   .print-area {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
+    position: static !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
     padding: 0 !important;
     background: #fff !important;
@@ -4162,6 +4174,26 @@ th .table-sort-button[data-sort-products="stock"] {
 
   .print-area th {
     background: #f2f2f2 !important;
+  }
+
+  .print-area thead {
+    display: table-header-group;
+  }
+
+  .print-area tr,
+  .print-area .compact-document-header,
+  .print-area .compact-document-client,
+  .print-area .compact-document-totals {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-area .document-shell {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
   }
 
   .print-area .summary {
