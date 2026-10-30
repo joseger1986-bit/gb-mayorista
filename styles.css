@@ -14400,6 +14400,14 @@ body.admin-catalog-preview .public-catalog-header + .minimum-banner {
   font-family: Arial, sans-serif;
 }
 
+.print-area .document-thanks {
+  text-align: center;
+  font-weight: 700;
+  margin-top: 10px !important;
+  break-inside: avoid;
+  break-before: avoid;
+}
+
 .thermal-ticket-line {
   white-space: pre;
   letter-spacing: 0;
@@ -14433,6 +14441,10 @@ body.admin-catalog-preview .public-catalog-header + .minimum-banner {
     max-width: none;
     margin: 0;
     padding: 4mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: auto;
+    page-break-after: auto;
   }
 }
 

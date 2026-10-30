@@ -10033,6 +10033,7 @@ function buildOrderDocumentHtml(order) {
               <p>Av. de Mayo 187</p>
               <p>Pergamino</p>
               <p>Provincia de Buenos Aires</p>
+              <p>www.puntoxmayor.com.ar</p>
             </div>
             <div class="compact-document-title">
               <strong>${escapeHtml(document.record)}</strong>
@@ -10067,6 +10068,7 @@ function buildOrderDocumentHtml(order) {
             <div><span>Forma de entrega</span><strong>${escapeHtml(document.deliveryType)}</strong></div>
             <div><span>Estado</span><strong>${escapeHtml(document.status)}</strong></div>
           </section>
+          <p class="document-thanks">Gracias por tu compra</p>
         </div>
       </body>
     </html>
@@ -10267,9 +10269,12 @@ function printReceiptFormat(format) {
     document.documentElement.dataset.receiptFormat = format;
     const style = document.createElement("style");
     style.id = "thermalReceiptPageStyle";
-    style.textContent = `@page { size: 80mm ${currentThermalLayout.height * 25.4 / 72}mm; margin: 0; }`;
-    document.head.append(style);
     els.printPreviewBody.innerHTML = renderThermalTicketHtml(currentThermalLayout);
+    const renderedHeightMm = els.printPreviewBody.querySelector(".thermal-ticket").getBoundingClientRect().height * 25.4 / 96;
+    // Redondear hacia arriba evita que la caja CSS exceda la hoja por fracciones de pixel.
+    const pageHeightMm = Math.ceil(Math.max(renderedHeightMm, currentThermalLayout.height * 25.4 / 72) * 10) / 10 + 1;
+    style.textContent = `@page { size: 80mm ${pageHeightMm}mm; margin: 0; }`;
+    document.head.append(style);
   } else {
     els.printPreviewBody.innerHTML = extractPrintableBody(currentPrintHtml);
   }
@@ -10311,6 +10316,7 @@ function buildThermalTicketLayout(receipt) {
   const rule = () => lines.push({ rule: true, leading: 8 });
   add("PUNTO X MAYOR", 14, true, "center");
   add("Av. de Mayo 187, Pergamino", 9, false, "center");
+  add("www.puntoxmayor.com.ar", 9, false, "center");
   rule();
   add(receipt.record, 12, true);
   add(receipt.date);
@@ -10334,8 +10340,8 @@ function buildThermalTicketLayout(receipt) {
   if (receipt.deliveryType) add(`Entrega: ${receipt.deliveryType}`);
   if (receipt.status) add(`Estado: ${receipt.status}`);
   rule();
-  add("Gracias por tu compra", 10, true, "center");
   add("Comprobante comercial no fiscal", 8, false, "center");
+  add("Gracias por tu compra", 10, true, "center");
   const height = margin * 2 + lines.reduce((total, line) => total + line.leading, 0);
   return { width, height, margin, usable, lines };
 }
@@ -10564,6 +10570,8 @@ function createOrderDocumentPdf(document) {
     addText("Pergamino", margin, y, 8.5, false);
     y -= 10;
     addText("Provincia de Buenos Aires", margin, y, 8.5, false);
+    y -= 10;
+    addText("www.puntoxmayor.com.ar", margin, y, 8.5, false);
 
     addText(firstPage ? document.record : `${document.record} - continuación`, pageWidth - 178, pageHeight - margin, 12, true);
     addText(`Fecha: ${document.date}`, pageWidth - 178, pageHeight - margin - 14, 8.5, false);
@@ -10614,7 +10622,7 @@ function createOrderDocumentPdf(document) {
     y -= rowHeight;
   });
 
-  if (y < bottom + 104) newPage();
+  if (y < bottom + 124) newPage();
   y -= 4;
   addLine(pageWidth - 250, y, pageWidth - margin, y, 0.8);
   y -= 15;
@@ -10632,6 +10640,8 @@ function createOrderDocumentPdf(document) {
   addText(`Forma de entrega: ${document.deliveryType}`, pageWidth - 250, y, 8.7, false);
   y -= 12;
   addText(`Estado: ${document.status}`, pageWidth - 250, y, 8.7, false);
+  y -= 20;
+  addText("Gracias por tu compra", (pageWidth - 106.7) / 2, y, 10, true);
   pages.push(commands);
 
   return buildPdfFromPages(pages, pageWidth, pageHeight);
