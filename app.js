@@ -3517,8 +3517,7 @@ function renderCatalogVariantControl(group) {
 function getCatalogVariantSelectLabel(variant) {
   const presentation = String(variant?.presentation || "").trim();
   const variantLabel = getItemDisplayIdentity({ ...variant, variantLabel: variant?.label || "" }).variant;
-  if (!variantLabel) return presentation;
-  return presentation ? `${variantLabel} — ${presentation}` : variantLabel;
+  return variantLabel || presentation;
 }
 
 function hasCatalogVariantChoices(group) {
@@ -6155,8 +6154,7 @@ function renderQuickSaleCompletedItem(item) {
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         ${renderItemVariant(item)}
-        <span>${escapeHtml(quantityDetail)}</span>
-        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+        <span>${escapeHtml(formatItemQuantityPrice(item))}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
     </div>
@@ -6174,8 +6172,7 @@ function renderQuickSaleItem(order, item) {
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         ${renderItemVariant(item)}
-        <span>${escapeHtml(formatOrderItemOperationalQuantity(item))}</span>
-        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+        <span>${escapeHtml(formatItemQuantityPrice(item))}</span>
       </div>
       <div class="quick-sale-item-controls">
         <span class="quick-sale-stepper" aria-label="${escapeHtml(getQuantityLabelForPresentation(presentation))}">
@@ -6376,10 +6373,10 @@ function renderCompactBudgetItem(order, item) {
     : "";
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row ${actions ? "" : "no-order-actions"} ${item.prepared ? "is-prepared" : ""}" ${getOrderItemPreparedAttributes(order, item)}>
-      <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b>${renderItemVariant(item)}<small>${escapeHtml(quantityLine)}</small><small>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</small></span>
+      <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b>${renderItemVariant(item)}<small>${escapeHtml(formatItemQuantityPrice(item))}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
       <span class="budget-product-name order-product-line">${escapeHtml(productLine)}${renderItemVariant(item)}</span>
-      <span class="order-product-unit-price">${formatMoney(getDocumentItemUnitPrice(item))}</span>
+      <span class="order-product-unit-price">${formatMoney(Number(item.price) || 0)}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
       ${actions ? `<span class="order-product-actions">${actions}</span>` : ""}
     </div>
@@ -6402,8 +6399,7 @@ function renderOperationalWebBudgetItem(order, item) {
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
         ${renderItemVariant(item)}
-        <span>${escapeHtml(quantityLine)}</span>
-        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+        <span>${escapeHtml(formatItemQuantityPrice(item))}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
       <div class="quick-sale-item-controls operational-web-product-actions">
@@ -7882,9 +7878,7 @@ function renderCart() {
         <strong>${index + 1}. ${escapeHtml(getItemDisplayIdentity(item).name)}</strong>
         <div class="cart-item-meta">
           ${renderCartVariantLine(item)}
-          <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
-          <span>${escapeHtml(formatCartQuantityLine(item))}</span>
-          <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+          <span>${escapeHtml(formatItemQuantityPrice(item))}</span>
         </div>
       </div>
       <div class="cart-item-side">
@@ -8282,8 +8276,7 @@ function renderInternalSaleItem(item) {
       <div>
         <strong>${escapeHtml(getItemDisplayIdentity(item).name)}</strong>
         ${renderItemVariant(item)}
-        <span>${escapeHtml(formatOrderItemOperationalQuantity(item))}</span>
-        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+        <span>${escapeHtml(formatItemQuantityPrice(item))}</span>
         <em>Subtotal: ${formatMoney(item.price * quantity)}</em>
       </div>
       <div class="internal-sale-item-actions">
@@ -9987,10 +9980,11 @@ function buildOrderPrintDocument(order) {
     quantity: Math.max(1, Number(item.quantity) || 1),
     quantityLabel: formatDocumentQuantity(item),
     quantityDetail: formatOrderItemOperationalQuantity(item),
+    quantityPriceLabel: formatItemQuantityPrice(item),
     quantityNoun: getQuantityNounForPresentation(getItemDisplayPresentation(item), Math.max(1, Number(item.quantity) || 1)),
     product: getDocumentItemName(item),
     variant: getDocumentItemVariantLabel(item),
-    unitPrice: getDocumentItemUnitPrice(item),
+    unitPrice: Math.max(0, Number(item.price) || 0),
     price: Math.max(0, Number(item.price) || 0),
     subtotal: Math.max(0, Number(item.quantity) || 0) * Math.max(0, Number(item.price) || 0)
   }));
@@ -10081,7 +10075,8 @@ function buildOrderDocumentHtml(order) {
 
 function getItemDisplayIdentity(item = {}) {
   const originalName = String(item.baseName || item.productName || item.name || "Producto").trim().replace(/\s+/g, " ");
-  const raw = String(item.variantLabel || item.variant || item.optionName || item.option || item.size || item.talle || item.color || item.measure || "").trim();
+  const storedVariant = String(item.variantLabel || item.variant || item.optionName || item.option || item.size || item.talle || item.color || item.measure || "").trim();
+  const raw = storedVariant.replace(/\s+[-–—·|]\s*(?:venta\s+por\s+)?(?:unidad(?:es)?|docenas?|pack\s*x\s*\d+(?:\s+(?:unidad(?:es)?|docenas?))?)$/i, "").trim();
   if (!raw || isPresentationOnlyLabel(raw)) return { name: originalName, variant: "", value: "", type: "" };
   const explicit = raw.match(/^(talle|color|medida|tamaño|surtido|variante)(?:\s*:\s*|\s+)(.+)$/i);
   const value = explicit ? explicit[2].trim() : raw;
@@ -10092,7 +10087,7 @@ function getItemDisplayIdentity(item = {}) {
   type = type.charAt(0).toLocaleUpperCase("es-AR") + type.slice(1).toLocaleLowerCase("es-AR");
   let name = originalName;
   // Solo quitar un sufijo respaldado por la variante guardada y un separador/etiqueta.
-  for (const suffix of [raw, `${type}: ${value}`, `${type} ${value}`, value]) {
+  for (const suffix of [storedVariant, raw, `${type}: ${value}`, `${type} ${value}`, value]) {
     const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const separated = new RegExp(`\\s+[-–—·|]\\s*${escaped}$`, "i");
     const labeled = new RegExp(`\\s+(?:Talle|Color|Medida|Tamaño|Surtido|Variante)\\s*:?\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
@@ -10117,8 +10112,7 @@ function renderItemVariant(item) {
 function buildItemDisplayMessage(item) {
   const identity = getItemDisplayIdentity(item);
   return [identity.name, ...(identity.variant ? [identity.variant] : []),
-    `Cantidad: ${formatOrderItemOperationalQuantity(item)}`,
-    `Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}`,
+    formatItemQuantityPrice(item),
     `Subtotal: ${formatMoney((Number(item.quantity) || 0) * (Number(item.price) || 0))}`];
 }
 
@@ -10127,9 +10121,12 @@ function getDocumentItemName(item) {
 }
 
 function getDocumentItemVariantLabel(item) {
-  const variant = getItemDisplayIdentity(item).variant;
-  const presentation = getItemDisplayPresentation(item);
-  return [variant, presentation].filter(Boolean).join(" · ") || "-";
+  return getItemDisplayIdentity(item).variant || "";
+}
+
+function formatItemQuantityPrice(item) {
+  const quantity = formatDocumentQuantity(item).replace(/\b(pack|packs) x(\d+)/i, "$1 de $2");
+  return `${quantity} × ${formatMoney(Number(item.price) || 0)}`;
 }
 
 function getDocumentItemUnitPrice(item) {
@@ -10325,9 +10322,7 @@ function buildThermalTicketLayout(receipt) {
     rule();
     add(item.product, 10, true);
     if (item.variant && item.variant !== "-") add(item.variant);
-    add(`Cantidad: ${item.quantityDetail}`);
-    add(`Precio unitario: ${formatMoney(item.unitPrice)}`);
-    add(`${item.quantity} ${item.quantityNoun} x ${formatMoney(item.price)}`);
+    add(item.quantityPriceLabel);
     add(`Subtotal: ${formatMoney(item.subtotal)}`, 10, true, "right");
   }
   rule();
@@ -11384,8 +11379,8 @@ function shouldShowCartOptionLine(item) {
 
 function isPresentationOnlyLabel(value) {
   const text = String(value || "").trim().toLowerCase();
-  return /^(?:\d+\s*)?(docena|docenas|unidad|unidades)$/.test(text)
-    || /^pack\s*x\s*\d+$/.test(text);
+  return /^(?:venta\s+por\s+)?(?:\d+\s*)?(docena|docenas|unidad|unidades)$/.test(text)
+    || /^pack\s*x\s*\d+(?:\s+(?:unidad(?:es)?|docenas?))?$/.test(text);
 }
 
 function formatWhatsappQuantity(item) {
