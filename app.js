@@ -243,6 +243,8 @@ let currentPdfUrl = "";
 let currentPdfBlob = null;
 let currentPdfFilename = "";
 let currentPrintDocument = null;
+let currentReceiptFormat = "a4";
+let currentThermalLayout = null;
 let stockModalProductId = "";
 let stockModalDefaultMode = "add";
 let stockModalSaving = false;
@@ -422,6 +424,7 @@ const els = {
   printPreviewBody: document.querySelector("#printPreviewBody"),
   printPreviewClose: document.querySelector("#printPreviewClose"),
   printPreviewPrint: document.querySelector("#printPreviewPrint"),
+  printPreviewThermal: document.querySelector("#printPreviewThermal"),
   printPreviewPdf: document.querySelector("#printPreviewPdf"),
   printPreviewShare: document.querySelector("#printPreviewShare"),
   pdfDownloadSlot: document.querySelector("#pdfDownloadSlot"),
@@ -712,7 +715,8 @@ els.addSampleOrder.addEventListener("click", () => {
 els.downloadTemplate?.addEventListener("click", downloadImportTemplate);
 els.downloadProductsTemplate?.addEventListener("click", downloadImportTemplate);
 els.printPreviewClose?.addEventListener("click", closeInlinePrintPreview);
-els.printPreviewPrint?.addEventListener("click", () => printModalContent(currentPrintType || "recibo"));
+els.printPreviewPrint?.addEventListener("click", () => printReceiptFormat("a4"));
+els.printPreviewThermal?.addEventListener("click", () => printReceiptFormat("ticket80"));
 els.printPreviewPdf?.addEventListener("click", () => {
   if (!currentPdfUrl) showToast("No se pudo preparar el PDF");
 });
@@ -1611,10 +1615,7 @@ function buildManualPartialMessage(order) {
     "No es comprobante de pago. Mercaderia sin reserva de stock.",
     ...(order.number && !order.manualDraft ? [formatRecordNumber(order)] : []),
     `Cliente: ${getOrderCustomerName(order)}`, "",
-    ...order.items.flatMap((item) => [item.name,
-      [item.variant, getBudgetItemPresentation(item)].filter(Boolean).join(" · "),
-      formatOrderItemOperationalQuantity(item),
-      `Precio: ${formatMoney(item.price)} · Subtotal: ${formatMoney(item.price * item.quantity)}`, ""]),
+    ...order.items.flatMap((item) => [...buildItemDisplayMessage(item), ""]),
     `Subtotal: ${formatMoney(totals.subtotal)}`, `Descuento: ${formatMoney(totals.discountAmount)}`,
     `Total: ${formatMoney(totals.total)}`].join("\n");
 }
@@ -3499,10 +3500,14 @@ function closeDescriptionModal() {
 
 function renderCatalogVariantControl(group) {
   if (!hasCatalogVariantChoices(group)) return "";
+  const types = new Set(group.variants.map((variant) => getItemDisplayIdentity({ ...variant, variantLabel: variant.label }).type).filter(Boolean));
+  const prompt = types.has("Talle") && [...types].every((type) => type === "Talle" || type === "Surtido") ? "Elegir talle"
+    : types.size === 1 && types.has("Color") ? "Elegir color"
+    : types.size === 1 && types.has("Medida") ? "Elegir medida" : "Elegir variante";
   return `
     <label class="variant-select-row" for="variant-${group.id}">
-      <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="Elegir talle">
-        <option value="">Elegir talle</option>
+      <select id="variant-${group.id}" data-catalog-variant="${group.id}" aria-label="${prompt}">
+        <option value="">${prompt}</option>
         ${group.variants.map((variant) => `<option value="${escapeHtml(variant.id)}" data-price="${variant.price}" data-internal-product-id="${escapeHtml(variant.productId)}" data-internal-product-name="${escapeHtml(variant.internalName || "")}">${escapeHtml(getCatalogVariantSelectLabel(variant))}</option>`).join("")}
       </select>
     </label>
@@ -3510,14 +3515,9 @@ function renderCatalogVariantControl(group) {
 }
 
 function getCatalogVariantSelectLabel(variant) {
-  const rawLabel = String(variant?.label || "").trim();
   const presentation = String(variant?.presentation || "").trim();
-  const label = /^surtido\b/i.test(rawLabel)
-    ? rawLabel
-    : rawLabel
-      ? rawLabel.replace(/^talle\s+/i, "Talle ")
-      : "Talle";
-  const variantLabel = /^surtido\b|^talle\b/i.test(label) ? label : `Talle ${label}`;
+  const variantLabel = getItemDisplayIdentity({ ...variant, variantLabel: variant?.label || "" }).variant;
+  if (!variantLabel) return presentation;
   return presentation ? `${variantLabel} — ${presentation}` : variantLabel;
 }
 
@@ -5808,7 +5808,7 @@ function renderPendingOrderBar(source, pending, expanded) {
           <small>${escapeHtml(formatCompactDateTime(order.createdAt))} · ${escapeHtml(normalizeConsultationStatus(order.status))}</small>
           <small>${order.items.length} productos · ${formatMoney(order.total || order.catalogTotal || 0)}</small>
           <details class="pending-products-preview"><summary>Ver productos</summary>
-            <ul>${order.items.map((item) => `<li><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml([item.variant, formatOrderItemOperationalQuantity(item)].filter(Boolean).join(" · "))}</span></li>`).join("")}</ul>
+            <ul>${order.items.map((item) => `<li><strong>${escapeHtml(getItemDisplayIdentity(item).name)}</strong>${renderItemVariant(item)}<span>${escapeHtml(formatOrderItemOperationalQuantity(item))}</span></li>`).join("")}</ul>
           </details>
         </div>
         <button class="primary-button small-button" type="button" data-open-web-pending-order="${escapeHtml(order.id)}">Abrir</button>
@@ -6145,10 +6145,8 @@ function renderQuickSaleCompletedView(order) {
 
 function renderQuickSaleCompletedItem(item) {
   const product = products.find((entry) => entry.id === item.id);
-  const option = getBudgetItemOptionLabel(item, product);
-  const displayName = getOrderItemDisplayName(item.name, option);
-  const productLine = option ? `${displayName} - ${option}` : displayName;
-  const presentation = getBudgetItemPresentation(item);
+  const productLine = getItemDisplayIdentity(item).name;
+  const presentation = getItemDisplayPresentation(item);
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const subtotal = quantity * (Number(item.price) || 0);
   const quantityDetail = formatOrderItemOperationalQuantity({ ...item, presentation }, product);
@@ -6156,7 +6154,9 @@ function renderQuickSaleCompletedItem(item) {
     <div class="quick-sale-item quick-sale-completed-item">
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
+        ${renderItemVariant(item)}
         <span>${escapeHtml(quantityDetail)}</span>
+        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
     </div>
@@ -6165,9 +6165,7 @@ function renderQuickSaleCompletedItem(item) {
 
 function renderQuickSaleItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
-  const option = getBudgetItemOptionLabel(item, product);
-  const displayName = getOrderItemDisplayName(item.name, option);
-  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const productLine = getItemDisplayIdentity(item).name;
   const presentation = getBudgetItemPresentation(item);
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const subtotal = quantity * (Number(item.price) || 0);
@@ -6175,7 +6173,9 @@ function renderQuickSaleItem(order, item) {
     <div class="quick-sale-item">
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
-        <span>${escapeHtml(presentation || "Sin presentación")} · ${formatMoney(item.price)}</span>
+        ${renderItemVariant(item)}
+        <span>${escapeHtml(formatOrderItemOperationalQuantity(item))}</span>
+        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
       </div>
       <div class="quick-sale-item-controls">
         <span class="quick-sale-stepper" aria-label="${escapeHtml(getQuantityLabelForPresentation(presentation))}">
@@ -6364,9 +6364,7 @@ function getOrderItemPreparedAttributes(order, item) {
 
 function renderCompactBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
-  const option = getBudgetItemOptionLabel(item, product);
-  const displayName = getOrderItemDisplayName(item.name, option);
-  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const productLine = getItemDisplayIdentity(item).name;
   const presentation = getBudgetItemPresentation(item);
   const quantityLine = formatOrderItemOperationalQuantity(item, product);
   const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
@@ -6378,10 +6376,10 @@ function renderCompactBudgetItem(order, item) {
     : "";
   return `
     <div class="budget-item compact-budget-item-row order-product-read-row ${actions ? "" : "no-order-actions"} ${item.prepared ? "is-prepared" : ""}" ${getOrderItemPreparedAttributes(order, item)}>
-      <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b><small>${escapeHtml(quantityLine)}</small></span>
+      <span class="order-product-mobile-main"><b>${escapeHtml(productLine)}</b>${renderItemVariant(item)}<small>${escapeHtml(quantityLine)}</small><small>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</small></span>
       <span class="order-product-quantity">${escapeHtml(quantityLine)}</span>
-      <span class="budget-product-name order-product-line">${escapeHtml(productLine)}</span>
-      <span class="order-product-unit-price">${formatMoney(item.price)}</span>
+      <span class="budget-product-name order-product-line">${escapeHtml(productLine)}${renderItemVariant(item)}</span>
+      <span class="order-product-unit-price">${formatMoney(getDocumentItemUnitPrice(item))}</span>
       <strong class="budget-subtotal-cell order-product-subtotal">${formatMoney(subtotal)}</strong>
       ${actions ? `<span class="order-product-actions">${actions}</span>` : ""}
     </div>
@@ -6390,9 +6388,7 @@ function renderCompactBudgetItem(order, item) {
 
 function renderOperationalWebBudgetItem(order, item) {
   const product = products.find((entry) => entry.id === item.id);
-  const option = getBudgetItemOptionLabel(item, product);
-  const displayName = getOrderItemDisplayName(item.name, option);
-  const productLine = option ? `${displayName} - ${option}` : displayName;
+  const productLine = getItemDisplayIdentity(item).name;
   const quantityLine = formatOrderItemOperationalQuantity(item, product).replace(/=\s*(\d+)\s+([a-záéíóúñ]+)/i, (_, amount, unit) => `= ${amount} ${unit.toLocaleUpperCase("es-AR")}`);
   const subtotal = (Number(item.quantity) || 0) * (Number(item.price) || 0);
   const actions = canEditOrder(order)
@@ -6405,7 +6401,9 @@ function renderOperationalWebBudgetItem(order, item) {
     <article class="quick-sale-item operational-web-product-item ${item.prepared ? "is-prepared" : ""}" ${getOrderItemPreparedAttributes(order, item)}>
       <div class="quick-sale-item-main">
         <strong>${escapeHtml(productLine)}</strong>
+        ${renderItemVariant(item)}
         <span>${escapeHtml(quantityLine)}</span>
+        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
       </div>
       <div class="quick-sale-item-subtotal">Subtotal: <b>${formatMoney(subtotal)}</b></div>
       <div class="quick-sale-item-controls operational-web-product-actions">
@@ -6417,12 +6415,14 @@ function renderOperationalWebBudgetItem(order, item) {
 
 function formatOrderItemOperationalQuantity(item, product = null) {
   const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
-  const presentation = String(getBudgetItemPresentation(item) || "").trim();
-  const stockUnit = normalizeStockUnit(item?.stockUnit || product?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
+  const presentation = getItemDisplayPresentation(item);
+  if (!presentation) return `${quantity} · presentación no registrada`;
+  const stockUnit = normalizeStockUnit(item?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
   const packMatch = presentation.match(/pack\s*x\s*(\d+)/i);
 
   if (packMatch) {
     const packAmount = Math.max(1, Number(packMatch[1]) || 1);
+    if (!item?.stockUnit && !/docena|unidad/i.test(presentation)) return `${quantity} ${quantity === 1 ? "pack" : "packs"} x${packAmount} (unidad de contenido no registrada)`;
     const totalStockUnits = quantity * getStockUnitsPerSoldPresentation(presentation, stockUnit);
     const packNoun = quantity === 1 ? "pack" : "packs";
     const packUnitLabel = getStockUnitLabelFromUnit(stockUnit, packAmount);
@@ -6442,17 +6442,7 @@ function formatOrderItemOperationalQuantity(item, product = null) {
 }
 
 function getOrderItemDisplayName(name, option) {
-  const cleanName = String(name || "").trim();
-  const cleanOption = String(option || "").trim();
-  if (!cleanName || !cleanOption) return cleanName;
-  const normalizedName = normalizeProductSearchText(cleanName);
-  const normalizedOption = normalizeProductSearchText(cleanOption);
-  if (!normalizedOption || !normalizedName.includes(normalizedOption)) return cleanName;
-  const lowerName = cleanName.toLocaleLowerCase("es-AR");
-  const lowerOption = cleanOption.toLocaleLowerCase("es-AR");
-  if (!lowerName.endsWith(lowerOption)) return cleanName;
-  const stripped = cleanName.slice(0, cleanName.length - cleanOption.length).replace(/[\s·-]+$/g, "").trim();
-  return stripped || cleanName;
+  return getItemDisplayIdentity(typeof name === "object" ? name : { name, variant: option }).name;
 }
 function renderBudgetItemEditModal() {
   if (!editingBudgetItem) return "";
@@ -6468,8 +6458,8 @@ function renderBudgetItemEditModal() {
         <div class="budget-preview-head">
           <div>
             <strong>Editar producto</strong>
-            <span>${escapeHtml(item.name)}</span>
-            ${option ? `<span>${escapeHtml(option)}</span>` : ""}
+            <span>${escapeHtml(getItemDisplayIdentity(item).name)}</span>
+            ${renderItemVariant(item)}
           </div>
           <button class="icon-button" type="button" data-close-budget-item-edit aria-label="Cerrar edición">×</button>
         </div>
@@ -7868,7 +7858,7 @@ function renderCart() {
   els.floatingCartButton?.setAttribute("aria-label", `Abrir carrito (${totalUnits})`);
   updateFloatingCartVisibility();
   els.cartTotal.textContent = formatMoney(totalPrice);
-  const cartCountSummary = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} unidad${totalUnits === 1 ? "" : "es"} totales` : "Sin productos";
+  const cartCountSummary = items.length ? `${items.length} artículo${items.length === 1 ? "" : "s"} diferente${items.length === 1 ? "" : "s"} · ${totalUnits} presentaciones seleccionadas` : "Sin productos";
   els.cartSubtitle.textContent = cartCountSummary;
   if (els.cartSummaryCounts) els.cartSummaryCounts.textContent = cartCountSummary;
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
@@ -7889,12 +7879,12 @@ function renderCart() {
     <article class="cart-item compact-cart-item">
       <img class="cart-item-image" src="${escapeHtml(item.image || DEFAULT_PRODUCT_IMAGE)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}'">
       <div class="cart-item-main">
-        <strong>${index + 1}. ${escapeHtml(item.name.toUpperCase())}</strong>
+        <strong>${index + 1}. ${escapeHtml(getItemDisplayIdentity(item).name)}</strong>
         <div class="cart-item-meta">
           ${renderCartVariantLine(item)}
           <span>Presentación: ${escapeHtml(formatCartPresentation(item))}</span>
           <span>${escapeHtml(formatCartQuantityLine(item))}</span>
-                  <span>Precio: ${escapeHtml(formatMoney(Number(item.price) || 0))}</span>
+          <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
         </div>
       </div>
       <div class="cart-item-side">
@@ -8290,9 +8280,11 @@ function renderInternalSaleItem(item) {
   return `
     <article class="internal-sale-item">
       <div>
-        <strong>${escapeHtml(item.name || "Producto")}</strong>
-        <span>${item.variant ? `${escapeHtml(item.variant)} · ` : ""}${escapeHtml(formatCartPresentation(item))}</span>
-        <em>${escapeHtml(formatOrderItemOperationalQuantity(item))} · ${formatMoney(item.price)} · Subtotal ${formatMoney(item.price * quantity)}</em>
+        <strong>${escapeHtml(getItemDisplayIdentity(item).name)}</strong>
+        ${renderItemVariant(item)}
+        <span>${escapeHtml(formatOrderItemOperationalQuantity(item))}</span>
+        <span>Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}</span>
+        <em>Subtotal: ${formatMoney(item.price * quantity)}</em>
       </div>
       <div class="internal-sale-item-actions">
         <button class="quantity-stepper-button" type="button" data-internal-sale-decrease="${escapeHtml(item.id)}">−</button>
@@ -9969,17 +9961,7 @@ function buildQuickSaleWhatsappMessage(order) {
     `Fecha: ${formatDocumentDateTime(order.createdAt || new Date().toISOString())}`,
     "",
     ...order.items.map((item) => {
-      const product = products.find((entry) => entry.id === item.id);
-      const option = getBudgetItemOptionLabel(item, product);
-      const displayName = getOrderItemDisplayName(item.name, option);
-      const productLine = option ? `${displayName} - ${option}` : displayName;
-      const quantityLine = formatCleanQuantity({ ...item, presentation: getBudgetItemPresentation(item) });
-      return [
-        `* ${productLine}`,
-        `  Cantidad: ${quantityLine}`,
-        `  Precio: ${formatMoney(item.price)}`,
-        `  Subtotal: ${formatMoney(item.quantity * item.price)}`
-      ].join("\n");
+      return buildItemDisplayMessage(item).join("\n");
     }),
     "",
     `Subtotal: ${formatMoney(totals.subtotal)}`,
@@ -10004,6 +9986,8 @@ function buildOrderPrintDocument(order) {
   const items = order.items.map((item) => ({
     quantity: Math.max(1, Number(item.quantity) || 1),
     quantityLabel: formatDocumentQuantity(item),
+    quantityDetail: formatOrderItemOperationalQuantity(item),
+    quantityNoun: getQuantityNounForPresentation(getItemDisplayPresentation(item), Math.max(1, Number(item.quantity) || 1)),
     product: getDocumentItemName(item),
     variant: getDocumentItemVariantLabel(item),
     unitPrice: getDocumentItemUnitPrice(item),
@@ -10016,6 +10000,7 @@ function buildOrderPrintDocument(order) {
     record: formatOrderDocumentNumber(order),
     date: formatDocumentDateTime(order.createdAt),
     status: isPendingManualDetail(order) ? "Pendiente" : normalizeConsultationStatus(order.status),
+    operation: getOrderOrigin(order) === "local" ? "Venta Local" : getOrderOrigin(order) === "manual" ? "Pedido Manual" : "Pedido Web",
     customer: getOrderCustomerName(order),
     phone: order.customerPhone || "Sin teléfono",
     location: order.customerLocation || "Sin localidad",
@@ -10023,6 +10008,7 @@ function buildOrderPrintDocument(order) {
     deliveryType: getDeliveryLabel(order),
     subtotal: order.subtotal || 0,
     discount: formatDiscountSummary(order),
+    hasDiscount: Number(order.discountAmount) > 0,
     total: order.total || 0,
     items
   };
@@ -10093,25 +10079,56 @@ function buildOrderDocumentHtml(order) {
   `;
 }
 
+function getItemDisplayIdentity(item = {}) {
+  const originalName = String(item.baseName || item.productName || item.name || "Producto").trim().replace(/\s+/g, " ");
+  const raw = String(item.variantLabel || item.variant || item.optionName || item.option || item.size || item.talle || item.color || item.measure || "").trim();
+  if (!raw || isPresentationOnlyLabel(raw)) return { name: originalName, variant: "", value: "", type: "" };
+  const explicit = raw.match(/^(talle|color|medida|tamaño|surtido|variante)(?:\s*:\s*|\s+)(.+)$/i);
+  const value = explicit ? explicit[2].trim() : raw;
+  let type = explicit ? explicit[1] : String(item.variantType || item.optionType || "");
+  if (!type) type = item.color ? "Color" : item.measure ? "Medida"
+    : /^(?:\d+(?:\s*[-/]\s*\d+)?|[XSLM]+)$/i.test(value) || item.size || item.talle ? "Talle"
+    : /^\d+(?:[.,]\d+)?\s*[x×]\s*\d+/i.test(value) ? "Medida" : "Variante";
+  type = type.charAt(0).toLocaleUpperCase("es-AR") + type.slice(1).toLocaleLowerCase("es-AR");
+  let name = originalName;
+  // Solo quitar un sufijo respaldado por la variante guardada y un separador/etiqueta.
+  for (const suffix of [raw, `${type}: ${value}`, `${type} ${value}`, value]) {
+    const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const separated = new RegExp(`\\s+[-–—·|]\\s*${escaped}$`, "i");
+    const labeled = new RegExp(`\\s+(?:Talle|Color|Medida|Tamaño|Surtido|Variante)\\s*:?\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+    const clean = name.replace(separated, "").replace(labeled, "").trim();
+    if (clean) name = clean;
+  }
+  return { name, variant: `${type}: ${value}`, value, type };
+}
+
+function getItemDisplayPresentation(item = {}) {
+  if (String(item.presentation || "").trim()) return String(item.presentation).trim();
+  if (item.saleType === "pack" && Number(item.packQuantity) > 0) return `Pack x${Number(item.packQuantity)}`;
+  if (item.saleType === "unit") return "Unidad";
+  return "";
+}
+
+function renderItemVariant(item) {
+  const variant = getItemDisplayIdentity(item).variant;
+  return variant ? `<span class="item-variant-label">${escapeHtml(variant)}</span>` : "";
+}
+
+function buildItemDisplayMessage(item) {
+  const identity = getItemDisplayIdentity(item);
+  return [identity.name, ...(identity.variant ? [identity.variant] : []),
+    `Cantidad: ${formatOrderItemOperationalQuantity(item)}`,
+    `Precio unitario: ${formatMoney(getDocumentItemUnitPrice(item))}`,
+    `Subtotal: ${formatMoney((Number(item.quantity) || 0) * (Number(item.price) || 0))}`];
+}
+
 function getDocumentItemName(item) {
-  const base = String(item.baseName || item.productName || item.name || "Producto").trim().replace(/\s+/g, " ");
-  const option = String(item.optionName || item.variant || item.option || "").trim().replace(/\s+/g, " ");
-  if (!option) return base;
-  const normalizedBase = normalizeProductSearchText(base);
-  const normalizedOption = normalizeProductSearchText(option);
-  return normalizedBase.includes(normalizedOption) ? base : `${base} ${option}`;
+  return getItemDisplayIdentity(item).name;
 }
 
 function getDocumentItemVariantLabel(item) {
-  const option = String(item.variantLabel || item.variant || item.optionName || item.option || "").trim().replace(/\s+/g, " ");
-  const presentation = String(getBudgetItemPresentation(item) || "").trim();
-  const variant = option
-    ? /^surtido\b/i.test(option)
-      ? option
-      : /^talle\b/i.test(option)
-        ? option
-        : `Talle ${option}`
-    : "";
+  const variant = getItemDisplayIdentity(item).variant;
+  const presentation = getItemDisplayPresentation(item);
   return [variant, presentation].filter(Boolean).join(" · ") || "-";
 }
 
@@ -10119,7 +10136,7 @@ function getDocumentItemUnitPrice(item) {
   const totalPrice = Math.max(0, Number(item.price) || 0);
   const basePrice = Math.max(0, Number(item.basePrice ?? item.unitPrice) || 0);
   if (basePrice) return Math.round(basePrice);
-  const presentation = String(getBudgetItemPresentation(item) || "").trim();
+  const presentation = getItemDisplayPresentation(item);
   const stockUnit = normalizeStockUnit(item?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
   const multiplier = getStockUnitsPerSoldPresentation(presentation, stockUnit);
   return Math.round(totalPrice / Math.max(1, multiplier));
@@ -10127,8 +10144,12 @@ function getDocumentItemUnitPrice(item) {
 
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
-  const presentation = String(getBudgetItemPresentation(item) || "Unidad").trim();
-  return `${quantity} ${getDocumentQuantityPresentationLabel(presentation, quantity)}`.trim();
+  const presentation = getItemDisplayPresentation(item);
+  if (!presentation) return `${quantity} (sin presentación)`;
+  const label = item.stockUnit || /docena|unidad/i.test(presentation)
+    ? getDocumentPresentationLabel(presentation, quantity, item.stockUnit || inferDefaultStockUnitFromPresentation(presentation))
+    : getDocumentQuantityPresentationLabel(presentation, quantity);
+  return `${quantity} ${label}`.trim();
 }
 
 function getDocumentQuantityPresentationLabel(presentation, quantity = 1) {
@@ -10189,6 +10210,7 @@ function openPrintWindow(html, type = "recibo", filename = "") {
 
 function renderInlinePrintPreview(html, type = "recibo", filename = "") {
   if (!els.printPreviewOverlay || !els.printPreviewBody) return false;
+  resetReceiptPrintFormat();
   clearPdfDownloadLink();
   currentPrintHtml = html;
   currentPrintType = type;
@@ -10199,12 +10221,14 @@ function renderInlinePrintPreview(html, type = "recibo", filename = "") {
   preparePdfDownload(type);
   els.printPreviewOverlay.classList.remove("hidden");
   els.printPreviewOverlay.setAttribute("aria-hidden", "false");
+  if (els.printPreviewThermal) els.printPreviewThermal.disabled = !currentPrintDocument;
   pushPrintPreviewHistoryState();
   return true;
 }
 
 function closeInlinePrintPreview(options = {}) {
   if (!els.printPreviewOverlay || !els.printPreviewBody) return;
+  resetReceiptPrintFormat();
   els.printPreviewOverlay.classList.add("hidden");
   els.printPreviewOverlay.setAttribute("aria-hidden", "true");
   els.printPreviewBody.innerHTML = "";
@@ -10228,6 +10252,119 @@ function pushPrintPreviewHistoryState() {
   if (printPreviewHistoryActive || window.history.state?.modal === "printPreview") return;
   printPreviewHistoryActive = true;
   window.history.pushState({ ...makeAppHistoryState(currentView), modal: "printPreview" }, "", getCurrentHistoryUrl());
+}
+
+function resetReceiptPrintFormat() {
+  currentReceiptFormat = "a4";
+  currentThermalLayout = null;
+  delete document.documentElement.dataset.receiptFormat;
+  document.getElementById("thermalReceiptPageStyle")?.remove();
+}
+
+function printReceiptFormat(format) {
+  if (format === "ticket80" && !currentPrintDocument) return;
+  resetReceiptPrintFormat();
+  if (format === "ticket80") {
+    currentThermalLayout = buildThermalTicketLayout(currentPrintDocument);
+    currentReceiptFormat = format;
+    document.documentElement.dataset.receiptFormat = format;
+    const style = document.createElement("style");
+    style.id = "thermalReceiptPageStyle";
+    style.textContent = `@page { size: 80mm ${currentThermalLayout.height * 25.4 / 72}mm; margin: 0; }`;
+    document.head.append(style);
+    els.printPreviewBody.innerHTML = renderThermalTicketHtml(currentThermalLayout);
+  } else {
+    els.printPreviewBody.innerHTML = extractPrintableBody(currentPrintHtml);
+  }
+  if (!preparePdfDownload(currentPrintType)) {
+    showToast("No se pudo preparar el comprobante");
+    return;
+  }
+  printModalContent(currentPrintType);
+}
+
+function buildThermalTicketLayout(receipt) {
+  const width = 80 * 72 / 25.4;
+  const margin = 4 * 72 / 25.4;
+  const usable = width - margin * 2;
+  const context = document.createElement("canvas").getContext("2d");
+  const lines = [];
+  const measure = (text, size, bold) => {
+    context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
+    return context.measureText(text).width * 72 / 96;
+  };
+  const add = (value, size = 9, bold = false, align = "left") => {
+    const words = String(value || "").replace(/\s+/g, " ").trim().split(" ");
+    let text = "";
+    const emit = () => {
+      if (text) lines.push({ text, size, bold, align, leading: size * 1.35, width: measure(text, size, bold) });
+      text = "";
+    };
+    for (const word of words) {
+      if (text && measure(`${text} ${word}`, size, bold) > usable - 3) emit();
+      for (const character of word) {
+        if (measure(text + character, size, bold) > usable - 3) emit();
+        text += character;
+      }
+      text += " ";
+    }
+    text = text.trimEnd();
+    emit();
+  };
+  const rule = () => lines.push({ rule: true, leading: 8 });
+  add("PUNTO X MAYOR", 14, true, "center");
+  add("Av. de Mayo 187, Pergamino", 9, false, "center");
+  rule();
+  add(receipt.record, 12, true);
+  add(receipt.date);
+  add(receipt.operation);
+  if (receipt.customer) add(`Cliente: ${receipt.customer}`);
+  if (receipt.phone && receipt.phone !== "Sin teléfono") add(`Teléfono: ${receipt.phone}`);
+  if (receipt.location && receipt.location !== "Sin localidad") add(`Localidad: ${receipt.location}`);
+  for (const item of receipt.items) {
+    rule();
+    add(item.product, 10, true);
+    if (item.variant && item.variant !== "-") add(item.variant);
+    add(`Cantidad: ${item.quantityDetail}`);
+    add(`Precio unitario: ${formatMoney(item.unitPrice)}`);
+    add(`${item.quantity} ${item.quantityNoun} x ${formatMoney(item.price)}`);
+    add(`Subtotal: ${formatMoney(item.subtotal)}`, 10, true, "right");
+  }
+  rule();
+  add(`Subtotal: ${formatMoney(receipt.subtotal)}`, 10, false, "right");
+  if (receipt.hasDiscount) add(`Descuento: ${receipt.discount}`, 9, false, "right");
+  add(`TOTAL: ${formatMoney(receipt.total)}`, 14, true, "right");
+  rule();
+  add(`Pago: ${receipt.paymentMethod}`);
+  if (receipt.deliveryType) add(`Entrega: ${receipt.deliveryType}`);
+  if (receipt.status) add(`Estado: ${receipt.status}`);
+  rule();
+  add("Gracias por tu compra", 10, true, "center");
+  add("Comprobante comercial no fiscal", 8, false, "center");
+  const height = margin * 2 + lines.reduce((total, line) => total + line.leading, 0);
+  return { width, height, margin, usable, lines };
+}
+
+function renderThermalTicketHtml(layout) {
+  return `<div class="thermal-ticket">${layout.lines.map((line) => line.rule
+    ? `<div class="thermal-ticket-rule" style="height:${line.leading}pt"></div>`
+    : `<div class="thermal-ticket-line" style="font-size:${line.size}pt;line-height:${line.leading}pt;height:${line.leading}pt;font-weight:${line.bold ? 700 : 400};text-align:${line.align}">${escapeHtml(line.text)}</div>`).join("")}</div>`;
+}
+
+function createThermalTicketPdf(layout) {
+  let y = layout.height - layout.margin;
+  const commands = ["0 g 0 G 0.35 w"];
+  for (const line of layout.lines) {
+    y -= line.leading;
+    if (line.rule) {
+      commands.push(`${layout.margin} ${y + 4} m ${layout.width - layout.margin} ${y + 4} l S`);
+      continue;
+    }
+    const x = line.align === "right" ? layout.width - layout.margin - 3 - line.width
+      : line.align === "center" ? (layout.width - line.width) / 2 : layout.margin;
+    commands.push(`BT /${line.bold ? "F2" : "F1"} ${line.size} Tf ${x} ${y + (line.leading - line.size) / 2} Td ${pdfHexString(line.text)} Tj ET`);
+  }
+  return buildPdfFromPages([commands], layout.width, layout.height);
 }
 
 function printModalContent(type) {
@@ -10254,13 +10391,16 @@ function preparePdfDownload(type) {
 
   try {
     const title = els.printPreviewTitle?.textContent.trim() || (type === "pedido" ? "Pedido" : "Documento");
-    const pdf = currentPrintDocument
+    const pdf = currentReceiptFormat === "ticket80" && currentThermalLayout
+      ? createThermalTicketPdf(currentThermalLayout)
+      : currentPrintDocument
       ? createOrderDocumentPdf(currentPrintDocument)
       : createSimplePdf(getPrintablePdfLines(els.printPreviewBody), title);
     currentPdfBlob = new Blob([pdf], { type: "application/pdf" });
     clearPdfDownloadLink({ keepBlob: true });
     currentPdfUrl = URL.createObjectURL(currentPdfBlob);
     currentPdfFilename = currentPrintFilename || `${slugifyFilename(title)}.pdf`;
+    if (currentReceiptFormat === "ticket80") currentPdfFilename = currentPdfFilename.replace(/\.pdf$/i, "-ticket-80mm.pdf");
     updateTopPdfLink(currentPdfUrl, currentPdfFilename);
     showPdfDownloadLink(currentPdfUrl, currentPdfFilename);
     return true;
@@ -10465,12 +10605,13 @@ function createOrderDocumentPdf(document) {
 
   renderPdfHeader(true);
   document.items.forEach((item) => {
+    const quantityLines = wrapPdfLine(item.quantityLabel, 12);
     const productLines = wrapPdfLine(item.product, 29);
     const variantLines = wrapPdfLine(item.variant, 24);
-    const rowLines = Math.max(productLines.length, variantLines.length, 1);
+    const rowLines = Math.max(quantityLines.length, productLines.length, variantLines.length, 1);
     const rowHeight = Math.max(16, rowLines * 10 + 6);
     if (y < bottom + rowHeight + 72) newPage();
-    addText(item.quantityLabel, margin, y, 8.4, false);
+    quantityLines.forEach((line, index) => addText(line, margin, y - (index * 10), 8.4, false));
     productLines.forEach((line, index) => addText(line, margin + 70, y - (index * 10), 8.4, false));
     variantLines.forEach((line, index) => addText(line, margin + 230, y - (index * 10), 8.2, false));
     addText(formatMoney(item.unitPrice), pageWidth - 172, y, 8.4, false);
@@ -11012,13 +11153,7 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
   const cleanConsultationLabel = String(consultationLabel || "").trim();
   const consultationId = cleanConsultationLabel.replace(/^Pedido\s+/i, "");
   const productLines = items.flatMap((item) => {
-    const option = shouldShowCartOptionLine(item) ? ` - ${item.variantLabel}` : "";
-    const name = `${item.name}${option}`;
-    return [
-      `• ${formatWhatsappQuantity(item)} - ${name}`,
-      `  Subtotal: ${formatCustomerLineSubtotal(item)}`,
-      ""
-    ];
+    return [...buildItemDisplayMessage(item), ""];
   });
   const lines = [
     "PUNTO X MAYOR",
@@ -11068,10 +11203,7 @@ function buildBudgetMessage(order) {
     "",
     `Cliente: ${getOrderCustomerName(order)}`,
     "",
-    ...order.items.map((item) => {
-      const label = `${item.name} x${item.quantity}`;
-      return `* ${label} ${".".repeat(Math.max(4, 36 - label.length))} ${formatMoney(item.quantity * item.price)}`;
-    }),
+    ...order.items.flatMap((item) => [...buildItemDisplayMessage(item), ""]),
     "",
     `Subtotal: ${formatMoney(totals.subtotal)}`,
     ...(totals.discountAmount > 0 ? [`Descuento: ${formatMoney(totals.discountAmount)}`] : []),
@@ -11224,7 +11356,7 @@ function formatCartQuantity(item) {
 }
 
 function formatCartQuantityLine(item) {
-  return `${getQuantityLabelForItem(item)}: ${Math.max(1, Number(item?.quantity) || 1)}`;
+  return `Cantidad: ${formatOrderItemOperationalQuantity(item)}`;
 }
 
 function formatCartPresentation(item) {
@@ -11243,15 +11375,11 @@ function formatCartPresentation(item) {
 }
 
 function renderCartVariantLine(item) {
-  const label = String(item?.variantLabel || "").trim();
-  if (!shouldShowCartOptionLine(item)) return "";
-  return `<span>${escapeHtml(/^Surtido\b/i.test(label) ? "Surtido" : "Talle")}: ${escapeHtml(label.replace(/^Surtido\s+/i, ""))}</span>`;
+  return renderItemVariant(item);
 }
 
 function shouldShowCartOptionLine(item) {
-  const label = String(item?.variantLabel || "").trim();
-  if (!label || isPresentationOnlyLabel(label)) return false;
-  return !String(item?.name || "").toLowerCase().includes(label.toLowerCase());
+  return Boolean(getItemDisplayIdentity(item).variant);
 }
 
 function isPresentationOnlyLabel(value) {
@@ -11275,8 +11403,7 @@ function formatCartSubtotal(item) {
 }
 
 function formatCleanQuantity(item) {
-  const quantity = Math.max(1, Number(item.quantity) || 1);
-  return formatQuantityWithPresentationLabel(item?.presentation || formatCartPresentation(item), quantity);
+  return formatOrderItemOperationalQuantity(item);
 }
 
 function formatCustomerLineSubtotal(item) {

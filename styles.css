@@ -14381,6 +14381,61 @@ body.admin-catalog-preview .public-catalog-header + .minimum-banner {
   font-weight: 800;
 }
 
+.item-variant-label {
+  display: block;
+  color: inherit;
+  font-size: 0.9em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.thermal-ticket {
+  box-sizing: border-box;
+  width: 80mm;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 4mm;
+  background: #fff;
+  color: #000;
+  font-family: Arial, sans-serif;
+}
+
+.thermal-ticket-line {
+  white-space: pre;
+  letter-spacing: 0;
+}
+
+.thermal-ticket-rule {
+  position: relative;
+}
+
+.thermal-ticket-rule::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 0.35pt solid #000;
+}
+
+@media print {
+  html[data-receipt-format="ticket80"] #printPreviewBody.print-area {
+    box-sizing: border-box !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+
+  html[data-receipt-format="ticket80"] .thermal-ticket {
+    width: 80mm;
+    max-width: none;
+    margin: 0;
+    padding: 4mm;
+  }
+}
+
 .catalog-pdf-status.is-error {
   background: #fff1f1;
   color: #9f1d1d;
