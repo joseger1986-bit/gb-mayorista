@@ -13175,7 +13175,28 @@ function buildImportedProductUpdates(rows) {
     const markupChanged = Object.hasOwn(changes, "markup");
     if (costChanged && !(changes.cost > 0)) throw new Error(`Fila ${offset + 2}: el costo debe ser mayor a cero; dejalo vacío para conservarlo.`);
     const next = { ...current, ...changes };
-    if (priceChanged) {
+    const priceIndex = findImportHeaderIndex(headers, columns.price);
+    const saleFormula = row.formulas?.[priceIndex];
+    if (saleFormula) {
+      const costIndex = findImportHeaderIndex(headers, columns.cost);
+      const markupIndex = findImportHeaderIndex(headers, columns.markup);
+      const expected = getProductSaleExportFormula(original, saleFormula.rowNumber, costIndex + 1, markupIndex + 1);
+      if (saleFormula.formula.replace(/\$/g, "").toUpperCase() !== expected.toUpperCase()) {
+        throw new Error(`Fila ${offset + 2}: fórmula de venta no reconocida. Conservá la fórmula exportada o escribí el precio de venta como número.`);
+      }
+      const rawCost = row[costIndex];
+      const rawMarkup = row[markupIndex];
+      const cost = String(rawCost ?? "").trim() ? parseMarkupImportNumber(rawCost, "cost") : 0;
+      const markup = String(rawMarkup ?? "").trim();
+      const validMarkup = markup !== "" && markup !== "-";
+      if ((costChanged || markupChanged) && cost > 0 && !sameProductImportValue(current.cost, original.cost) && !sameProductImportValue(current.cost, cost)) {
+        throw new Error(`Fila ${offset + 2}: el costo cambió en Gestión después de exportar. Exportá nuevamente para no calcular la venta con un costo anterior.`);
+      }
+      next.price = cost > 0 && validMarkup && (costChanged || markupChanged)
+        ? calculateMarkedSalePrice(cost, parseMarkupImportNumber(rawMarkup, "markup")) : original.price;
+      // Una fórmula intacta no debe revertir un precio cambiado después de exportar.
+      if (!costChanged && !markupChanged) next.price = current.price;
+    } else if (priceChanged) {
       if (costChanged || markupChanged) manualPrices++;
     } else if (markupChanged || costChanged) {
       const reference = markupChanged ? changes.markup : getProductMarkup(original.cost, original.price);
@@ -13261,8 +13282,10 @@ async function parseXlsxRows(arrayBuffer) {
   const sharedStringsXml = await extractZipText(arrayBuffer, "xl/sharedStrings.xml").catch(() => "");
   const sharedStrings = parseXlsxSharedStrings(sharedStringsXml);
   const rowMatches = [...sheetXml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)];
-  return rowMatches.map((rowMatch) => {
+  const sharedFormulas = new Map();
+  const rows = rowMatches.map((rowMatch) => {
     const cells = [];
+    const formulas = {};
     [...rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)].forEach((cellMatch) => {
       const attrs = cellMatch[1] || "";
       const body = cellMatch[2] || "";
@@ -13271,9 +13294,32 @@ async function parseXlsxRows(arrayBuffer) {
       const type = attrs.match(/\bt="([^"]+)"/i)?.[1] || "";
       const value = parseXlsxCellValue(body, type, sharedStrings);
       cells[index] = value;
+      const formula = body.match(/<f\b([^>]*?)(?:>([\s\S]*?)<\/f>|\/>)/);
+      if (formula) {
+        const entry = { formula: decodeXml(formula[2] || ""), rowNumber: Number(attrs.match(/\br="[A-Z]+(\d+)"/i)?.[1]), columnIndex: index };
+        const sharedIndex = formula[1].match(/\bsi="(\d+)"/)?.[1];
+        if (sharedIndex !== undefined) {
+          entry.sharedIndex = sharedIndex;
+          if (entry.formula) sharedFormulas.set(sharedIndex, entry);
+        }
+        formulas[index] = entry;
+      }
     });
-    return cells.map((cell) => typeof cell === "number" ? cell : String(cell ?? "").trim());
+    const row = cells.map((cell) => typeof cell === "number" ? cell : String(cell ?? "").trim());
+    row.formulas = formulas;
+    return row;
   }).filter((row) => row.some(Boolean));
+  for (const row of rows) for (const entry of Object.values(row.formulas)) {
+    if (entry.formula || entry.sharedIndex === undefined) continue;
+    const master = sharedFormulas.get(entry.sharedIndex);
+    if (!master) throw new Error("La planilla contiene una fórmula compartida incompleta. Volvé a guardarla desde Excel.");
+    entry.formula = master.formula.replace(/(\$?)([A-Z]+)(\$?)(\d+)/g, (_, absoluteColumn, column, absoluteRow, number) => {
+      const shiftedColumn = absoluteColumn ? column : getExcelColumnName(excelColumnNameToIndex(column) + entry.columnIndex - master.columnIndex);
+      const shiftedRow = absoluteRow ? Number(number) : Number(number) + entry.rowNumber - master.rowNumber;
+      return `${absoluteColumn}${shiftedColumn}${absoluteRow}${shiftedRow}`;
+    });
+  }
+  return rows;
 }
 
 async function extractZipText(arrayBuffer, wantedName) {
@@ -13483,7 +13529,8 @@ async function exportProductsToExcel() {
       numericColumns: [6, 7, 8, 10],
       moneyColumns: [6, 7],
       decimalColumns: [8],
-      hiddenColumns: [13]
+      hiddenColumns: [13],
+      cellFormulas: { 7: (row, rowNumber) => getProductSaleExportFormula(JSON.parse(row[12]), rowNumber) }
     });
     showToast("Productos exportados en Excel");
   } catch (error) {
@@ -13864,6 +13911,15 @@ function downloadXlsxWorkbook(filename, sheetName, headers, rows, options = {}) 
   URL.revokeObjectURL(link.href);
 }
 
+function getProductSaleExportFormula(original, rowNumber, costColumn = 6, markupColumn = 8) {
+  const costRef = `${getExcelColumnName(costColumn)}${rowNumber}`;
+  const markupRef = `${getExcelColumnName(markupColumn)}${rowNumber}`;
+  const cost = Number(original.cost) || 0;
+  const price = Number(original.price) || 0;
+  const markup = original.markup === null ? '"-"' : Number(original.markup);
+  return `IF(AND(${costRef}>0,ISNUMBER(${markupRef})),IF(AND(${costRef}=${cost},${markupRef}=${markup}),${price},ROUNDUP(${costRef}*(1+${markupRef}/100)/100,0)*100),${price})`;
+}
+
 function buildXlsxWorkbook(sheetName, headers, rows, options = {}) {
   const numericColumns = new Set(options.numericColumns || []);
   const moneyColumns = new Set(options.moneyColumns || []);
@@ -13881,7 +13937,7 @@ function buildXlsxWorkbook(sheetName, headers, rows, options = {}) {
     ["docProps/core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${safeSheetName}</dc:title><dc:creator>Punto X Mayor</dc:creator><cp:lastModifiedBy>Punto X Mayor</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`],
     ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${safeSheetName}" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${safeSheetName}" sheetId="1" r:id="rId1"/></sheets>${options.cellFormulas ? '<calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>' : ""}</workbook>`],
     ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
     ["xl/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -13909,6 +13965,8 @@ function buildXlsxSheetXml(rows, numericColumns, moneyColumns, options = {}) {
     const cells = row.map((value, columnIndex) => {
       const ref = `${getExcelColumnName(columnIndex + 1)}${rowNumber}`;
       const style = rowIndex === 0 ? 1 : options.decimalColumns?.includes(columnIndex + 1) ? 4 : moneyColumns.has(columnIndex + 1) ? 2 : 3;
+      const formula = rowIndex > 0 ? options.cellFormulas?.[columnIndex + 1]?.(row, rowNumber) : "";
+      if (formula) return `<c r="${ref}" s="${style}"><f>${escapeXml(formula)}</f><v>${Number(value)}</v></c>`;
       if (rowIndex > 0 && numericColumns.has(columnIndex + 1) && Number.isFinite(Number(value))) {
         return `<c r="${ref}" s="${style}"><v>${Number(value)}</v></c>`;
       }
