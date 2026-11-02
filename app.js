@@ -13589,17 +13589,14 @@ async function createCatalogPdfBlob(type) {
 }
 
 function getProductsForCatalogPdf() {
-  return getOrderedProducts()
-    .filter((product) => product.active !== false)
-    .filter((product) => product.showInCatalog !== false)
-    .filter((product) => isCategoryVisible(product.category))
+  return getCatalogProducts()
     .sort((a, b) => {
       const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
       if (categoryDiff !== 0) return categoryDiff;
       const left = Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
       const right = Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
       if (left !== right) return left - right;
-      return getProductArticleName(a).localeCompare(getProductArticleName(b), "es", { sensitivity: "base" });
+      return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
     });
 }
 
@@ -13644,21 +13641,27 @@ async function createCatalogPdf(productsForPdf, options = {}) {
   const imageObjects = [];
   let currentPage = makeCatalogPdfPage();
   let categoryOnPage = "";
+  let columnOffsets = [0, 0];
 
-  for (let index = 0; index < productsForPdf.length; index += 1) {
-    const product = productsForPdf[index];
-    const position = currentPage.cards.length;
-    if (position >= cardsPerPage) {
+  for (const product of productsForPdf) {
+    const lines = getCatalogPdfTextLines(product, includePrices, cardWidth - 24);
+    const height = Math.max(cardHeight, imageHeight + 48 + lines.reduce((total, line) => total + line.leading, 0));
+    const availableHeight = pageHeight - margin * 2 - headerHeight;
+    if (height > availableHeight) throw new Error(`Demasiadas variantes para una ficha legible: ${product.name}.`);
+    if (currentPage.cards.length && (currentPage.cards.length >= cardsPerPage || columnOffsets.every((offset) => offset + height > availableHeight))) {
       pages.push(currentPage);
       currentPage = makeCatalogPdfPage();
       categoryOnPage = "";
+      columnOffsets = [0, 0];
     }
-    const image = await getCatalogPdfImageObject(getProductImages(product)[0] || product.image || DEFAULT_PRODUCT_IMAGE, imageObjects.length + 1);
+    const column = columnOffsets[0] <= columnOffsets[1] ? 0 : 1;
+    const image = await getCatalogPdfImageObject(product.images?.[0] || product.image || DEFAULT_PRODUCT_IMAGE, imageObjects.length + 1);
     if (image) imageObjects.push(image);
     const category = String(product.category || "Sin categoría").trim() || "Sin categoría";
     const showCategory = category !== categoryOnPage;
     categoryOnPage = category;
-    currentPage.cards.push({ product, imageName: image?.name || "", showCategory });
+    currentPage.cards.push({ product, lines, height, column, rowOffset: columnOffsets[column], imageName: image?.name || "", showCategory });
+    columnOffsets[column] += height + gap;
   }
   if (currentPage.cards.length) pages.push(currentPage);
   if (!pages.length) pages.push(makeCatalogPdfPage());
@@ -13711,48 +13714,76 @@ function renderCatalogPdfPage(page, settings) {
   addText(today, pageWidth - margin - 58, pageHeight - margin - 22, 8, false);
   addLine(margin, pageHeight - margin - 34, pageWidth - margin, pageHeight - margin - 34, 0.8);
 
-  page.cards.forEach((entry, index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
+  page.cards.forEach((entry) => {
+    const col = entry.column;
     const x = margin + col * (cardWidth + gap);
-    const top = pageHeight - margin - headerHeight - row * (cardHeight + gap);
-    const y = top - cardHeight;
+    const top = pageHeight - margin - headerHeight - entry.rowOffset;
+    const y = top - entry.height;
     const product = entry.product;
-    addRect(x, y, cardWidth, cardHeight, true, false);
+    addRect(x, y, cardWidth, entry.height, true, false);
     drawImage(entry.imageName, x + 8, top - imageHeight - 8, cardWidth - 16, imageHeight);
     let textY = top - imageHeight - 24;
     if (entry.showCategory) {
       addText(String(product.category || "Sin categoría"), x + 10, textY, 7.5, true);
       textY -= 12;
     }
-    wrapPdfLine(getProductBaseName(product), 31).slice(0, 2).forEach((line) => {
-      addText(line, x + 10, textY, 9.2, true);
-      textY -= 11;
+    entry.lines.forEach((line) => {
+      addText(line.text, x + 10, textY, line.size, line.bold);
+      textY -= line.leading;
     });
-    const variant = getCatalogPdfVariantLabel(product);
-    if (variant) {
-      wrapPdfLine(variant, 34).slice(0, 1).forEach((line) => {
-        addText(line, x + 10, textY, 8.2, false);
-        textY -= 10;
-      });
-    }
-    const presentation = getProductPresentation(product) || "Sin presentación";
-    wrapPdfLine(presentation, 34).slice(0, 2).forEach((line) => {
-      addText(line, x + 10, textY, 8.1, false);
-      textY -= 10;
-    });
-    if (includePrices) {
-      const price = getProductSalePriceForPresentation(product);
-      addText(price > 0 ? formatMoney(price) : "Falta precio", x + 10, y + 13, 10.5, true);
-    }
   });
   addText(`Página ${pageIndex + 1} de ${pageCount}`, pageWidth - margin - 58, 20, 8, false);
   return commands;
 }
 
-function getCatalogPdfVariantLabel(product) {
-  const label = formatProductVariantSummary(product);
-  return label && label !== "Sin talle" ? label : "";
+function getCatalogPdfTextLines(product, includePrices, width) {
+  const lines = [];
+  const context = document.createElement("canvas").getContext("2d");
+  const add = (text, size = 8.2, bold = false) => {
+    context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
+    const measure = (value) => context.measureText(value).width * 72 / 96;
+    let current = "";
+    const emit = () => { if (current.trim()) lines.push({ text: current.trim(), size, bold, leading: size === 10.5 ? 14 : 11 }); current = ""; };
+    for (const word of String(text).split(/\s+/)) {
+      if (current && measure(`${current} ${word}`) > width) emit();
+      for (const character of word) {
+        if (measure(current + character) > width) emit();
+        current += character;
+      }
+      current += " ";
+    }
+    emit();
+  };
+  add(product.name, 9.2, true);
+  const groups = new Map();
+  for (const variant of product.variants || []) {
+    const presentation = String(variant.presentation || "Sin presentación");
+    const key = JSON.stringify([presentation, includePrices ? Number(variant.price) || 0 : null]);
+    if (!groups.has(key)) groups.set(key, { presentation, price: Number(variant.price) || 0, variants: [] });
+    groups.get(key).variants.push(variant);
+  }
+  const commonPresentation = groups.size > 1 && new Set([...groups.values()].map((group) => group.presentation)).size === 1;
+  if (commonPresentation) add(`Presentación: ${groups.values().next().value.presentation}`, 8.1);
+  for (const group of groups.values()) {
+    const labels = new Map();
+    for (const variant of group.variants) {
+      const identity = getItemDisplayIdentity({ ...variant, variantLabel: variant.label });
+      if (!identity.variant) continue;
+      if (!labels.has(identity.type)) labels.set(identity.type, new Set());
+      labels.get(identity.type).add(identity.value);
+    }
+    for (const [type, values] of labels) {
+      const sorted = [...values].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+      const numeric = sorted.every((value) => /^\d+$/.test(value));
+      const consecutive = numeric && sorted.length > 2 && sorted.every((value, index) => !index || Number(value) === Number(sorted[index - 1]) + 1);
+      const value = consecutive ? `${sorted[0]} al ${sorted.at(-1)}` : sorted.join(", ");
+      const title = ({ Talle: "Talles disponibles", Color: "Colores disponibles", Medida: "Medidas disponibles", Tamaño: "Tamaños disponibles", Surtido: "Surtidos disponibles" })[type] || "Variantes disponibles";
+      add(`${title}: ${value}`);
+    }
+    if (!commonPresentation) add(`Presentación: ${group.presentation}`, 8.1);
+    if (includePrices) add(group.price > 0 ? formatMoney(group.price) : "Falta precio", 10.5, true);
+  }
+  return lines;
 }
 
 async function getCatalogPdfImageObject(imageUrl, index) {
