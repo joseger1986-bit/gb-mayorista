@@ -13667,6 +13667,9 @@ function getPdfPurchaseRule(product) {
   }
   if (category === "blanqueria") {
     if (/\bgoldsun\b/.test(name) && /\bsabanas\b/.test(name)) return { pack: 2, goldsun: true };
+    if (/^repasadores?\b/.test(name) && /\b(?:franco valente|f valente)\b/.test(name)) return { pack: 6 };
+    if (/^toallas? de visita\b/.test(name) && /\b(?:franco valente|f valente)\b/.test(name)) return { pack: 6 };
+    if (/^toallon\b.*\bsecado rapido\b/.test(name)) return { pack: 5 };
     if (/\bjuegos?\b.*\bsabanas\b/.test(name) || /\bsabanas ajustables\b/.test(name)) return { pack: 4 };
     if (/^juegos? (?:de )?(?:toalla|t t)\b/.test(name) || /^toallon(?:es)?\b/.test(name) || /^cortinas? blackout\b/.test(name)) return { pack: 4 };
     if (/^toallas? de mano\b/.test(name) || /^almohadas?\b/.test(name)) return { pack: 5 };
@@ -13703,18 +13706,20 @@ function getPdfPurchaseModesProduct(product) {
       add("Docena — Sin compra mínima", base * getStockUnitsPerSoldPresentation("Docena", stockUnit));
     } else if (rule.pack) {
       if (!rule.dozen && stockUnit !== "unidades") throw new Error(`La unidad de precio de ${product.name} necesita revisión antes de ofrecer el pack.`);
-      const unitPrice = rule.dozen ? base * getStockUnitsPerSoldPresentation("Docena", stockUnit) : base;
+      // Goldsun's existing complete presentation is one valijita (two games), not one game.
+      const unitPrice = rule.goldsun ? Number(variant.price) : rule.dozen ? base * getStockUnitsPerSoldPresentation("Docena", stockUnit) : base;
+      if (!(unitPrice > 0) || !Number.isFinite(unitPrice)) throw new Error(`Falta verificar el precio de la presentación de ${product.name}.`);
       const identity = getItemDisplayIdentity({ ...variant, variantLabel: variant.label });
       const size = /^\d+$/.test(identity.value) ? Number(identity.value) : NaN;
       const allowedSize = rule.minSize === undefined || (size >= rule.minSize && size <= rule.maxSize);
-      const unitLabel = rule.dozen ? "Docena" : rule.goldsun ? "Unidad (valijita con 2 juegos)" : "Unidad";
-      add(`${unitLabel} — Con compra mínima`, unitPrice);
+      const unitLabel = rule.dozen ? "Docena" : rule.goldsun ? "1 valijita (2 juegos)" : "Unidad";
+      add(`${unitLabel} — Compra surtida (mín. total ${formatMoney(WHOLESALE_MINIMUM)})`, unitPrice);
       if (allowedSize) {
         const packLabel = rule.goldsun ? "Pack x2 valijitas (4 juegos)" : `Pack x${rule.pack}${rule.dozen ? " docenas" : " unidades"}`;
         add(`${packLabel} — Sin compra mínima${rule.mixed ? " · Talles surtibles" : ""}`, unitPrice * rule.pack);
       }
     } else if (/^(?:venta\s+por\s+)?unidad(?:es)?$/i.test(presentation)) {
-      add("Unidad — Con compra mínima", Number(variant.price));
+      add(`Unidad — Compra surtida (mín. total ${formatMoney(WHOLESALE_MINIMUM)})`, Number(variant.price));
     } else {
       const label = /docena/i.test(presentation) && !/pack/i.test(presentation) ? "Docena" : getPresentationLabelForCatalog(presentation, stockUnit);
       if (!label) throw new Error(`Falta la presentación vigente de ${product.name}.`);
@@ -13739,7 +13744,7 @@ function getCommercialCatalogPdfTextLines(product, width) {
 }
 
 function getPdfPurchaseConditions() {
-  return [`CON COMPRA MÍNIMA: ${formatMoney(WHOLESALE_MINIMUM)} en total, combinando productos.`, "SIN COMPRA MÍNIMA: comprando packs o docenas completas."];
+  return [`COMPRA SURTIDA: Combiná productos desde ${formatMoney(WHOLESALE_MINIMUM)} en total.`, "PACKS Y DOCENAS: Sin compra mínima."];
 }
 
 function wrapPriceListText(text, width, size, bold = false) {
@@ -13899,14 +13904,27 @@ async function createCatalogPdf(productsForPdf, options = {}) {
 
   for (const product of productsForPdf) {
     const lines = includePrices ? getCommercialCatalogPdfTextLines(product, cardWidth - 24) : getCatalogPdfTextLines(product, false, cardWidth - 24);
-    const height = Math.max(cardHeight, imageHeight + 48 + lines.reduce((total, line) => total + line.leading, 0));
+    const height = Math.max(includePrices ? 0 : cardHeight, imageHeight + (includePrices ? 30 : 48) + lines.reduce((total, line) => total + line.leading, 0));
     const availableHeight = pageHeight - margin * 2 - headerHeight;
-    if (height > availableHeight) throw new Error(`Demasiadas variantes para una ficha legible: ${product.name}.`);
-    if (currentPage.cards.length && (currentPage.cards.length >= cardsPerPage || columnOffsets.every((offset) => offset + height > availableHeight))) {
+    const category = String(product.category || "Sin categoría").trim() || "Sin categoría";
+    const categorySpace = includePrices ? 28 : 0;
+    if (height + categorySpace > availableHeight) throw new Error(`Demasiadas variantes para una ficha legible: ${product.name}.`);
+    const startsCategory = category !== categoryOnPage;
+    const categoryOffset = Math.max(...columnOffsets);
+    const needsPage = includePrices
+      ? (startsCategory ? categoryOffset + categorySpace + height > availableHeight : columnOffsets.every((offset) => offset + height > availableHeight))
+      : currentPage.cards.length >= cardsPerPage || columnOffsets.every((offset) => offset + height > availableHeight);
+    if (currentPage.cards.length && needsPage) {
       pages.push(currentPage);
       currentPage = makeCatalogPdfPage();
       categoryOnPage = "";
       columnOffsets = [0, 0];
+    }
+    if (includePrices && category !== categoryOnPage) {
+      const offset = Math.max(...columnOffsets);
+      currentPage.categories = currentPage.categories || [];
+      currentPage.categories.push({ name: category, offset });
+      columnOffsets = [offset + categorySpace, offset + categorySpace];
     }
     const column = columnOffsets[0] <= columnOffsets[1] ? 0 : 1;
     const imageSource = product.images?.[0] || product.image || DEFAULT_PRODUCT_IMAGE;
@@ -13916,8 +13934,7 @@ async function createCatalogPdf(productsForPdf, options = {}) {
       if (image) imageObjects.push(image);
     }
     const image = imageBySource.get(imageSource);
-    const category = String(product.category || "Sin categoría").trim() || "Sin categoría";
-    const showCategory = category !== categoryOnPage;
+    const showCategory = !includePrices && category !== categoryOnPage;
     categoryOnPage = category;
     currentPage.cards.push({ product, lines, height, column, rowOffset: columnOffsets[column], imageName: image?.name || "", showCategory });
     columnOffsets[column] += height + gap;
@@ -13974,6 +13991,14 @@ function renderCatalogPdfPage(page, settings) {
   commands.push("0.67 0.52 0.22 RG");
   addLine(margin, pageHeight - margin - 44, pageWidth - margin, pageHeight - margin - 44, 0.8);
   if (includePrices) getPdfPurchaseConditions().forEach((condition, index) => addText(condition, margin, pageHeight - margin - 59 - index * 14, 9.2, true));
+  for (const category of page.categories || []) {
+    const baseline = pageHeight - margin - headerHeight - category.offset - 13;
+    addText(category.name, margin, baseline, 13, true);
+    commands.push("0 G");
+    const context = document.createElement("canvas").getContext("2d");
+    context.font = `bold ${13 * 96 / 72}px Arial`;
+    addLine(margin, baseline - 3, margin + context.measureText(category.name).width * 72 / 96, baseline - 3, 0.7);
+  }
 
   page.cards.forEach((entry) => {
     const col = entry.column;
