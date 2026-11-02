@@ -178,7 +178,7 @@
           <button class="ghost-button management-tab-with-badge" data-view="pedidos">Pedidos<span class="orders-attention-badge hidden" id="ordersAttentionBadge" aria-label="Pedidos nuevos sin ver"></span></button>
           <button class="ghost-button" data-view="clientes">Clientes</button>
           <button class="ghost-button" data-view="reportes" data-reports-only>Reportes</button>
-          <span class="management-admin-tools" data-import-export-only><button class="ghost-button" data-view="importacion">Importación Excel</button><button class="ghost-button" data-view="catalogos">Catálogos PDF</button></span>
+          <span class="management-admin-tools"><button class="ghost-button" data-view="importacion" data-import-export-only>Importación Excel</button><button class="ghost-button" data-view="catalogos" data-catalog-pdf-only>Catálogos PDF</button></span>
           </div>
       </section>
 
@@ -377,7 +377,7 @@
       </section>
 
 
-      <section id="catalogPdfView" class="content-view hidden" data-import-export-only>
+      <section id="catalogPdfView" class="content-view hidden" data-catalog-pdf-only>
         <div class="import-planner catalog-pdf-planner">
           <div class="section-head compact">
             <div>
@@ -393,6 +393,7 @@
               </div>
               <div class="catalog-pdf-actions">
                 <button class="primary-button" id="downloadWholesaleCatalogPdf" type="button">Descargar PDF</button>
+                <button class="secondary-button" data-catalog-pdf-preview="wholesale" type="button">Ver PDF</button>
                 <button class="secondary-button" id="shareWholesaleCatalogPdf" type="button">Compartir</button>
               </div>
             </article>
@@ -403,6 +404,7 @@
               </div>
               <div class="catalog-pdf-actions">
                 <button class="primary-button" id="downloadResaleCatalogPdf" type="button">Descargar PDF</button>
+                <button class="secondary-button" data-catalog-pdf-preview="resale" type="button">Ver PDF</button>
                 <button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button>
               </div>
             </article>
@@ -413,6 +415,8 @@
               </div>
               <div class="catalog-pdf-actions">
                 <button class="primary-button" id="downloadPriceListPdf" type="button">Descargar PDF</button>
+                <button class="secondary-button" data-catalog-pdf-preview="price-list" type="button">Ver PDF</button>
+                <button class="secondary-button" id="sharePriceListPdf" type="button">Compartir</button>
               </div>
             </article>
           </div>
@@ -793,7 +797,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-  <script src="/app.js?v=pdf-purchase-modes-2"></script>
+  <script src="/app.js?v=employee-catalog-pdf-1"></script>
   </body>
 </html>
 

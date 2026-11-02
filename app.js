@@ -73,14 +73,14 @@ const roles = {
   },
   employee: {
     label: "Empleado",
-    description: "Puede trabajar productos, precios de venta y stock. No ve costos, márgenes, reportes ni exportaciones."
+    description: "Puede trabajar productos, precios de venta, stock y catálogos PDF. No ve costos, márgenes, reportes ni exportaciones Excel."
   }
 };
 
 const rolePermissions = {
   client: [],
-  employee: ["internal", "products", "stock", "orders", "clients", "manageProducts", "editAll"],
-  admin: ["internal", "products", "stock", "orders", "clients", "reports", "costs", "margins", "importExport", "manageProducts", "editAll"]
+  employee: ["internal", "products", "stock", "orders", "clients", "manageProducts", "editAll", "catalogPdf"],
+  admin: ["internal", "products", "stock", "orders", "clients", "reports", "costs", "margins", "importExport", "manageProducts", "editAll", "catalogPdf"]
 };
 
 const definitiveProductCatalog = [];
@@ -580,6 +580,10 @@ els.shareWholesaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAc
 els.downloadResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "download"));
 els.shareResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "share"));
 els.downloadPriceListPdf?.addEventListener("click", () => handleCatalogPdfAction("price-list", "download"));
+document.querySelectorAll("[data-catalog-pdf-preview]").forEach((button) => {
+  button.addEventListener("click", () => handleCatalogPdfAction(button.dataset.catalogPdfPreview, "preview"));
+});
+document.querySelector("#sharePriceListPdf")?.addEventListener("click", () => handleCatalogPdfAction("price-list", "share"));
 els.importProductsInput?.addEventListener("change", importProductsFromFile);
 els.clientsSearch?.addEventListener("input", renderClients);
 els.clientsSort?.addEventListener("change", renderClients);
@@ -11467,7 +11471,8 @@ function getSavedInitialManagementView() {
   const managementViews = getManagementViews();
   const view = managementViews.includes(state.view) || state.view === "catalogo" ? state.view : "pedidos";
   if (view === "reportes" && !hasPermission("reports")) return "pedidos";
-  if (["importacion", "catalogos"].includes(view) && !hasPermission("importExport")) return "pedidos";
+  if (view === "importacion" && !hasPermission("importExport")) return "pedidos";
+  if (view === "catalogos" && !hasPermission("catalogPdf")) return "pedidos";
   if (view === "seguridad" && !canAccess("admin")) return "pedidos";
   return view;
 }
@@ -11496,7 +11501,7 @@ function setView(view, preserveRole = false, historyOptions = {}) {
     view = currentView && currentView !== "reportes" ? currentView : "admin";
     isManagementView = managementViews.includes(view);
   }
-  if (["importacion", "catalogos"].includes(view) && !hasPermission("importExport")) {
+  if ((view === "importacion" && !hasPermission("importExport")) || (view === "catalogos" && !hasPermission("catalogPdf"))) {
     showToast("Esta sección está disponible solo para Administrador");
     view = currentView && !["importacion", "catalogos"].includes(currentView) ? currentView : "admin";
     isManagementView = managementViews.includes(view);
@@ -12520,6 +12525,10 @@ function applyRoleVisibility() {
   document.querySelectorAll("[data-security-only]").forEach((element) => {
     element.classList.toggle("hidden", !canAccess("admin"));
   });
+  document.querySelectorAll("[data-catalog-pdf-only]").forEach((element) => {
+    if (element.classList.contains("content-view")) return;
+    element.classList.toggle("hidden", !hasPermission("catalogPdf"));
+  });
   if (!canAccess("admin")) closeArchivedProductsPanel();
 }
 
@@ -13542,11 +13551,17 @@ async function exportProductsToExcel() {
 }
 
 async function handleCatalogPdfAction(type, action) {
-  if (!hasPermission("importExport") || !canAccess("admin")) {
-    showToast("Catálogos PDF disponible solo para Administrador");
+  if (!canUseCatalogPdf()) {
+    showToast("Iniciá sesión en Gestión para utilizar Catálogos PDF");
     return;
   }
   if (handleCatalogPdfAction.busy) return;
+  const preview = action === "preview" ? window.open("about:blank", "_blank") : null;
+  if (action === "preview" && !preview) {
+    showToast("Permití abrir una pestaña para visualizar el PDF");
+    return;
+  }
+  if (preview) preview.opener = null;
   handleCatalogPdfAction.busy = true;
   let purchaseWarning = "";
   setCatalogPdfBusy(true, type === "price-list" ? "Actualizando precios y preparando PDF..." : "Preparando imágenes y catálogo PDF...");
@@ -13554,13 +13569,16 @@ async function handleCatalogPdfAction(type, action) {
     const blob = type === "price-list" ? await createPriceListPdfBlob() : await createCatalogPdfBlob(type);
     purchaseWarning = blob.purchaseWarning || "";
     const filename = getCatalogPdfFilename(type);
-    if (action === "share") {
+    if (preview) {
+      preview.location.replace(URL.createObjectURL(blob));
+    } else if (action === "share") {
       await shareCatalogPdfBlob(blob, filename, type);
     } else {
       triggerPdfDownload(blob, filename);
       showToast(purchaseWarning || "Catálogo PDF descargado", purchaseWarning ? "" : "success");
     }
   } catch (error) {
+    if (preview) preview.close();
     console.error("Punto X Mayor catalog PDF:", error);
     showToast(error.message || "No se pudo generar el catálogo PDF");
     setCatalogPdfStatus(error.message || "No se pudo generar el catálogo PDF", true);
@@ -13572,7 +13590,8 @@ async function handleCatalogPdfAction(type, action) {
 }
 
 function setCatalogPdfBusy(isBusy, message = "") {
-  [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf, els.downloadPriceListPdf]
+  [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf, els.downloadPriceListPdf,
+    document.querySelector("#sharePriceListPdf"), ...document.querySelectorAll("[data-catalog-pdf-preview]")]
     .filter(Boolean)
     .forEach((button) => { button.disabled = isBusy; });
   setCatalogPdfStatus(isBusy ? message : "", false);
@@ -13585,7 +13604,12 @@ function setCatalogPdfStatus(message = "", isError = false) {
   els.catalogPdfStatus.classList.toggle("is-error", Boolean(isError));
 }
 
+function canUseCatalogPdf() {
+  return isPrivateManagementRoute() && internalAuthenticated && internalUnlocked && hasPermission("catalogPdf");
+}
+
 async function createCatalogPdfBlob(type) {
+  if (!canUseCatalogPdf()) throw new Error("Iniciá sesión en Gestión para utilizar Catálogos PDF.");
   const includePrices = type === "wholesale";
   if (includePrices) {
     await waitForCatalogSyncIdle();
@@ -13624,8 +13648,8 @@ async function shareCatalogPdfBlob(blob, filename, type) {
     try {
       await navigator.share({
         files: [file],
-        title: type === "wholesale" ? "Catálogo mayorista" : "Catálogo de productos",
-        text: type === "wholesale" ? "Catálogo mayorista con precios" : "Catálogo de productos"
+        title: type === "price-list" ? "Lista de precios" : type === "wholesale" ? "Catálogo mayorista" : "Catálogo de productos",
+        text: type === "price-list" ? "Lista de precios mayoristas" : type === "wholesale" ? "Catálogo mayorista con precios" : "Catálogo de productos"
       });
       showToast("Catálogo listo para compartir", "success");
       return;
@@ -13639,7 +13663,7 @@ async function shareCatalogPdfBlob(blob, filename, type) {
 }
 
 async function createPriceListPdfBlob() {
-  if (!hasPermission("importExport") || !canAccess("admin")) throw new Error("Lista de precios disponible solo para Administrador.");
+  if (!canUseCatalogPdf()) throw new Error("Iniciá sesión en Gestión para utilizar Catálogos PDF.");
   await waitForCatalogSyncIdle();
   const refreshed = await refreshCatalogFromSupabase("price-list-pdf");
   if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes. Reintentá para generar la lista actualizada.");
