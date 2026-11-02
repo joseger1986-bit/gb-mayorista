@@ -17,7 +17,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=receipt-web-continuous-1">
+    <link rel="stylesheet" href="/styles.css?v=price-list-pdf-1">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -406,6 +406,15 @@
                 <button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button>
               </div>
             </article>
+            <article class="catalog-pdf-card catalog-price-list-card">
+              <div>
+                <h3>Lista de precios</h3>
+                <p>Precios mayoristas · Punto X Mayor</p>
+              </div>
+              <div class="catalog-pdf-actions">
+                <button class="primary-button" id="downloadPriceListPdf" type="button">Descargar PDF</button>
+              </div>
+            </article>
           </div>
           <p class="catalog-pdf-status hidden" id="catalogPdfStatus" role="status"></p>
         </div>
@@ -784,7 +793,7 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-    <script src="/app.js?v=pdf-catalog-design-1"></script>
+    <script src="/app.js?v=price-list-pdf-1"></script>
   </body>
 </html>
 

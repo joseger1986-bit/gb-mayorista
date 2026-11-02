@@ -14352,6 +14352,23 @@ body.admin-catalog-preview .public-catalog-header + .minimum-banner {
   box-shadow: 0 6px 18px rgba(24, 33, 28, 0.05);
 }
 
+.catalog-price-list-card {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 0;
+}
+
+.catalog-price-list-card .catalog-pdf-actions {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 760px) {
+  .catalog-price-list-card {
+    grid-template-columns: 1fr;
+  }
+}
+
 .catalog-pdf-card h3,
 .catalog-pdf-card p {
   margin: 0;

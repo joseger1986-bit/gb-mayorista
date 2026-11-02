@@ -371,6 +371,7 @@ const els = {
   shareWholesaleCatalogPdf: document.querySelector("#shareWholesaleCatalogPdf"),
   downloadResaleCatalogPdf: document.querySelector("#downloadResaleCatalogPdf"),
   shareResaleCatalogPdf: document.querySelector("#shareResaleCatalogPdf"),
+  downloadPriceListPdf: document.querySelector("#downloadPriceListPdf"),
   catalogPdfView: document.querySelector("#catalogPdfView"),
   catalogPdfStatus: document.querySelector("#catalogPdfStatus"),
   exportProductsButton: document.querySelector("#exportProductsButton"),
@@ -578,6 +579,7 @@ els.downloadWholesaleCatalogPdf?.addEventListener("click", () => handleCatalogPd
 els.shareWholesaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("wholesale", "share"));
 els.downloadResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "download"));
 els.shareResaleCatalogPdf?.addEventListener("click", () => handleCatalogPdfAction("resale", "share"));
+els.downloadPriceListPdf?.addEventListener("click", () => handleCatalogPdfAction("price-list", "download"));
 els.importProductsInput?.addEventListener("change", importProductsFromFile);
 els.clientsSearch?.addEventListener("input", renderClients);
 els.clientsSort?.addEventListener("change", renderClients);
@@ -13546,9 +13548,9 @@ async function handleCatalogPdfAction(type, action) {
   }
   if (handleCatalogPdfAction.busy) return;
   handleCatalogPdfAction.busy = true;
-  setCatalogPdfBusy(true, "Preparando imágenes y catálogo PDF...");
+  setCatalogPdfBusy(true, type === "price-list" ? "Actualizando precios y preparando PDF..." : "Preparando imágenes y catálogo PDF...");
   try {
-    const blob = await createCatalogPdfBlob(type);
+    const blob = type === "price-list" ? await createPriceListPdfBlob() : await createCatalogPdfBlob(type);
     const filename = getCatalogPdfFilename(type);
     if (action === "share") {
       await shareCatalogPdfBlob(blob, filename, type);
@@ -13567,7 +13569,7 @@ async function handleCatalogPdfAction(type, action) {
 }
 
 function setCatalogPdfBusy(isBusy, message = "") {
-  [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf]
+  [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf, els.downloadPriceListPdf]
     .filter(Boolean)
     .forEach((button) => { button.disabled = isBusy; });
   setCatalogPdfStatus(isBusy ? message : "", false);
@@ -13601,6 +13603,7 @@ function getProductsForCatalogPdf() {
 }
 
 function getCatalogPdfFilename(type) {
+  if (type === "price-list") return `lista-de-precios-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.pdf`;
   const suffix = type === "wholesale" ? "mayorista-con-precios" : "reventa-sin-precios";
   return `catalogo-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
 }
@@ -13623,6 +13626,119 @@ async function shareCatalogPdfBlob(blob, filename, type) {
   }
   triggerPdfDownload(blob, filename);
   showToast("Este dispositivo no permite compartir PDF. Se descargó el archivo.");
+}
+
+async function createPriceListPdfBlob() {
+  if (!hasPermission("importExport") || !canAccess("admin")) throw new Error("Lista de precios disponible solo para Administrador.");
+  await waitForCatalogSyncIdle();
+  const refreshed = await refreshCatalogFromSupabase("price-list-pdf");
+  if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes. Reintentá para generar la lista actualizada.");
+  const current = getProductsForCatalogPdf();
+  if (!current.length) throw new Error("No hay productos visibles para la lista de precios.");
+  return new Blob([await createPriceListPdf(current)], { type: "application/pdf" });
+}
+
+function wrapPriceListText(text, width, size, bold = false) {
+  const context = document.createElement("canvas").getContext("2d");
+  context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
+  const lines = [];
+  let line = "";
+  for (const word of String(text || "").trim().split(/\s+/)) {
+    if (line && context.measureText(`${line} ${word}`).width * 72 / 96 > width) { lines.push(line.trim()); line = ""; }
+    for (const character of word) {
+      if (context.measureText(line + character).width * 72 / 96 > width) { lines.push(line.trim()); line = ""; }
+      line += character;
+    }
+    line += " ";
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines;
+}
+
+async function createPriceListPdf(currentProducts) {
+  const width = 595.28, height = 841.89, margin = 15 * 72 / 25.4;
+  const contentWidth = width - margin * 2;
+  const top = height - margin - 91, bottom = margin + 15;
+  const capacity = top - bottom;
+  const context = document.createElement("canvas").getContext("2d");
+  const measure = (text, size, bold = false) => {
+    context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
+    return context.measureText(text).width * 72 / 96;
+  };
+  const blocks = currentProducts.map((product) => {
+    const groups = [];
+    let details = [];
+    // Reutiliza la agrupacion y los importes del catalogo mayorista, sin recalcular precios.
+    for (const line of getCatalogPdfTextLines(product, true, 10000)) {
+      if (line.size === 9.2 && line.bold) continue;
+      if (line.size === 10.5 && line.bold) { groups.push({ details, price: line.text }); details = []; }
+      else details.push(line.text);
+    }
+    const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, 20, true) + 6));
+    if (priceWidth > contentWidth - 120) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
+    const names = wrapPriceListText(product.name, contentWidth - 4, 15.5, true);
+    const rows = groups.map((group) => {
+      const lines = group.details.flatMap((text) => wrapPriceListText(text, contentWidth - priceWidth - 18, 11.5));
+      return { ...group, lines, height: Math.max(25, lines.length * 15) + 8 };
+    });
+    return { category: String(product.category || "Sin categoría"), names, rows, height: names.length * 19 + 7 + rows.reduce((sum, row) => sum + row.height, 0) + 13 };
+  });
+  const categoryHeight = (category) => wrapPriceListText(category, contentWidth - 4, 19.5, true).length * 24 + 12;
+  const used = (entries) => entries.reduce((state, block) => ({ category: block.category, height: state.height + block.height + (state.category === block.category ? 0 : categoryHeight(block.category)) }), { category: "", height: 0 }).height;
+  const pages = [];
+  let page = [];
+  for (const block of blocks) {
+    if (block.height + categoryHeight(block.category) > capacity) throw new Error(`El producto ${block.names.join(" ")} tiene demasiadas variantes para una página legible sin cortes.`);
+    if (page.length && used([...page, block]) > capacity) { pages.push(page); page = []; }
+    page.push(block);
+  }
+  if (page.length) pages.push(page);
+  // Equilibra la ultima hoja sin cambiar el orden ni partir productos.
+  if (pages.length > 1) {
+    const previous = pages.at(-2), last = pages.at(-1);
+    while (previous.length > 1 && used(last) < capacity * 0.35) {
+      const candidate = previous.at(-1), nextPrevious = previous.slice(0, -1), nextLast = [candidate, ...last];
+      if (used(nextLast) > capacity || Math.abs(used(nextPrevious) - used(nextLast)) >= Math.abs(used(previous) - used(last))) break;
+      previous.pop(); last.unshift(candidate);
+    }
+  }
+  const logo = await getCatalogPdfImageObject("/assets/punto-x-mayor-logo-hires.jpg", 1, { logo: true });
+  const date = new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
+  const commands = pages.map((entries, pageIndex) => {
+    const drawing = ["0 g 0 G"];
+    const text = (value, x, y, size, bold = false) => drawing.push(`0 g BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td ${pdfHexString(value)} Tj ET`);
+    const rule = (y) => drawing.push(`0.75 G 0.5 w ${margin} ${y} m ${width - margin} ${y} l S`);
+    const headerTop = height - margin;
+    if (logo) drawing.push(`q 108 0 0 35 ${margin} ${headerTop - 35} cm /${logo.name} Do Q`);
+    text("PUNTO X MAYOR", margin + 124, headerTop - 15, 16, true);
+    text("Lista de precios mayoristas", margin + 124, headerTop - 34, 12);
+    text("Av. de Mayo 187, Pergamino, Buenos Aires", margin, headerTop - 53, 10.5);
+    text(`Precios actualizados al ${date}`, margin, headerTop - 70, 10.5);
+    rule(headerTop - 79);
+    let y = top;
+    let category = "";
+    for (const block of entries) {
+      if (category !== block.category) {
+        category = block.category;
+        for (const label of wrapPriceListText(category, contentWidth - 4, 19.5, true)) { text(label, margin, y - 19.5, 19.5, true); y -= 24; }
+        y -= 12;
+      }
+      for (const name of block.names) { text(name, margin, y - 15.5, 15.5, true); y -= 19; }
+      y -= 7;
+      for (const row of block.rows) {
+        row.lines.forEach((detail, index) => text(detail, margin, y - 15 - index * 15, 11.5));
+        text(row.price, width - margin - measure(row.price, 20, true) - 3, y - 20, 20, true);
+        y -= row.height;
+      }
+      rule(y - 1);
+      y -= 13;
+    }
+    const footer = `Página ${pageIndex + 1} de ${pages.length}`;
+    text("www.puntoxmayor.com.ar", margin, margin - 8, 9);
+    text(footer, width - margin - measure(footer, 9), margin - 8, 9);
+    return drawing;
+  });
+  return buildPdfFromPagesWithImages(commands, width, height, logo ? [logo] : []);
 }
 
 async function createCatalogPdf(productsForPdf, options = {}) {
