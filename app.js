@@ -13548,15 +13548,17 @@ async function handleCatalogPdfAction(type, action) {
   }
   if (handleCatalogPdfAction.busy) return;
   handleCatalogPdfAction.busy = true;
+  let purchaseWarning = "";
   setCatalogPdfBusy(true, type === "price-list" ? "Actualizando precios y preparando PDF..." : "Preparando imágenes y catálogo PDF...");
   try {
     const blob = type === "price-list" ? await createPriceListPdfBlob() : await createCatalogPdfBlob(type);
+    purchaseWarning = blob.purchaseWarning || "";
     const filename = getCatalogPdfFilename(type);
     if (action === "share") {
       await shareCatalogPdfBlob(blob, filename, type);
     } else {
       triggerPdfDownload(blob, filename);
-      showToast("Catálogo PDF descargado", "success");
+      showToast(purchaseWarning || "Catálogo PDF descargado", purchaseWarning ? "" : "success");
     }
   } catch (error) {
     console.error("Punto X Mayor catalog PDF:", error);
@@ -13565,6 +13567,7 @@ async function handleCatalogPdfAction(type, action) {
   } finally {
     handleCatalogPdfAction.busy = false;
     setCatalogPdfBusy(false);
+    if (purchaseWarning) setCatalogPdfStatus(purchaseWarning, true);
   }
 }
 
@@ -13584,10 +13587,17 @@ function setCatalogPdfStatus(message = "", isError = false) {
 
 async function createCatalogPdfBlob(type) {
   const includePrices = type === "wholesale";
+  if (includePrices) {
+    await waitForCatalogSyncIdle();
+    const refreshed = await refreshCatalogFromSupabase("wholesale-pdf");
+    if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes para el PDF. Reintentá.");
+  }
   const productsForPdf = getProductsForCatalogPdf();
   if (!productsForPdf.length) throw new Error("No hay productos visibles para catálogo.");
   const pdf = await createCatalogPdf(productsForPdf, { includePrices, neutral: !includePrices });
-  return new Blob([pdf], { type: "application/pdf" });
+  const blob = new Blob([pdf], { type: "application/pdf" });
+  if (includePrices) blob.purchaseWarning = getPdfPurchaseWarnings(productsForPdf);
+  return blob;
 }
 
 function getProductsForCatalogPdf() {
@@ -13635,7 +13645,101 @@ async function createPriceListPdfBlob() {
   if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes. Reintentá para generar la lista actualizada.");
   const current = getProductsForCatalogPdf();
   if (!current.length) throw new Error("No hay productos visibles para la lista de precios.");
-  return new Blob([await createPriceListPdf(current)], { type: "application/pdf" });
+  const blob = new Blob([await createPriceListPdf(current)], { type: "application/pdf" });
+  blob.purchaseWarning = getPdfPurchaseWarnings(current);
+  return blob;
+}
+
+function getPdfPurchaseRule(product) {
+  const name = normalizeProductSearchText(product.name);
+  const category = normalizeProductSearchText(product.category);
+  if (category === "medias") {
+    if (/\belemento\b/.test(name)) return { completeDozen: true };
+    if (name === "soquetes elastizados adultos") return { pack: 5, dozen: true };
+    if (/^soquetes elastizados (nenas|nenes)$/.test(name)) return { pack: 3, dozen: true, mixed: true };
+    if (name === "medias elastizadas adultos" || /^soquetes invisibles? (damas?|hombres?)$/.test(name)) return { pack: 3, dozen: true };
+  }
+  if (category === "ropa interior hombre") {
+    if (/\bboxer lody\b/.test(name) && /\b742\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 6 };
+    if (/\bboxer xy\b/.test(name) && /\b1387\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 5 };
+    if (/\bboxer maxton\b/.test(name)) return { pack: 5, minSize: 2, maxSize: 6, maxton: true };
+    if (/\bboxer dufour\b/.test(name) && /\b11855\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 5 };
+  }
+  if (category === "blanqueria") {
+    if (/\bgoldsun\b/.test(name) && /\bsabanas\b/.test(name)) return { pack: 2, goldsun: true };
+    if (/\bjuegos?\b.*\bsabanas\b/.test(name) || /\bsabanas ajustables\b/.test(name)) return { pack: 4 };
+    if (/^juegos? (?:de )?(?:toalla|t t)\b/.test(name) || /^toallon(?:es)?\b/.test(name) || /^cortinas? blackout\b/.test(name)) return { pack: 4 };
+    if (/^toallas? de mano\b/.test(name) || /^almohadas?\b/.test(name)) return { pack: 5 };
+  }
+  return {};
+}
+
+function getPdfVariantBasePrice(variant) {
+  const multiplier = getStockUnitsPerSoldPresentation(variant.presentation, variant.stockUnit);
+  return variant.basePrice !== null && variant.basePrice !== undefined && Number.isFinite(Number(variant.basePrice))
+    ? Number(variant.basePrice) : Number(variant.price) / multiplier;
+}
+
+function getPdfPurchaseWarnings(groups) {
+  const differences = groups.filter((group) => getPdfPurchaseRule(group).maxton).flatMap((group) => group.variants
+    .filter((variant) => {
+      const value = getItemDisplayIdentity({ ...variant, variantLabel: variant.label }).value;
+      return /^\d+$/.test(value) && Number(value) >= 2 && Number(value) <= 6 && Math.abs(getPdfVariantBasePrice(variant) - 5300) > 0.001;
+    })
+    .map((variant) => `talle ${variant.label}: ${formatMoney(getPdfVariantBasePrice(variant))}`));
+  return differences.length ? `Maxton pendiente de regularizar a $5.300 (${differences.join(", ")}). El PDF usa los precios vigentes; no se modificó Gestión.` : "";
+}
+
+function getPdfPurchaseModesProduct(product) {
+  const rule = getPdfPurchaseRule(product);
+  const variants = [];
+  for (const variant of product.variants || []) {
+    const stockUnit = normalizeStockUnit(variant.stockUnit);
+    const presentation = String(variant.presentation || "").trim();
+    const base = getPdfVariantBasePrice(variant);
+    if (!(base > 0) || !Number.isFinite(base)) throw new Error(`Falta verificar el precio base de ${product.name}.`);
+    const add = (label, price) => variants.push({ ...variant, presentation: label, price });
+    if (rule.completeDozen) {
+      add("Docena — Sin compra mínima", base * getStockUnitsPerSoldPresentation("Docena", stockUnit));
+    } else if (rule.pack) {
+      if (!rule.dozen && stockUnit !== "unidades") throw new Error(`La unidad de precio de ${product.name} necesita revisión antes de ofrecer el pack.`);
+      const unitPrice = rule.dozen ? base * getStockUnitsPerSoldPresentation("Docena", stockUnit) : base;
+      const identity = getItemDisplayIdentity({ ...variant, variantLabel: variant.label });
+      const size = /^\d+$/.test(identity.value) ? Number(identity.value) : NaN;
+      const allowedSize = rule.minSize === undefined || (size >= rule.minSize && size <= rule.maxSize);
+      const unitLabel = rule.dozen ? "Docena" : rule.goldsun ? "Unidad (valijita con 2 juegos)" : "Unidad";
+      add(`${unitLabel} — Con compra mínima`, unitPrice);
+      if (allowedSize) {
+        const packLabel = rule.goldsun ? "Pack x2 valijitas (4 juegos)" : `Pack x${rule.pack}${rule.dozen ? " docenas" : " unidades"}`;
+        add(`${packLabel} — Sin compra mínima${rule.mixed ? " · Talles surtibles" : ""}`, unitPrice * rule.pack);
+      }
+    } else if (/^(?:venta\s+por\s+)?unidad(?:es)?$/i.test(presentation)) {
+      add("Unidad — Con compra mínima", Number(variant.price));
+    } else {
+      const label = /docena/i.test(presentation) && !/pack/i.test(presentation) ? "Docena" : getPresentationLabelForCatalog(presentation, stockUnit);
+      if (!label) throw new Error(`Falta la presentación vigente de ${product.name}.`);
+      add(`${label} — Sin compra mínima`, Number(variant.price));
+    }
+  }
+  return { ...product, variants };
+}
+
+function getCommercialCatalogPdfTextLines(product, width) {
+  let complete = false;
+  return getCatalogPdfTextLines(getPdfPurchaseModesProduct(product), true, 10000).flatMap((line) => {
+    let text = line.text, size = line.size, leading = line.leading;
+    if (line.text.startsWith("Presentación: ")) {
+      complete = line.text.includes("Sin compra mínima");
+      text = line.text.slice("Presentación: ".length);
+    }
+    if (line.size === 10.5 && line.bold) { size = complete ? 18 : 15; leading = complete ? 22 : 19; }
+    const wrapped = wrapPriceListText(text, width, size, line.bold).map((value) => ({ ...line, text: value, size, leading }));
+    return line.size === 10.5 && line.bold ? [{ text: "", size: 1, bold: false, leading: size - 8 }, ...wrapped] : wrapped;
+  });
+}
+
+function getPdfPurchaseConditions() {
+  return [`CON COMPRA MÍNIMA: ${formatMoney(WHOLESALE_MINIMUM)} en total, combinando productos.`, "SIN COMPRA MÍNIMA: comprando packs o docenas completas."];
 }
 
 function wrapPriceListText(text, width, size, bold = false) {
@@ -13658,7 +13762,7 @@ function wrapPriceListText(text, width, size, bold = false) {
 async function createPriceListPdf(currentProducts) {
   const width = 595.28, height = 841.89, margin = 15 * 72 / 25.4;
   const contentWidth = width - margin * 2;
-  const top = height - margin - 91, bottom = margin + 15;
+  const top = height - margin - 123, bottom = margin + 15;
   const capacity = top - bottom;
   const context = document.createElement("canvas").getContext("2d");
   const measure = (text, size, bold = false) => {
@@ -13680,10 +13784,10 @@ async function createPriceListPdf(currentProducts) {
     const groups = [];
     let details = [];
     // Reutiliza la agrupacion y los importes del catalogo mayorista, sin recalcular precios.
-    for (const line of getCatalogPdfTextLines(product, true, 10000)) {
+    for (const line of getCatalogPdfTextLines(getPdfPurchaseModesProduct(product), true, 10000)) {
       if (line.size === 9.2 && line.bold) continue;
       if (line.size === 10.5 && line.bold) { groups.push({ details, price: line.text }); details = []; }
-      else details.push(line.text);
+      else details.push(line.text.replace(/^Presentación:\s*/, ""));
     }
     const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, layout.priceSize, true) + 6));
     if (priceWidth > contentWidth - 120) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
@@ -13739,6 +13843,7 @@ async function createPriceListPdf(currentProducts) {
     text("Av. de Mayo 187, Pergamino, Buenos Aires", margin, headerTop - 53, 10.5);
     text(`Precios actualizados al ${date}`, margin, headerTop - 70, 10.5);
     rule(headerTop - 79);
+    getPdfPurchaseConditions().forEach((condition, index) => text(condition, margin, headerTop - 94 - index * 14, 10, true));
     let y = top;
     let category = "";
     for (const block of entries) {
@@ -13777,7 +13882,7 @@ async function createCatalogPdf(productsForPdf, options = {}) {
   const pageHeight = 842;
   const margin = 30;
   const gap = 12;
-  const headerHeight = 54;
+  const headerHeight = includePrices ? 90 : 54;
   const cardWidth = (pageWidth - (margin * 2) - gap) / 2;
   const cardHeight = 226;
   const imageHeight = 116;
@@ -13793,7 +13898,7 @@ async function createCatalogPdf(productsForPdf, options = {}) {
   let columnOffsets = [0, 0];
 
   for (const product of productsForPdf) {
-    const lines = getCatalogPdfTextLines(product, includePrices, cardWidth - 24);
+    const lines = includePrices ? getCommercialCatalogPdfTextLines(product, cardWidth - 24) : getCatalogPdfTextLines(product, false, cardWidth - 24);
     const height = Math.max(cardHeight, imageHeight + 48 + lines.reduce((total, line) => total + line.leading, 0));
     const availableHeight = pageHeight - margin * 2 - headerHeight;
     if (height > availableHeight) throw new Error(`Demasiadas variantes para una ficha legible: ${product.name}.`);
@@ -13868,6 +13973,7 @@ function renderCatalogPdfPage(page, settings) {
   addText("www.puntoxmayor.com.ar", margin + 128, pageHeight - margin - 36, 8.2, false, 0.3);
   commands.push("0.67 0.52 0.22 RG");
   addLine(margin, pageHeight - margin - 44, pageWidth - margin, pageHeight - margin - 44, 0.8);
+  if (includePrices) getPdfPurchaseConditions().forEach((condition, index) => addText(condition, margin, pageHeight - margin - 59 - index * 14, 9.2, true));
 
   page.cards.forEach((entry) => {
     const col = entry.column;
@@ -13886,7 +13992,7 @@ function renderCatalogPdfPage(page, settings) {
     const lastLine = entry.lines.at(-1);
     const descriptionSpace = entry.height - imageHeight - 18 - (entry.showCategory ? 12 : 0)
       - entry.lines.reduce((total, line) => total + line.leading, 0) + (lastLine?.leading || 0) - 12;
-    const description = getCatalogPdfDescriptionLines(product.description, cardWidth - 24, Math.min(3, Math.max(0, Math.floor((descriptionSpace - 1) / 9.5))));
+    const description = includePrices ? [] : getCatalogPdfDescriptionLines(product.description, cardWidth - 24, Math.min(3, Math.max(0, Math.floor((descriptionSpace - 1) / 9.5))));
     const nameLines = entry.lines.findIndex((line) => line.size !== 9.2 || !line.bold);
     entry.lines.forEach((line, index) => {
       addText(line.text, x + 10, textY, line.size, line.bold);
