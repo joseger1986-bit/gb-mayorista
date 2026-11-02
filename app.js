@@ -13639,6 +13639,10 @@ async function createCatalogPdf(productsForPdf, options = {}) {
   const cardsPerPage = 6;
   const pages = [];
   const imageObjects = [];
+  const generatedDate = new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
+  const logo = await getCatalogPdfImageObject("/assets/punto-x-mayor-logo-hires.jpg", 1, { logo: true });
+  if (logo) imageObjects.push(logo);
+  const imageBySource = new Map();
   let currentPage = makeCatalogPdfPage();
   let categoryOnPage = "";
   let columnOffsets = [0, 0];
@@ -13655,8 +13659,13 @@ async function createCatalogPdf(productsForPdf, options = {}) {
       columnOffsets = [0, 0];
     }
     const column = columnOffsets[0] <= columnOffsets[1] ? 0 : 1;
-    const image = await getCatalogPdfImageObject(product.images?.[0] || product.image || DEFAULT_PRODUCT_IMAGE, imageObjects.length + 1);
-    if (image) imageObjects.push(image);
+    const imageSource = product.images?.[0] || product.image || DEFAULT_PRODUCT_IMAGE;
+    if (!imageBySource.has(imageSource)) {
+      const image = await getCatalogPdfImageObject(imageSource, imageObjects.length + 1);
+      imageBySource.set(imageSource, image);
+      if (image) imageObjects.push(image);
+    }
+    const image = imageBySource.get(imageSource);
     const category = String(product.category || "Sin categoría").trim() || "Sin categoría";
     const showCategory = category !== categoryOnPage;
     categoryOnPage = category;
@@ -13678,7 +13687,9 @@ async function createCatalogPdf(productsForPdf, options = {}) {
     cardHeight,
     imageHeight,
     includePrices,
-    neutral
+    neutral,
+    logoName: logo?.name || "",
+    generatedDate
   }));
   return buildPdfFromPagesWithImages(pageCommands, pageWidth, pageHeight, imageObjects);
 }
@@ -13689,8 +13700,8 @@ function makeCatalogPdfPage() {
 
 function renderCatalogPdfPage(page, settings) {
   const commands = [];
-  const addText = (text, x, y, size = 9, bold = false) => {
-    commands.push(`BT /F${bold ? 2 : 1} ${size} Tf ${x} ${y} Td ${pdfHexString(text)} Tj ET`);
+  const addText = (text, x, y, size = 9, bold = false, gray = 0.12) => {
+    commands.push(`${gray} g BT /F${bold ? 2 : 1} ${size} Tf ${x} ${y} Td ${pdfHexString(text)} Tj ET`);
   };
   const addLine = (x1, y1, x2, y2, width = 0.6) => commands.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
   const addRect = (x, y, w, h, stroke = true, fill = false) => {
@@ -13702,17 +13713,16 @@ function renderCatalogPdfPage(page, settings) {
   };
   const {
     pageIndex, pageCount, pageWidth, pageHeight, margin, gap, headerHeight,
-    cardWidth, cardHeight, imageHeight, includePrices, neutral
+    cardWidth, cardHeight, imageHeight, includePrices, neutral, logoName, generatedDate
   } = settings;
   const title = includePrices ? "Catálogo mayorista" : "Catálogo de productos";
-  const subtitle = includePrices ? "Productos con precios de venta mayorista" : "Selección para reventa - sin precios";
-  const today = new Intl.DateTimeFormat("es-AR").format(new Date());
-
-  addText(title, margin, pageHeight - margin - 6, 16, true);
-  addText(subtitle, margin, pageHeight - margin - 22, 9, false);
-  if (!neutral) addText("Punto X Mayor", pageWidth - margin - 92, pageHeight - margin - 6, 10, true);
-  addText(today, pageWidth - margin - 58, pageHeight - margin - 22, 8, false);
-  addLine(margin, pageHeight - margin - 34, pageWidth - margin, pageHeight - margin - 34, 0.8);
+  if (logoName) drawImage(logoName, margin, pageHeight - margin - 36, 112, 36);
+  else addText("PUNTO X MAYOR", margin, pageHeight - margin - 18, 10, true);
+  addText(title, margin + 128, pageHeight - margin - 10, 13, true);
+  addText("Av. de Mayo 187, Pergamino, Buenos Aires", margin + 128, pageHeight - margin - 24, 8.2, false, 0.3);
+  addText("www.puntoxmayor.com.ar", margin + 128, pageHeight - margin - 36, 8.2, false, 0.3);
+  commands.push("0.67 0.52 0.22 RG");
+  addLine(margin, pageHeight - margin - 44, pageWidth - margin, pageHeight - margin - 44, 0.8);
 
   page.cards.forEach((entry) => {
     const col = entry.column;
@@ -13720,19 +13730,35 @@ function renderCatalogPdfPage(page, settings) {
     const top = pageHeight - margin - headerHeight - entry.rowOffset;
     const y = top - entry.height;
     const product = entry.product;
+    commands.push("0.82 G 0.5 w");
     addRect(x, y, cardWidth, entry.height, true, false);
     drawImage(entry.imageName, x + 8, top - imageHeight - 8, cardWidth - 16, imageHeight);
-    let textY = top - imageHeight - 24;
+    let textY = top - imageHeight - 18;
     if (entry.showCategory) {
       addText(String(product.category || "Sin categoría"), x + 10, textY, 7.5, true);
       textY -= 12;
     }
-    entry.lines.forEach((line) => {
+    const lastLine = entry.lines.at(-1);
+    const descriptionSpace = entry.height - imageHeight - 18 - (entry.showCategory ? 12 : 0)
+      - entry.lines.reduce((total, line) => total + line.leading, 0) + (lastLine?.leading || 0) - 12;
+    const description = getCatalogPdfDescriptionLines(product.description, cardWidth - 24, Math.min(3, Math.max(0, Math.floor((descriptionSpace - 1) / 9.5))));
+    const nameLines = entry.lines.findIndex((line) => line.size !== 9.2 || !line.bold);
+    entry.lines.forEach((line, index) => {
       addText(line.text, x + 10, textY, line.size, line.bold);
       textY -= line.leading;
+      if (index + 1 === (nameLines < 0 ? entry.lines.length : nameLines) && description.length) {
+        description.forEach((text) => {
+          addText(text, x + 10, textY, 7.8, false, 0.35);
+          textY -= 9.5;
+        });
+        textY -= 1;
+      }
     });
   });
-  addText(`Página ${pageIndex + 1} de ${pageCount}`, pageWidth - margin - 58, 20, 8, false);
+  commands.push("0.85 G");
+  addLine(margin, 28, pageWidth - margin, 28, 0.4);
+  addText(`${includePrices ? "Precios actualizados al" : "Catálogo generado el"} ${generatedDate}`, margin, 18, 7.5, false, 0.35);
+  addText(`Página ${pageIndex + 1} de ${pageCount}`, pageWidth - margin - 58, 18, 7.5, false, 0.35);
   return commands;
 }
 
@@ -13786,10 +13812,35 @@ function getCatalogPdfTextLines(product, includePrices, width) {
   return lines;
 }
 
-async function getCatalogPdfImageObject(imageUrl, index) {
+function getCatalogPdfDescriptionLines(description, width, maximumLines) {
+  const text = String(description || "").replace(/\s+/g, " ").trim();
+  if (!text || maximumLines < 1) return [];
+  const context = document.createElement("canvas").getContext("2d");
+  context.font = `${7.8 * 96 / 72}px Arial`;
+  const measure = (value) => context.measureText(value).width * 72 / 96;
+  const lines = [];
+  let current = "";
+  for (const word of text.split(" ")) {
+    if (current && measure(`${current} ${word}`) > width) { lines.push(current.trim()); current = ""; }
+    for (const character of word) {
+      if (measure(current + character) > width) { lines.push(current.trim()); current = ""; }
+      current += character;
+    }
+    current += " ";
+  }
+  if (current.trim()) lines.push(current.trim());
+  if (lines.length <= maximumLines) return lines;
+  const visible = lines.slice(0, maximumLines);
+  let last = visible.at(-1).replace(/\s+\S*$/, "");
+  while (last && measure(`${last}...`) > width) last = last.slice(0, -1).trimEnd();
+  visible[visible.length - 1] = `${last}...`;
+  return visible;
+}
+
+async function getCatalogPdfImageObject(imageUrl, index, options = {}) {
   try {
     const source = getCatalogImage(imageUrl || DEFAULT_PRODUCT_IMAGE);
-    const jpeg = await renderCatalogPdfImageToJpeg(source, 420, 300);
+    const jpeg = await renderCatalogPdfImageToJpeg(source, options.logo ? 480 : 420, options.logo ? 154 : 300, options);
     if (!jpeg?.bytes?.length) return null;
     return {
       name: `Im${index}`,
@@ -13802,7 +13853,7 @@ async function getCatalogPdfImageObject(imageUrl, index) {
   }
 }
 
-function renderCatalogPdfImageToJpeg(source, targetWidth = 420, targetHeight = 300) {
+function renderCatalogPdfImageToJpeg(source, targetWidth = 420, targetHeight = 300, options = {}) {
   return new Promise((resolve) => {
     const image = new Image();
     image.crossOrigin = "anonymous";
@@ -13812,14 +13863,16 @@ function renderCatalogPdfImageToJpeg(source, targetWidth = 420, targetHeight = 3
         canvas.width = targetWidth;
         canvas.height = targetHeight;
         const context = canvas.getContext("2d");
-        context.fillStyle = "#f7f8f6";
+        context.fillStyle = options.logo ? "#000" : "#f7f8f6";
         context.fillRect(0, 0, targetWidth, targetHeight);
-        const ratio = Math.min(targetWidth / image.naturalWidth, targetHeight / image.naturalHeight);
+        const sourceY = options.logo ? image.naturalHeight * 0.18 : 0;
+        const sourceHeight = options.logo ? image.naturalHeight * 0.64 : image.naturalHeight;
+        const ratio = Math.min(targetWidth / image.naturalWidth, targetHeight / sourceHeight);
         const width = Math.max(1, Math.round(image.naturalWidth * ratio));
-        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+        const height = Math.max(1, Math.round(sourceHeight * ratio));
         const x = Math.round((targetWidth - width) / 2);
         const y = Math.round((targetHeight - height) / 2);
-        context.drawImage(image, x, y, width, height);
+        context.drawImage(image, 0, sourceY, image.naturalWidth, sourceHeight, x, y, width, height);
         const dataUrl = canvas.toDataURL("image/jpeg", 0.76);
         resolve({ bytes: dataUrlToBytes(dataUrl), width: targetWidth, height: targetHeight });
       } catch (error) {
