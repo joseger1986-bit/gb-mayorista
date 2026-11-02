@@ -13665,7 +13665,18 @@ async function createPriceListPdf(currentProducts) {
     context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
     return context.measureText(text).width * 72 / 96;
   };
-  const blocks = currentProducts.map((product) => {
+  const productsByCategory = new Map();
+  for (const product of currentProducts) {
+    const category = String(product.category || "Sin categoría");
+    if (!productsByCategory.has(category)) productsByCategory.set(category, []);
+    productsByCategory.get(category).push(product);
+  }
+  const layouts = [
+    { nameSize: 15.5, nameLeading: 19, detailSize: 11.5, detailLeading: 15, priceSize: 20, nameGap: 7, rowGap: 8, blockGap: 13 },
+    { nameSize: 14.5, nameLeading: 17.5, detailSize: 11, detailLeading: 13.5, priceSize: 19, nameGap: 4, rowGap: 5, blockGap: 9 },
+    { nameSize: 14, nameLeading: 17, detailSize: 10.5, detailLeading: 13, priceSize: 18, nameGap: 3, rowGap: 3, blockGap: 6 }
+  ];
+  const buildBlocks = (categoryProducts, layout) => categoryProducts.map((product) => {
     const groups = [];
     let details = [];
     // Reutiliza la agrupacion y los importes del catalogo mayorista, sin recalcular precios.
@@ -13674,37 +13685,50 @@ async function createPriceListPdf(currentProducts) {
       if (line.size === 10.5 && line.bold) { groups.push({ details, price: line.text }); details = []; }
       else details.push(line.text);
     }
-    const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, 20, true) + 6));
+    const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, layout.priceSize, true) + 6));
     if (priceWidth > contentWidth - 120) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
-    const names = wrapPriceListText(product.name, contentWidth - 4, 15.5, true);
+    const names = wrapPriceListText(product.name, contentWidth - 4, layout.nameSize, true);
     const rows = groups.map((group) => {
-      const lines = group.details.flatMap((text) => wrapPriceListText(text, contentWidth - priceWidth - 18, 11.5));
-      return { ...group, lines, height: Math.max(25, lines.length * 15) + 8 };
+      const lines = group.details.flatMap((text) => wrapPriceListText(text, contentWidth - priceWidth - 18, layout.detailSize));
+      return { ...group, lines, height: Math.max(layout.priceSize + 5, lines.length * layout.detailLeading) + layout.rowGap };
     });
-    return { category: String(product.category || "Sin categoría"), names, rows, height: names.length * 19 + 7 + rows.reduce((sum, row) => sum + row.height, 0) + 13 };
+    return { category: String(product.category || "Sin categoría"), names, rows, height: names.length * layout.nameLeading + layout.nameGap + rows.reduce((sum, row) => sum + row.height, 0) + layout.blockGap };
   });
   const categoryHeight = (category) => wrapPriceListText(category, contentWidth - 4, 19.5, true).length * 24 + 12;
   const used = (entries) => entries.reduce((state, block) => ({ category: block.category, height: state.height + block.height + (state.category === block.category ? 0 : categoryHeight(block.category)) }), { category: "", height: 0 }).height;
   const pages = [];
-  let page = [];
-  for (const block of blocks) {
-    if (block.height + categoryHeight(block.category) > capacity) throw new Error(`El producto ${block.names.join(" ")} tiene demasiadas variantes para una página legible sin cortes.`);
-    if (page.length && used([...page, block]) > capacity) { pages.push(page); page = []; }
-    page.push(block);
-  }
-  if (page.length) pages.push(page);
-  // Equilibra la ultima hoja sin cambiar el orden ni partir productos.
-  if (pages.length > 1) {
-    const previous = pages.at(-2), last = pages.at(-1);
-    while (previous.length > 1 && used(last) < capacity * 0.35) {
-      const candidate = previous.at(-1), nextPrevious = previous.slice(0, -1), nextLast = [candidate, ...last];
-      if (used(nextLast) > capacity || Math.abs(used(nextPrevious) - used(nextLast)) >= Math.abs(used(previous) - used(last))) break;
-      previous.pop(); last.unshift(candidate);
+  for (const categoryProducts of productsByCategory.values()) {
+    let selected = null;
+    for (const layout of layouts) {
+      const blocks = buildBlocks(categoryProducts, layout);
+      if (blocks.some((block) => used([block]) > capacity)) continue;
+      const categoryPages = [];
+      let page = [];
+      for (const block of blocks) {
+        if (page.length && used([...page, block]) > capacity) { categoryPages.push(page); page = []; }
+        page.push(block);
+      }
+      if (page.length) categoryPages.push(page);
+      // Solo compacta cuando permite ahorrar hojas; en empate conserva la letra mayor.
+      if (!selected || categoryPages.length < selected.pages.length) selected = { layout, pages: categoryPages };
+      if (categoryPages.length === 1) break;
     }
+    if (!selected) throw new Error(`Hay un producto en ${categoryProducts[0].category} con demasiadas variantes para una página legible sin cortes.`);
+    // Equilibra las continuaciones exclusivamente dentro de la misma categoria.
+    const categoryPages = selected.pages;
+    if (categoryPages.length > 1) {
+      const previous = categoryPages.at(-2), last = categoryPages.at(-1);
+      while (previous.length > 1 && used(last) < capacity * 0.35) {
+        const candidate = previous.at(-1), nextPrevious = previous.slice(0, -1), nextLast = [candidate, ...last];
+        if (used(nextLast) > capacity || Math.abs(used(nextPrevious) - used(nextLast)) >= Math.abs(used(previous) - used(last))) break;
+        previous.pop(); last.unshift(candidate);
+      }
+    }
+    pages.push(...categoryPages.map((entries) => ({ entries, layout: selected.layout })));
   }
   const logo = await getCatalogPdfImageObject("/assets/punto-x-mayor-logo-hires.jpg", 1, { logo: true });
   const date = new Intl.DateTimeFormat("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
-  const commands = pages.map((entries, pageIndex) => {
+  const commands = pages.map(({ entries, layout }, pageIndex) => {
     const drawing = ["0 g 0 G"];
     const text = (value, x, y, size, bold = false) => drawing.push(`0 g BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td ${pdfHexString(value)} Tj ET`);
     const rule = (y) => drawing.push(`0.75 G 0.5 w ${margin} ${y} m ${width - margin} ${y} l S`);
@@ -13720,18 +13744,23 @@ async function createPriceListPdf(currentProducts) {
     for (const block of entries) {
       if (category !== block.category) {
         category = block.category;
-        for (const label of wrapPriceListText(category, contentWidth - 4, 19.5, true)) { text(label, margin, y - 19.5, 19.5, true); y -= 24; }
+        for (const label of wrapPriceListText(category, contentWidth - 4, 19.5, true)) {
+          const baseline = y - 19.5;
+          text(label, margin, baseline, 19.5, true);
+          drawing.push(`0 G 0.8 w ${margin} ${baseline - 4} m ${margin + measure(label, 19.5, true)} ${baseline - 4} l S`);
+          y -= 24;
+        }
         y -= 12;
       }
-      for (const name of block.names) { text(name, margin, y - 15.5, 15.5, true); y -= 19; }
-      y -= 7;
+      for (const name of block.names) { text(name, margin, y - layout.nameSize, layout.nameSize, true); y -= layout.nameLeading; }
+      y -= layout.nameGap;
       for (const row of block.rows) {
-        row.lines.forEach((detail, index) => text(detail, margin, y - 15 - index * 15, 11.5));
-        text(row.price, width - margin - measure(row.price, 20, true) - 3, y - 20, 20, true);
+        row.lines.forEach((detail, index) => text(detail, margin, y - layout.detailLeading - index * layout.detailLeading, layout.detailSize));
+        text(row.price, width - margin - measure(row.price, layout.priceSize, true) - 3, y - layout.priceSize, layout.priceSize, true);
         y -= row.height;
       }
       rule(y - 1);
-      y -= 13;
+      y -= layout.blockGap;
     }
     const footer = `Página ${pageIndex + 1} de ${pages.length}`;
     text("www.puntoxmayor.com.ar", margin, margin - 8, 9);
