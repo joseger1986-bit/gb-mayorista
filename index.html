@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=purchase-modes-v2">
+    <link rel="stylesheet" href="/styles.css?v=pack-minimum-v1">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -85,7 +85,7 @@
           <h1>ELEGÍ CÓMO QUERÉS COMPRAR</h1>
           <div class="purchase-choice-options">
             <article><h2>COMPRA SURTIDA</h2><strong>Compra mínima: $150.000</strong><p>Elegí diferentes productos y cantidades hasta completar el mínimo de compra.</p><button class="primary-button" type="button" data-choose-purchase="surtida" disabled>VER CATÁLOGO SURTIDO</button></article>
-            <article><h2>COMPRA POR PACKS</h2><strong>Sin mínimo de compra</strong><p>Comprá packs o docenas completas, sin mínimo de dinero.</p><button class="primary-button" type="button" data-choose-purchase="packs" disabled>VER CATÁLOGO POR PACKS</button></article>
+            <article><h2>COMPRA POR PACKS</h2><strong>Sin mínimo de dinero</strong><p>Respetá el mínimo de cada producto y sumá unidades o docenas de a una.</p><button class="primary-button" type="button" data-choose-purchase="packs" disabled>VER CATÁLOGO POR PACKS</button></article>
           </div>
         </div>
         <div id="purchaseModeControls" class="purchase-mode-controls hidden"></div>
@@ -412,7 +412,7 @@
             <article class="catalog-pdf-card">
               <div>
                 <h3>Catálogo por packs — Con fotos</h3>
-                <p>Presentaciones completas · Sin mínimo de compra.</p>
+                <p>Cantidad mínima por producto · Sin mínimo de dinero.</p>
               </div>
               <div class="catalog-pdf-actions">
                 <button class="primary-button" type="button" data-commercial-pdf="wholesale-packs" data-pdf-action="download">Descargar PDF</button>
@@ -433,7 +433,7 @@
             </article>
           </div>
           <div class="catalog-pdf-options purchase-pdf-options">
-            <article class="catalog-pdf-card"><h3>Lista por packs — Sin fotos</h3><p>Precios de packs y docenas completas.</p><div class="catalog-pdf-actions"><button class="primary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="download">Descargar PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="preview">Ver PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="share">Compartir</button></div></article>
+            <article class="catalog-pdf-card"><h3>Lista por packs — Sin fotos</h3><p>Mínimos por producto y precios por unidad comercial.</p><div class="catalog-pdf-actions"><button class="primary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="download">Descargar PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="preview">Ver PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="share">Compartir</button></div></article>
             <article class="catalog-pdf-card"><h3>Para reventa sin precios</h3><p>Fotos y presentaciones. Sin precios, costos ni stock.</p><div class="catalog-pdf-actions"><button class="primary-button" id="downloadResaleCatalogPdf" type="button">Descargar PDF</button><button class="secondary-button" data-catalog-pdf-preview="resale" type="button">Ver PDF</button><button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button></div></article>
           </div>
           <p class="catalog-pdf-status hidden" id="catalogPdfStatus" role="status"></p>
@@ -727,7 +727,7 @@
             <legend>PRESENTACIÓN PARA CATÁLOGO POR PACKS</legend>
             <label><input type="checkbox" name="packEnabled"> Mostrar en catálogo por packs</label>
             <label>Presentación<select name="packMode"><option value="same">Igual que compra surtida</option><option value="custom">Pack personalizado</option></select></label>
-            <label>Cantidad por pack<input name="packQuantity" type="number" min="1" max="1000000" step="1" inputmode="numeric"></label>
+            <label>Cantidad mínima por producto<input name="packQuantity" type="number" min="1" max="1000000" step="1" inputmode="numeric"></label>
             <output aria-live="polite"></output>
           </fieldset>
           <label id="editProductCostWrap">
@@ -820,9 +820,9 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-  <script src="/purchase_modes.js?v=purchase-modes-v2"></script>
-  <script src="/purchase_integration.js?v=purchase-modes-v2"></script>
-  <script src="/app.js?v=purchase-modes-v2"></script>
+  <script src="/purchase_modes.js?v=pack-minimum-v1"></script>
+  <script src="/purchase_integration.js?v=pack-minimum-v1"></script>
+  <script src="/app.js?v=pack-minimum-v1"></script>
   </body>
 </html>
 

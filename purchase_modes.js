@@ -44,26 +44,25 @@
     if (!habitual) throw new Error("Falta la presentación habitual.");
     const same = config.mode === "same";
     if (!same && config.mode !== "custom") throw new Error("Configuración de pack inválida.");
-    const quantity = same ? 1 : integer(config.quantity, "Cantidad del pack");
     const kind = config.base_kind === "valijita" ? "valijita" : baseKind(product);
-    const factor = same || kind === "presentation" ? stockFactor(habitual, unit)
+    const factor = kind === "presentation" ? stockFactor(habitual, unit)
       : kind === "valijita" ? 2 : kind === "dozen" && unit !== "docenas" ? 12 : 1;
+    const quantity = integer(same ? stockFactor(habitual, unit) / factor : config.quantity, "Compra mínima por producto");
     const noun = kind === "valijita" ? "valijitas" : kind === "dozen" ? "docenas" : kind === "presentation"
       ? /valijita/i.test(habitual) ? "valijitas" : /juego/i.test(habitual) ? "juegos" : /\bpar(?:es)?\b/i.test(habitual) ? "pares" : "presentaciones" : "unidades";
-    const orderPresentation = same || kind === "presentation" ? habitual
+    const orderPresentation = kind === "presentation" ? habitual
       : kind === "valijita" ? "Pack x2 unidades" : kind === "dozen" ? "Docena" : "Unidad";
-    const label = same ? habitual : kind === "valijita" ? `Pack x${quantity} valijitas (${quantity * 2} juegos)`
-      : quantity === 1 && kind === "dozen" ? "Docena" : `Pack x${quantity} ${noun}`;
-    const unitPrice = same ? Math.round(base * factor) : base * factor;
+    const label = `Compra mínima: ${quantity} ${quantityNoun(quantity, noun)}${kind === "valijita" ? ` (${quantity * 2} juegos)` : ""}`;
+    const unitPrice = base * factor;
     return {
-      presentation: label, price: unitPrice * quantity, quantity, orderPresentation, same,
+      presentation: label, price: unitPrice, minimumTotalPrice: unitPrice * quantity, quantity, orderPresentation, same, quantityRule: "minimum",
       orderUnitPrice: unitPrice, stockPerBase: factor, kind, noun,
       mixGroup: same ? null : config.mix_group || null, revision: Number(config.revision) || 0
     };
   }
-  function distribution(spec, variants, allocations, packs) {
-    const count = integer(packs, "Cantidad de packs");
-    const required = spec.quantity * count;
+  function distribution(spec, variants, allocations, requested) {
+    const required = integer(requested, "Cantidad elegida");
+    if (required < spec.quantity) throw new Error(`La compra mínima es de ${spec.quantity} ${spec.noun}.`);
     const selected = [];
     let total = 0;
     for (const variant of variants) {
@@ -83,6 +82,7 @@
   const reachesMinimum = (mode, total) => mode === "packs" ? total > 0 : total >= MINIMUM;
   function quantityText(item) {
     const details = item.purchaseDetails;
+    if (details?.quantityRule === "minimum") return `${item.quantity} ${quantityNoun(item.quantity, details.noun)}`;
     if (!details || details.same || Number(item.quantity) !== Number(details.allocated)) return null;
     const noun = quantityNoun(item.quantity, details.noun);
     if (details.mixed) return `${item.quantity} ${noun} · ${details.presentation} surtido`;

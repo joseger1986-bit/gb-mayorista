@@ -28,13 +28,13 @@ function getCatalogProducts(mode = getActiveCatalogMode()) {
   const groups = getBaseCatalogProducts();
   if (mode !== "packs") return groups;
   if (!packSettingsReady) return [];
-  return groups.map(group => ({ ...group, minimum: 1, variants: group.variants.flatMap(variant => {
+  return groups.map(group => ({ ...group, variants: group.variants.flatMap(variant => {
     if (!(Number(variant.basePrice ?? variant.price) > 0) || !String(variant.presentation || "").trim()) return [];
     const spec = PURCHASE.resolve(variant, getPackConfig(variant));
     const product = products.find(p => String(p.id) === String(variant.productId));
     const stock = Object.hasOwn(product?.variantStock || {}, variant.label) ? product.variantStock[variant.label] : variant.stock;
     return spec ? [{ ...variant, stock, presentation: spec.presentation, price: spec.price, packSpec: spec }] : [];
-  }) })).filter(group => group.variants.length);
+  }) })).filter(group => group.variants.length).map(group => ({ ...group, minimum: group.variants[0].packSpec.quantity }));
 }
 
 function renderPurchaseModeControls() {
@@ -48,11 +48,11 @@ function renderPurchaseModeControls() {
   controls?.classList.toggle("hidden", !internal && !publicPurchaseMode);
   if (controls) controls.innerHTML = internal
     ? `<div class="purchase-mode-switch" role="group" aria-label="Modalidad de venta"><button type="button" data-internal-purchase="habitual" aria-pressed="${internalPurchaseMode === "habitual"}">Venta habitual</button><button type="button" data-internal-purchase="packs" aria-pressed="${internalPurchaseMode === "packs"}">Venta por packs</button></div>`
-    : `<strong>${publicPurchaseMode === "packs" ? "COMPRA POR PACKS · Sin mínimo de compra" : `COMPRA SURTIDA · Mínimo ${formatMoney(WHOLESALE_MINIMUM)}`}</strong><button type="button" class="ghost-button" data-change-purchase> Cambiar modalidad </button>`;
+    : `<strong>${publicPurchaseMode === "packs" ? "COMPRA POR PACKS · Mínimo por producto" : `COMPRA SURTIDA · Mínimo ${formatMoney(WHOLESALE_MINIMUM)}`}</strong><button type="button" class="ghost-button" data-change-purchase> Cambiar modalidad </button>`;
   const banner = document.querySelector(".minimum-banner");
   banner?.classList.toggle("hidden", internal || !publicPurchaseMode);
   banner?.querySelectorAll(".minimum-marquee span:nth-child(4n+1)").forEach(span => {
-    span.textContent = publicPurchaseMode === "packs" ? "PACKS Y DOCENAS · SIN COMPRA MÍNIMA" : `COMPRA MÍNIMA ${formatMoney(WHOLESALE_MINIMUM)}`;
+    span.textContent = publicPurchaseMode === "packs" ? "SIN MÍNIMO DE DINERO · MÍNIMO POR PRODUCTO" : `COMPRA MÍNIMA ${formatMoney(WHOLESALE_MINIMUM)}`;
   });
   banner?.setAttribute("aria-label", publicPurchaseMode === "packs" ? "Compra por packs sin mínimo de dinero" : `Compra mínima ${formatMoney(WHOLESALE_MINIMUM)}`);
   if (getActiveCatalogMode() === "packs" && !packSettingsReady && els.productGrid) {
@@ -102,21 +102,22 @@ function updatePackDistributionControl(group, selected) {
     list.querySelectorAll("input").forEach(input => input.addEventListener("input", () => updatePackDistributionControl(group, selected)));
   }
   const total = [...list.querySelectorAll("input")].reduce((sum, input) => sum + (Number(input.value) || 0), 0);
-  root.querySelector("output").textContent = `${total} de ${getCatalogQuantityValue(group.id, 1) * spec.quantity} ${spec.noun}`;
+  root.querySelector("output").textContent = `${total} de ${getCatalogQuantityValue(group.id, spec.quantity)} ${spec.noun} elegidas · mínimo ${spec.quantity}`;
 }
 
 function addConfiguredPack(group, variant, packs) {
   try {
     const spec = variant.packSpec;
-    const count = PURCHASE.integer(packs, "Cantidad de packs");
+    const count = PURCHASE.integer(packs, "Cantidad elegida");
+    if (count < spec.quantity) throw new Error(`La compra mínima es de ${spec.quantity} ${spec.noun}.`);
     let selected;
     if (spec.mixGroup) {
       const root = document.querySelector(`[data-pack-distribution="${CSS.escape(group.id)}"]`);
       const allocation = Object.fromEntries([...root.querySelectorAll("[data-pack-variant]")].map(input => [input.dataset.packVariant, input.value]));
       selected = PURCHASE.distribution(spec, group.variants, allocation, count);
     } else {
-      if (count * spec.quantity * spec.stockPerBase > Number(variant.stock)) throw new Error("No hay stock suficiente para esa cantidad de packs.");
-      selected = [{ variant, quantity: count * spec.quantity }];
+      if (count * spec.stockPerBase > Number(variant.stock)) throw new Error("No hay stock suficiente para esa cantidad.");
+      selected = [{ variant, quantity: count }];
     }
     const packId = crypto.randomUUID();
     {
@@ -144,7 +145,7 @@ function addConfiguredPack(group, variant, packs) {
     }
     for (const { variant: v, quantity } of selected) {
       const next = { ...v, price: v.packSpec.orderUnitPrice, presentation: v.packSpec.orderPresentation, packSpec: null };
-      const detail = { packId, packs: count, allocated: quantity, unitsPerPack: spec.quantity, presentation: spec.presentation, noun: spec.noun, same: spec.same, mixed: Boolean(spec.mixGroup), revision: v.packSpec.revision };
+      const detail = { packId, quantityRule: "minimum", requestedTotal: count, minimumQuantity: spec.quantity, allocated: quantity, unitsPerPack: spec.quantity, presentation: spec.presentation, noun: spec.noun, same: spec.same, mixed: Boolean(spec.mixGroup), revision: v.packSpec.revision };
       if (isInternalCatalogQuickSaleMode()) {
         const target = getManualCatalogTarget() || getInternalCatalogSale();
         const existing = target.items.find(item => String(item.id) === String(v.productId));
@@ -159,8 +160,7 @@ function addConfiguredPack(group, variant, packs) {
         const source = products.find(p => p.id === v.productId);
         addCatalogGroupToInternalSale(group, next, quantity, source ? { ...source, presentation: next.presentation } : null);
         const item = target.items.find(item => String(item.id) === String(v.productId));
-        if (item && item.quantity === quantity) item.purchaseDetails = detail;
-        else if (item) delete item.purchaseDetails;
+        if (item) item.purchaseDetails = { ...detail, allocated: item.quantity };
         target.purchaseMode = target.items.every(item => item.purchaseDetails) ? "packs" : "habitual";
         recalculateBudget(target);
       } else {
@@ -172,7 +172,7 @@ function addConfiguredPack(group, variant, packs) {
     }
     if (isInternalCatalogQuickSaleMode()) renderInternalCatalogSale();
     else { saveCart(); renderCart(); }
-    showToast("Pack agregado", "success");
+    showToast("Cantidad agregada", "success");
   } catch (error) { showToast(error.message); }
 }
 
@@ -181,11 +181,15 @@ function refreshPackCartItem(item) {
   const variant = group?.variants.find(v => String(v.productId) === String(item.internalProductId || item.id) && v.label === item.variantLabel);
   if (!variant) return { ...item, packError: "Un artículo ya no está disponible por packs. Quitá esa presentación del carrito." };
   const spec = variant.packSpec;
-  if (spec.quantity !== item.purchaseDetails.unitsPerPack || spec.presentation !== item.purchaseDetails.presentation || spec.revision !== item.purchaseDetails.revision) {
+  if (spec.revision !== item.purchaseDetails.revision) {
     return { ...item, packError: "Cambió la presentación de un pack. Quitalo y seleccioná nuevamente sus cantidades." };
   }
   const { packError, ...rest } = item;
-  return { ...rest, price: spec.orderUnitPrice, basePrice: variant.basePrice, presentation: spec.orderPresentation, stockUnit: variant.stockUnit };
+  const quantity = item.purchaseDetails.quantityRule === "minimum" ? item.quantity
+    : PURCHASE.integer(item.quantity * PURCHASE.stockFactor(item.presentation, item.stockUnit) / spec.stockPerBase, "Cantidad guardada");
+  return { ...rest, quantity, purchaseDetails: { ...item.purchaseDetails, quantityRule: "minimum", allocated: quantity, minimumQuantity: spec.quantity,
+    unitsPerPack: spec.quantity, requestedTotal: null, noun: spec.noun, presentation: spec.presentation, same: spec.same },
+    price: spec.orderUnitPrice, basePrice: variant.basePrice, presentation: spec.orderPresentation, stockUnit: variant.stockUnit };
 }
 
 function validatePackCart(items) {
@@ -196,14 +200,38 @@ function validatePackCart(items) {
     if (item.packError) throw new Error(item.packError);
     const detail = item.purchaseDetails;
     if (!detail || item.quantity !== detail.allocated) throw new Error("El carrito contiene un pack incompleto. Seleccionalo nuevamente.");
-    const batch = batches.get(detail.packId) || { total: 0, expected: detail.packs * detail.unitsPerPack };
+    const batch = batches.get(detail.packId) || { total: 0, minimum: detail.minimumQuantity, price: item.price, items: [] };
+    if (detail.mixed && Number(batch.price) !== Number(item.price)) throw new Error("Los talles tienen precios diferentes. Seleccioná nuevamente la distribución.");
     batch.total += item.quantity;
+    batch.items.push(item);
     batches.set(detail.packId, batch);
     const id = String(item.internalProductId || item.id);
     stock.set(id, (stock.get(id) || 0) + item.quantity * PURCHASE.stockFactor(item.presentation, item.stockUnit));
   }
-  if ([...batches.values()].some(batch => batch.total !== batch.expected)) throw new Error("Hay un pack incompleto en el carrito.");
+  if ([...batches.values()].some(batch => batch.total < batch.minimum)) throw new Error("Hay un producto que no alcanza su cantidad mínima.");
+  for (const batch of batches.values()) for (const item of batch.items) item.purchaseDetails.requestedTotal = batch.total;
   for (const [id, quantity] of stock) if (quantity > getProductTotalStock(products.find(p => String(p.id) === id))) throw new Error("La cantidad del carrito supera el stock vigente.");
+}
+
+function validateMinimumOrderItems(items) {
+  const batches = new Map();
+  const variants = getCatalogProducts("packs").flatMap(group => group.variants);
+  for (const item of items) {
+    if (item.purchaseDetails?.quantityRule !== "minimum") continue;
+    const variant = variants.find(v => String(v.productId) === String(item.internalProductId || item.id) && v.label === (item.variant || item.variantLabel || ""));
+    if (!variant) throw new Error("Un producto ya no está disponible en la modalidad por packs.");
+    const spec = variant.packSpec;
+    if (item.presentation !== spec.orderPresentation) throw new Error("La presentación cambió. Revisá el producto en el catálogo.");
+    const key = `${spec.mixGroup || variant.productId}:${item.price}:${spec.quantity}:${spec.kind}`;
+    const batch = batches.get(key) || { total: 0, minimum: spec.quantity, noun: spec.noun, items: [] };
+    batch.total += PURCHASE.integer(item.quantity, "Cantidad");
+    batch.items.push({ item, spec });
+    batches.set(key, batch);
+  }
+  for (const batch of batches.values()) {
+    if (batch.total < batch.minimum) throw new Error(`La compra mínima por producto es de ${batch.minimum} ${batch.noun}.`);
+    for (const { item, spec } of batch.items) item.purchaseDetails = { ...item.purchaseDetails, allocated: item.quantity, minimumQuantity: spec.quantity, requestedTotal: batch.total, revision: spec.revision };
+  }
 }
 
 function fillPackEditor(product) {
@@ -236,7 +264,7 @@ function updatePackEditorPreview() {
   section.querySelector("[name=packQuantity]").closest("label").classList.toggle("hidden", section.querySelector("[name=packMode]").value === "same");
   try {
     const spec = PURCHASE.resolve({ ...product, basePrice: Number(els.editProductPrice.value), presentation: els.editProductPresentation.value }, readPackEditor(product));
-    section.querySelector("output").textContent = spec ? `${spec.presentation} · ${formatMoney(spec.price)}` : "No se mostrará en el catálogo por packs";
+    section.querySelector("output").textContent = spec ? `${spec.presentation} · ${formatMoney(spec.price)} por ${PURCHASE.quantityNoun(1, spec.noun)}` : "No se mostrará en el catálogo por packs";
   } catch (error) { section.querySelector("output").textContent = error.message; }
 }
 

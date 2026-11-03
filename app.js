@@ -1385,6 +1385,7 @@ async function saveOrderToSupabase(order) {
 }
 
 async function saveLocalSaleToSupabase(order) {
+  validateMinimumOrderItems(order.items);
   const client = getSupabaseCatalogClient();
   if (!client) throw new Error("No se pudo conectar con Supabase para registrar la venta.");
   if (typeof client.rpc !== "function") throw new Error("Supabase RPC no está disponible para registrar la venta.");
@@ -1437,6 +1438,7 @@ function isPendingManualDetail(order) {
 }
 
 async function persistManualOrder(order, action = "save") {
+  if (action === "save" || action === "pay") validateMinimumOrderItems(order.items);
   const client = getSupabaseCatalogClient();
   const token = getStoredInternalProfileSessionToken();
   if (!client || !token) throw new Error("La sesion de Gestion no esta disponible.");
@@ -1767,6 +1769,7 @@ function buildSupabaseOrderItemRows(order, orderId) {
 }
 
 async function persistOrderToSupabase(order, options = {}) {
+  if (options.replaceItems && !order.stockApplied) validateMinimumOrderItems(order.items);
   if (getOrderOrigin(order) === "manual") return persistManualOrder(order, "save");
   const client = getSupabaseCatalogClient();
   const orderId = getRemoteOrderId(order);
@@ -3584,8 +3587,14 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
     if (imageEl.getAttribute("src") !== nextImage) imageEl.src = nextImage;
   }
   const quantityLabel = getCatalogQuantityLabelForPresentation(displayVariant?.presentation || group?.presentation || "");
-  if (quantityLabelEl) quantityLabelEl.textContent = quantityLabel;
-  if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${quantityLabel} para ${group.name}`);
+  const actualQuantityLabel = displayVariant?.packSpec ? `Cantidad de ${displayVariant.packSpec.noun}` : quantityLabel;
+  if (quantityLabelEl) quantityLabelEl.textContent = actualQuantityLabel;
+  if (quantityInput && displayVariant?.packSpec) {
+    const minimumChanged = Number(quantityInput.min) !== displayVariant.packSpec.quantity;
+    quantityInput.min = String(displayVariant.packSpec.quantity);
+    if (minimumChanged) normalizeCatalogQuantityInput(quantityInput, true);
+  }
+  if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${actualQuantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
   updatePackDistributionControl(group, variant);
 }
@@ -3608,6 +3617,7 @@ function formatCatalogSubtotal(price, quantity) {
 }
 
 function getCatalogQuantityValue(groupId, minimum = 1) {
+  if (getActiveCatalogMode() === "packs") minimum = Math.max(minimum, Number(document.querySelector(`#qty-${CSS.escape(groupId)}`)?.min) || 1);
   const input = document.querySelector(`#qty-${CSS.escape(groupId)}`);
   const min = Math.max(1, Math.round(Number(minimum) || 1));
   return Math.max(min, Math.round(Number(input?.value) || min));
@@ -3616,6 +3626,7 @@ function getCatalogQuantityValue(groupId, minimum = 1) {
 function normalizeCatalogQuantityInput(input, force = false) {
   if (!input) return;
   const min = Math.max(1, Math.round(Number(input.min) || 1));
+  if (!force && getActiveCatalogMode() === "packs" && (input.value === "" || Number(input.value) < min)) return;
   const raw = Math.round(Number(input.value) || min);
   const next = Math.max(min, raw);
   if (force || String(input.value) !== String(next)) input.value = String(next);
@@ -3624,6 +3635,7 @@ function normalizeCatalogQuantityInput(input, force = false) {
 function changeCatalogQuantity(groupId, delta, minimum = 1) {
   const input = document.querySelector(`#qty-${CSS.escape(groupId)}`);
   if (!input) return;
+  if (getActiveCatalogMode() === "packs") minimum = Math.max(1, Number(input.min) || minimum);
   const min = Math.max(1, Math.round(Number(minimum) || 1));
   const current = Math.max(min, Math.round(Number(input.value) || min));
   input.value = String(Math.max(min, current + delta));
@@ -3707,6 +3719,7 @@ function formatQuantityWithPresentationLabel(presentation, quantity = 1) {
 
 function getCatalogQuantityLabel(group) {
   const variant = group?.variants?.[0] || {};
+  if (variant.packSpec) return `Cantidad de ${variant.packSpec.noun}`;
   const presentation = variant.presentation || group?.presentation || "";
   return getCatalogQuantityLabelForPresentation(presentation);
 }
@@ -6591,6 +6604,7 @@ function saveBudgetItemEdit(orderId, productId) {
   item.packQuantity = getPackQuantityFromPresentation(presentation);
   item.quantity = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-quantity]')?.value) || 1));
   item.price = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-price]')?.value) || item.price || 1));
+  if (item.purchaseDetails?.quantityRule === "minimum") item.purchaseDetails.allocated = item.quantity;
   recalculateBudget(order);
   reapplyConfirmedStock(order);
   saveProducts();
@@ -7921,7 +7935,7 @@ function renderCart() {
   els.cartSubtitle.textContent = cartCountSummary;
   if (els.cartSummaryCounts) els.cartSummaryCounts.textContent = cartCountSummary;
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
-  els.minimumStatus.textContent = publicPurchaseMode === "packs" ? "Packs y docenas completas · Sin mínimo de dinero" : minimumReached
+  els.minimumStatus.textContent = publicPurchaseMode === "packs" ? "Cantidad mínima por producto · Sin mínimo de dinero" : minimumReached
     ? "✓ Compra mínima alcanzada"
     : `Te faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima online`;
   clearCartError();
@@ -9939,6 +9953,10 @@ async function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   const order = orders.find((item) => item.id === id);
   if (!order) return;
   if (getOrderOrigin(order) === "manual") return payManualOrder(id);
+  if (!order.stockApplied) {
+    try { validateMinimumOrderItems(order.items); }
+    catch (error) { showToast(error.message); return; }
+  }
   if (order.stockApplied) {
     order.status = "Pagado";
     try {
@@ -10208,7 +10226,7 @@ function getDocumentItemVariantLabel(item) {
 function formatItemQuantityPrice(item) {
   const quantity = formatDocumentQuantity(item).replace(/\b(pack|packs) x(\d+)/i, "$1 de $2");
   const detail = item.purchaseDetails;
-  const pack = detail && !detail.same && Number(detail.allocated) === Number(item.quantity) ? ` · ${detail.packs} × ${detail.presentation}${detail.mixed ? " surtido" : ""}` : "";
+  const pack = detail && detail.quantityRule !== "minimum" && !detail.same && Number(detail.allocated) === Number(item.quantity) ? ` · ${detail.packs} × ${detail.presentation}${detail.mixed ? " surtido" : ""}` : "";
   return `${quantity} × ${formatMoney(Number(item.price) || 0)}${pack}`;
 }
 
@@ -10977,6 +10995,7 @@ function updateBudgetItemQty(orderId, productId, quantity) {
   openOrderId = orderId;
   restoreConfirmedStock(order);
   item.quantity = Math.max(1, Math.round(quantity || 1));
+  if (item.purchaseDetails?.quantityRule === "minimum") item.purchaseDetails.allocated = item.quantity;
   recalculateBudget(order);
   reapplyConfirmedStock(order);
   saveProducts();
@@ -13706,7 +13725,8 @@ async function createCatalogPdfBlob(type) {
 function getProductsForCatalogPdf(mode = "surtida") {
   if (mode === "packs" && !packSettingsReady) throw new Error(packSettingsError || "No se pudieron cargar las presentaciones por packs.");
   return getCatalogProducts(mode)
-    .map(product => ({ ...product, pdfMode: mode }))
+    .map(product => ({ ...product, pdfMode: mode, variants: mode === "packs" ? product.variants.map(variant => ({ ...variant,
+      presentation: `${variant.packSpec.presentation} · Precio por ${PURCHASE.quantityNoun(1, variant.packSpec.noun)}` })) : product.variants }))
     .sort((a, b) => {
       const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
       if (categoryDiff !== 0) return categoryDiff;
@@ -13820,7 +13840,7 @@ function getCommercialCatalogPdfTextLines(product, width) {
 }
 
 function getPdfPurchaseConditions(mode = "surtida") {
-  return mode === "packs" ? ["COMPRA POR PACKS — SIN MÍNIMO DE COMPRA", "Packs y docenas completas · Precios de venta vigentes"]
+  return mode === "packs" ? ["COMPRA POR PACKS — SIN MÍNIMO DE DINERO", "Mínimo por producto. Podés sumar unidades o docenas de a una."]
     : [`COMPRA SURTIDA — COMPRA MÍNIMA ${formatMoney(WHOLESALE_MINIMUM)}`, "Combiná productos hasta completar el mínimo total."];
 }
 
