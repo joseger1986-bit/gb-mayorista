@@ -48,7 +48,7 @@ function renderPurchaseModeControls() {
   controls?.classList.toggle("hidden", !internal && !publicPurchaseMode);
   if (controls) controls.innerHTML = internal
     ? `<div class="purchase-mode-switch" role="group" aria-label="Modalidad de venta"><button type="button" data-internal-purchase="habitual" aria-pressed="${internalPurchaseMode === "habitual"}">Venta habitual</button><button type="button" data-internal-purchase="packs" aria-pressed="${internalPurchaseMode === "packs"}">Venta por packs</button></div>`
-    : `<strong>${publicPurchaseMode === "packs" ? "COMPRA POR PACKS · Mínimo por producto" : `COMPRA SURTIDA · Mínimo ${formatMoney(WHOLESALE_MINIMUM)}`}</strong><button type="button" class="ghost-button" data-change-purchase> Cambiar modalidad </button>`;
+    : `<strong>${publicPurchaseMode === "packs" ? "COMPRA POR PACKS" : `COMPRA SURTIDA · Mínimo ${formatMoney(WHOLESALE_MINIMUM)}`}</strong><button type="button" class="ghost-button" data-change-purchase> Cambiar modalidad </button>`;
   const banner = document.querySelector(".minimum-banner");
   banner?.classList.toggle("hidden", internal || !publicPurchaseMode);
   banner?.querySelectorAll(".minimum-marquee span:nth-child(4n+1)").forEach(span => {

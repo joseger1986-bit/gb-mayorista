@@ -3524,7 +3524,7 @@ function renderCatalogGroupPrice(group) {
   const selectedVariant = group.variants[0];
   return `
     <div class="pack-price">
-      <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice(selectedVariant.price || 0) : ""}</div>
+      <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice((selectedVariant.price || 0) * (selectedVariant.packSpec && !isPrivateManagementRoute() ? selectedVariant.packSpec.quantity : 1)) : ""}</div>
       ${renderCatalogSaleDetail(group, selectedVariant)}
     </div>
   `;
@@ -3576,8 +3576,6 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   const addButton = document.querySelector(`[data-add-catalog="${CSS.escape(groupId)}"]`);
   const imageEl = document.querySelector(`[data-catalog-image="${CSS.escape(groupId)}"]`);
   const quantityLabelEl = document.querySelector(`[data-catalog-quantity-label="${CSS.escape(groupId)}"]`);
-  if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price) : "";
-  if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant) : "";
   if (displayVariant?.images?.length) catalogImageFallbacks.set(groupId, displayVariant.images);
   else catalogImageFallbacks.set(groupId, mergeProductImages(group.images || [], group.image ? [group.image] : []));
   if (imageEl) {
@@ -3594,6 +3592,9 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
     quantityInput.min = String(displayVariant.packSpec.quantity);
     if (minimumChanged) normalizeCatalogQuantityInput(quantityInput, true);
   }
+  const displayQuantity = displayVariant?.packSpec && !isPrivateManagementRoute() ? getCatalogQuantityValue(groupId, displayVariant.packSpec.quantity) : 1;
+  if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price * displayQuantity) : "";
+  if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant, displayQuantity) : "";
   if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${actualQuantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
   updatePackDistributionControl(group, variant);
@@ -3646,8 +3647,13 @@ function renderCatalogSaleDetail(group, variant) {
   return `<div class="pack-sale-detail" data-catalog-sale-detail="${escapeHtml(group.id)}">${variant ? getCatalogSaleDetailHtml(variant) : ""}</div>`;
 }
 
-function getCatalogSaleDetailHtml(variant) {
+function getCatalogSaleDetailHtml(variant, quantity) {
   const spec = variant?.packSpec;
+  if (spec && !isPrivateManagementRoute()) {
+    const amount = quantity ?? spec.quantity;
+    const presentation = amount === 1 ? PURCHASE.quantityNoun(1, spec.noun) : `Pack x ${amount} ${spec.noun}`;
+    return `<span>${escapeHtml(presentation.charAt(0).toUpperCase() + presentation.slice(1))}</span><span>Precio por ${escapeHtml(PURCHASE.quantityNoun(1, spec.noun))}: ${escapeHtml(formatMoney(spec.orderUnitPrice))}</span>`;
+  }
   const presentation = spec?.presentation || getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
   const unitPrice = spec && !spec.same
     ? `Pagás por ${PURCHASE.quantityNoun(1, spec.noun)}: ${formatMoney(spec.orderUnitPrice)}`
