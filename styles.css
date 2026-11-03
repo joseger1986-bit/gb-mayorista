@@ -14339,6 +14339,7 @@ html[data-purchase-state="choice"] #floatingCartButton { display: none !importan
 .pack-distribution { border: 1px solid #aaa; padding: 8px; margin: 8px 0; min-width: 0; }
 .pack-distribution [data-pack-allocation-list] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pack-distribution label { display: grid; gap: 4px; min-width: 0; }
+.pack-distribution label small { font-size: 10px; white-space: nowrap; }
 .pack-distribution input { width: 100%; min-width: 0; padding: 8px; }
 .pack-distribution output { display: block; margin-top: 8px; font-weight: bold; }
 .pack-product-editor { display: grid; gap: 12px; border: 1px solid #aaa; min-width: 0; padding: 16px; }

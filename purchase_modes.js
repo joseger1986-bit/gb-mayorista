@@ -57,7 +57,8 @@
     return {
       presentation: label, price: unitPrice, minimumTotalPrice: unitPrice * quantity, quantity, orderPresentation, same, quantityRule: "minimum",
       orderUnitPrice: unitPrice, stockPerBase: factor, kind, noun,
-      mixGroup: same ? null : config.mix_group || null, revision: Number(config.revision) || 0
+      mixGroup: same ? null : config.mix_group || null, allowMixedPrices: !same && Boolean(config.mix_group) && config.allow_mixed_prices === true,
+      revision: Number(config.revision) || 0
     };
   }
   function distribution(spec, variants, allocations, requested) {
@@ -70,7 +71,8 @@
       if (!amount) continue;
       integer(amount, "Cantidad por talle");
       const next = variant.packSpec;
-      if (!next || next.mixGroup !== spec.mixGroup || next.orderUnitPrice !== spec.orderUnitPrice || next.quantity !== spec.quantity || next.kind !== spec.kind) throw new Error("No se pueden mezclar estas variantes en un pack.");
+      if (!next || next.mixGroup !== spec.mixGroup || next.quantity !== spec.quantity || next.kind !== spec.kind ||
+        (next.orderUnitPrice !== spec.orderUnitPrice && !(spec.allowMixedPrices && next.allowMixedPrices))) throw new Error("No se pueden mezclar estas variantes en un pack.");
       if (amount * next.stockPerBase > Number(variant.stock || 0)) throw new Error(`Stock insuficiente para ${variant.label || variant.id}.`);
       total += amount;
       selected.push({ variant, quantity: amount });

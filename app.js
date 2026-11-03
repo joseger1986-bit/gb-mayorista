@@ -1385,7 +1385,7 @@ async function saveOrderToSupabase(order) {
 }
 
 async function saveLocalSaleToSupabase(order) {
-  validateMinimumOrderItems(order.items);
+  validateMinimumOrderItems(order.items, order);
   const client = getSupabaseCatalogClient();
   if (!client) throw new Error("No se pudo conectar con Supabase para registrar la venta.");
   if (typeof client.rpc !== "function") throw new Error("Supabase RPC no está disponible para registrar la venta.");
@@ -1438,7 +1438,7 @@ function isPendingManualDetail(order) {
 }
 
 async function persistManualOrder(order, action = "save") {
-  if (action === "save" || action === "pay") validateMinimumOrderItems(order.items);
+  if (action === "save" || action === "pay") validateMinimumOrderItems(order.items, order);
   const client = getSupabaseCatalogClient();
   const token = getStoredInternalProfileSessionToken();
   if (!client || !token) throw new Error("La sesion de Gestion no esta disponible.");
@@ -1769,7 +1769,7 @@ function buildSupabaseOrderItemRows(order, orderId) {
 }
 
 async function persistOrderToSupabase(order, options = {}) {
-  if (options.replaceItems && !order.stockApplied) validateMinimumOrderItems(order.items);
+  if (options.replaceItems && !order.stockApplied) validateMinimumOrderItems(order.items, order);
   if (getOrderOrigin(order) === "manual") return persistManualOrder(order, "save");
   const client = getSupabaseCatalogClient();
   const orderId = getRemoteOrderId(order);
@@ -3594,7 +3594,7 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   }
   const displayQuantity = displayVariant?.packSpec && !isPrivateManagementRoute() ? getCatalogQuantityValue(groupId, displayVariant.packSpec.quantity) : 1;
   if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price * displayQuantity) : "";
-  if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant, displayQuantity) : "";
+  if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant, displayQuantity, group) : "";
   if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${actualQuantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
   updatePackDistributionControl(group, variant);
@@ -3644,15 +3644,15 @@ function changeCatalogQuantity(groupId, delta, minimum = 1) {
 }
 
 function renderCatalogSaleDetail(group, variant) {
-  return `<div class="pack-sale-detail" data-catalog-sale-detail="${escapeHtml(group.id)}">${variant ? getCatalogSaleDetailHtml(variant) : ""}</div>`;
+  return `<div class="pack-sale-detail" data-catalog-sale-detail="${escapeHtml(group.id)}">${variant ? getCatalogSaleDetailHtml(variant, undefined, group) : ""}</div>`;
 }
 
-function getCatalogSaleDetailHtml(variant, quantity) {
+function getCatalogSaleDetailHtml(variant, quantity, group) {
   const spec = variant?.packSpec;
   if (spec && !isPrivateManagementRoute()) {
     const amount = quantity ?? spec.quantity;
     const presentation = amount === 1 ? PURCHASE.quantityNoun(1, spec.noun) : `Pack x ${amount} ${spec.noun}`;
-    return `<span>${escapeHtml(presentation.charAt(0).toUpperCase() + presentation.slice(1))}</span><span>Precio por ${escapeHtml(PURCHASE.quantityNoun(1, spec.noun))}: ${escapeHtml(formatMoney(spec.orderUnitPrice))}</span>`;
+    return `<span>${escapeHtml(presentation.charAt(0).toUpperCase() + presentation.slice(1))}</span><span>${escapeHtml(getPackUnitPriceText(group, variant))}</span>`;
   }
   const presentation = spec?.presentation || getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
   const unitPrice = spec && !spec.same
@@ -9960,7 +9960,7 @@ async function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
   if (!order) return;
   if (getOrderOrigin(order) === "manual") return payManualOrder(id);
   if (!order.stockApplied) {
-    try { validateMinimumOrderItems(order.items); }
+    try { validateMinimumOrderItems(order.items, order); }
     catch (error) { showToast(error.message); return; }
   }
   if (order.stockApplied) {
@@ -13793,10 +13793,10 @@ function getPdfPurchaseRule(product) {
     if (name === "medias elastizadas adultos" || /^soquetes invisibles? (damas?|hombres?)$/.test(name)) return { pack: 3, dozen: true };
   }
   if (category === "ropa interior hombre") {
-    if (/\bboxer lody\b/.test(name) && /\b742\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 6 };
-    if (/\bboxer xy\b/.test(name) && /\b1387\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 5 };
-    if (/\bboxer maxton\b/.test(name)) return { pack: 5, minSize: 2, maxSize: 6, maxton: true };
-    if (/\bboxer dufour\b/.test(name) && /\b11855\b/.test(name)) return { pack: 5, minSize: 1, maxSize: 5 };
+    if (/\bboxer lody\b/.test(name) && /\b742\b/.test(name)) return { pack: 6, minSize: 1, maxSize: 6 };
+    if (/\bboxer xy\b/.test(name) && /\b1387\b/.test(name)) return { pack: 6, minSize: 1, maxSize: 5 };
+    if (/\bboxer maxton\b/.test(name)) return { pack: 6, minSize: 2, maxSize: 6, maxton: true };
+    if (/\bboxer dufour\b/.test(name) && /\b11855\b/.test(name)) return { pack: 6, minSize: 1, maxSize: 5 };
   }
   if (category === "blanqueria") {
     if (/\bgoldsun\b/.test(name) && /\bsabanas\b/.test(name)) return { pack: 2, goldsun: true };
@@ -13897,6 +13897,7 @@ async function createPriceListPdf(currentProducts) {
       if (line.size === 10.5 && line.bold) { groups.push({ details, price: line.text }); details = []; }
       else details.push(line.text.replace(/^Presentación:\s*/, ""));
     }
+    if (details.length && groups.length) groups.at(-1).details.push(...details);
     const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, layout.priceSize, true) + 6));
     if (priceWidth > contentWidth - 120) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
     const names = wrapPriceListText(product.name, contentWidth - 4, layout.nameSize, true);
@@ -14161,6 +14162,14 @@ function getCatalogPdfTextLines(product, includePrices, width) {
     emit();
   };
   add(product.name, 9.2, true);
+  const boxerPack = includePrices && product.pdfMode === "packs" && normalizeProductSearchText(product.category) === "ropa interior hombre" && getPdfPurchaseRule(product).pack === 6;
+  if (includePrices && boxerPack) {
+    const reference = product.variants[0];
+    const mixed = reference.packSpec.allowMixedPrices;
+    add(`Pack x ${reference.packSpec.quantity} ${reference.packSpec.noun}${mixed ? " desde" : ""}`, 8.1);
+    add(formatMoney(reference.packSpec.quantity * reference.price), 10.5, true);
+    if (mixed) add("Talles combinables. Cada talle conserva su precio.", 8.1);
+  }
   const groups = new Map();
   for (const variant of product.variants || []) {
     const presentation = String(variant.presentation || "Sin presentación");
@@ -14169,7 +14178,7 @@ function getCatalogPdfTextLines(product, includePrices, width) {
     groups.get(key).variants.push(variant);
   }
   const commonPresentation = groups.size > 1 && new Set([...groups.values()].map((group) => group.presentation)).size === 1;
-  if (commonPresentation) add(`Presentación: ${groups.values().next().value.presentation}`, 8.1);
+  if (commonPresentation && !boxerPack) add(`Presentación: ${groups.values().next().value.presentation}`, 8.1);
   for (const group of groups.values()) {
     const labels = new Map();
     for (const variant of group.variants) {
@@ -14186,8 +14195,8 @@ function getCatalogPdfTextLines(product, includePrices, width) {
       const title = ({ Talle: "Talles disponibles", Color: "Colores disponibles", Medida: "Medidas disponibles", Tamaño: "Tamaños disponibles", Surtido: "Surtidos disponibles" })[type] || "Variantes disponibles";
       add(`${title}: ${value}`);
     }
-    if (!commonPresentation) add(`Presentación: ${group.presentation}`, 8.1);
-    if (includePrices) add(group.price > 0 ? formatMoney(group.price) : "Falta precio", 10.5, true);
+    if (!commonPresentation && !boxerPack) add(`Presentación: ${group.presentation}`, 8.1);
+    if (includePrices) add(group.price > 0 ? `${boxerPack ? "Precio por unidad: " : ""}${formatMoney(group.price)}` : "Falta precio", boxerPack ? 8.2 : 10.5, true);
   }
   return lines;
 }

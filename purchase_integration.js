@@ -7,7 +7,7 @@ function getActiveCatalogMode() {
 }
 
 async function loadPackSettings(client) {
-  const { data, error } = await client.from("product_pack_settings").select("product_id,mode,quantity,enabled,base_kind,mix_group,revision");
+  const { data, error } = await client.from("product_pack_settings").select("product_id,mode,quantity,enabled,base_kind,mix_group,allow_mixed_prices,revision");
   if (error) {
     packSettingsReady = false;
     packSettingsError = "La modalidad por packs no está disponible. Falta aplicar o verificar su migración.";
@@ -93,16 +93,34 @@ function updatePackDistributionControl(group, selected) {
   const spec = selected?.packSpec;
   root.classList.toggle("hidden", !spec?.mixGroup);
   if (!spec?.mixGroup) return;
-  const variants = group.variants.filter(v => v.packSpec?.mixGroup === spec.mixGroup && v.packSpec.orderUnitPrice === spec.orderUnitPrice && v.packSpec.quantity === spec.quantity && v.packSpec.kind === spec.kind);
-  const signature = variants.map(v => v.id).join("|");
+  const variants = getCompatiblePackVariants(group, selected);
+  const signature = variants.map(v => `${v.id}:${v.packSpec.orderUnitPrice}:${v.packSpec.revision}`).join("|");
   const list = root.querySelector("[data-pack-allocation-list]");
   if (root.dataset.signature !== signature) {
     root.dataset.signature = signature;
-    list.innerHTML = variants.map(v => `<label>${escapeHtml(v.label)}<input type="number" min="0" step="1" value="0" max="${Math.floor(Number(v.stock) / v.packSpec.stockPerBase)}" data-pack-variant="${escapeHtml(v.id)}" aria-label="Cantidad talle ${escapeHtml(v.label)}"></label>`).join("");
-    list.querySelectorAll("input").forEach(input => input.addEventListener("input", () => updatePackDistributionControl(group, selected)));
+    list.innerHTML = variants.map(v => `<label><span>${escapeHtml(v.label)}</span>${spec.allowMixedPrices ? `<small>${escapeHtml(formatMoney(v.packSpec.orderUnitPrice))}</small>` : ""}<input type="number" min="0" step="1" value="0" max="${Math.floor(Number(v.stock) / v.packSpec.stockPerBase)}" data-pack-variant="${escapeHtml(v.id)}" aria-label="Cantidad talle ${escapeHtml(v.label)}"></label>`).join("");
+    list.querySelectorAll("input").forEach(input => input.addEventListener("input", () => updatePackDistributionControl(group, getSelectedCatalogVariant(group.id, [group]) || selected)));
   }
   const total = [...list.querySelectorAll("input")].reduce((sum, input) => sum + (Number(input.value) || 0), 0);
   root.querySelector("output").textContent = `${total} de ${getCatalogQuantityValue(group.id, spec.quantity)} ${spec.noun} elegidas · mínimo ${spec.quantity}`;
+  if (spec.allowMixedPrices && !isPrivateManagementRoute()) {
+    const target = getCatalogQuantityValue(group.id, spec.quantity);
+    const reference = variants[0].packSpec.orderUnitPrice;
+    const selectedTotal = variants.reduce((sum, v) => sum + Math.max(0, Number(list.querySelector(`[data-pack-variant="${CSS.escape(v.id)}"]`)?.value) || 0) * v.packSpec.orderUnitPrice, 0);
+    document.querySelector(`[data-catalog-price="${CSS.escape(group.id)}"]`).textContent = formatMoney(selectedTotal + Math.max(0, target - total) * reference);
+  }
+}
+
+function getCompatiblePackVariants(group, selected) {
+  const spec = selected.packSpec;
+  return group.variants.filter(v => v.packSpec?.mixGroup === spec.mixGroup && v.packSpec.quantity === spec.quantity && v.packSpec.kind === spec.kind &&
+    (v.packSpec.orderUnitPrice === spec.orderUnitPrice || (spec.allowMixedPrices && v.packSpec.allowMixedPrices)));
+}
+
+function getPackUnitPriceText(group, variant) {
+  const variants = variant.packSpec.allowMixedPrices && group ? getCompatiblePackVariants(group, variant) : [variant];
+  const prices = [...new Set(variants.map(v => v.packSpec.orderUnitPrice))].sort((a, b) => a - b);
+  return `Precio por ${PURCHASE.quantityNoun(1, variant.packSpec.noun)}: ${prices.map(formatMoney).join(" / ")}${prices.length > 1 ? " según talle" : ""}`;
 }
 
 function addConfiguredPack(group, variant, packs) {
@@ -145,7 +163,7 @@ function addConfiguredPack(group, variant, packs) {
     }
     for (const { variant: v, quantity } of selected) {
       const next = { ...v, price: v.packSpec.orderUnitPrice, presentation: v.packSpec.orderPresentation, packSpec: null };
-      const detail = { packId, quantityRule: "minimum", requestedTotal: count, minimumQuantity: spec.quantity, allocated: quantity, unitsPerPack: spec.quantity, presentation: spec.presentation, noun: spec.noun, same: spec.same, mixed: Boolean(spec.mixGroup), revision: v.packSpec.revision };
+      const detail = { packId, quantityRule: "minimum", requestedTotal: count, minimumQuantity: spec.quantity, allocated: quantity, unitsPerPack: spec.quantity, presentation: spec.presentation, noun: spec.noun, same: spec.same, mixed: Boolean(spec.mixGroup), allowMixedPrices: v.packSpec.allowMixedPrices, revision: v.packSpec.revision };
       if (isInternalCatalogQuickSaleMode()) {
         const target = getManualCatalogTarget() || getInternalCatalogSale();
         const existing = target.items.find(item => String(item.id) === String(v.productId));
@@ -158,7 +176,8 @@ function addConfiguredPack(group, variant, packs) {
           existing.price = next.price;
         }
         const source = products.find(p => p.id === v.productId);
-        addCatalogGroupToInternalSale(group, next, quantity, source ? { ...source, presentation: next.presentation } : null);
+        // The minimum was checked for the full assortment, not for each individual size.
+        addCatalogGroupToInternalSale(spec.mixGroup ? { ...group, minimum: 1 } : group, next, quantity, source ? { ...source, presentation: next.presentation } : null);
         const item = target.items.find(item => String(item.id) === String(v.productId));
         if (item) item.purchaseDetails = { ...detail, allocated: item.quantity };
         target.purchaseMode = target.items.every(item => item.purchaseDetails) ? "packs" : "habitual";
@@ -188,7 +207,7 @@ function refreshPackCartItem(item) {
   const quantity = item.purchaseDetails.quantityRule === "minimum" ? item.quantity
     : PURCHASE.integer(item.quantity * PURCHASE.stockFactor(item.presentation, item.stockUnit) / spec.stockPerBase, "Cantidad guardada");
   return { ...rest, quantity, purchaseDetails: { ...item.purchaseDetails, quantityRule: "minimum", allocated: quantity, minimumQuantity: spec.quantity,
-    unitsPerPack: spec.quantity, requestedTotal: null, noun: spec.noun, presentation: spec.presentation, same: spec.same },
+    unitsPerPack: spec.quantity, requestedTotal: null, noun: spec.noun, presentation: spec.presentation, same: spec.same, allowMixedPrices: spec.allowMixedPrices },
     price: spec.orderUnitPrice, basePrice: variant.basePrice, presentation: spec.orderPresentation, stockUnit: variant.stockUnit };
 }
 
@@ -200,8 +219,8 @@ function validatePackCart(items) {
     if (item.packError) throw new Error(item.packError);
     const detail = item.purchaseDetails;
     if (!detail || item.quantity !== detail.allocated) throw new Error("El carrito contiene un pack incompleto. Seleccionalo nuevamente.");
-    const batch = batches.get(detail.packId) || { total: 0, minimum: detail.minimumQuantity, price: item.price, items: [] };
-    if (detail.mixed && Number(batch.price) !== Number(item.price)) throw new Error("Los talles tienen precios diferentes. Seleccioná nuevamente la distribución.");
+    const batch = batches.get(detail.packId) || { total: 0, minimum: detail.minimumQuantity, price: item.price, mixedPrices: detail.allowMixedPrices === true, items: [] };
+    if (detail.mixed && Number(batch.price) !== Number(item.price) && !(batch.mixedPrices && detail.allowMixedPrices === true)) throw new Error("Los talles tienen precios diferentes. Seleccioná nuevamente la distribución.");
     batch.total += item.quantity;
     batch.items.push(item);
     batches.set(detail.packId, batch);
@@ -213,7 +232,7 @@ function validatePackCart(items) {
   for (const [id, quantity] of stock) if (quantity > getProductTotalStock(products.find(p => String(p.id) === id))) throw new Error("La cantidad del carrito supera el stock vigente.");
 }
 
-function validateMinimumOrderItems(items) {
+function validateMinimumOrderItems(items, order = null) {
   const batches = new Map();
   const variants = getCatalogProducts("packs").flatMap(group => group.variants);
   for (const item of items) {
@@ -222,7 +241,9 @@ function validateMinimumOrderItems(items) {
     if (!variant) throw new Error("Un producto ya no está disponible en la modalidad por packs.");
     const spec = variant.packSpec;
     if (item.presentation !== spec.orderPresentation) throw new Error("La presentación cambió. Revisá el producto en el catálogo.");
-    const key = `${spec.mixGroup || variant.productId}:${item.price}:${spec.quantity}:${spec.kind}`;
+    // Existing pending orders keep their original agreement; SQL verifies the saved line exactly.
+    if (order?.remoteId && item.remoteItemId && item.purchaseDetails.minimumQuantity === 5 && spec.quantity === 6 && item.purchaseDetails.revision < spec.revision) continue;
+    const key = `${spec.mixGroup || variant.productId}:${spec.allowMixedPrices ? "mixed" : item.price}:${spec.quantity}:${spec.kind}`;
     const batch = batches.get(key) || { total: 0, minimum: spec.quantity, noun: spec.noun, items: [] };
     batch.total += PURCHASE.integer(item.quantity, "Cantidad");
     batch.items.push({ item, spec });
