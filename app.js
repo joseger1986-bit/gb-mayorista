@@ -2,6 +2,12 @@ const STORAGE_PRODUCTS = "gb_mayorista_products";
 document.documentElement.dataset.gbApp = "loading";
 
 const STORAGE_CART = "gb_mayorista_cart";
+const PURCHASE = window.PXMPurchaseModes;
+let publicPurchaseMode = ["surtida", "packs"].includes(new URLSearchParams(location.search).get("compra")) ? new URLSearchParams(location.search).get("compra") : "";
+let internalPurchaseMode = sessionStorage.getItem("gb_mayorista_internal_purchase_mode") === "packs" ? "packs" : "habitual";
+let packSettings = new Map();
+let packSettingsReady = false;
+let packSettingsError = "";
 const STORAGE_ORDERS = "gb_mayorista_orders";
 const STORAGE_STOCK_HISTORY = "gb_mayorista_stock_history";
 const STORAGE_CLIENTS = "gb_mayorista_clients";
@@ -1082,8 +1088,9 @@ function resetLegacyData() {
 }
 
 function loadCart() {
-  const stored = localStorage.getItem(STORAGE_CART);
-  return stored ? JSON.parse(stored) : [];
+  const stored = localStorage.getItem(getPurchaseCartKey());
+  try { return stored && Array.isArray(JSON.parse(stored)) ? JSON.parse(stored) : []; }
+  catch { return []; }
 }
 
 function loadOrders() {
@@ -1125,7 +1132,7 @@ function saveProducts() {
 }
 
 function saveCart() {
-  localStorage.setItem(STORAGE_CART, JSON.stringify(cart));
+  localStorage.setItem(getPurchaseCartKey(), JSON.stringify(cart));
 }
 
 function saveOrders() {
@@ -1284,6 +1291,7 @@ function mapSupabaseOrderToLocal(row) {
     deliveryNotes: row.delivery_notes || "",
     paymentMethod: row.payment_method || "Transferencia",
     origin: row.origin || "web",
+    purchaseMode: row.purchase_mode || null,
     deletedAt: row.deleted_at || null,
     manualRevision: Number(row.manual_revision) || 0,
     paidAt: row.paid_at || null,
@@ -1320,6 +1328,7 @@ function mapSupabaseOrderItemToLocal(row) {
     catalogProduct: row.product_name || "",
     presentation: row.presentation || "",
     prepared: Boolean(row.prepared),
+    purchaseDetails: row.purchase_details || null,
     quantity: Math.max(1, Math.round(Number(row.quantity) || 1))
   };
 }
@@ -1342,6 +1351,8 @@ async function saveOrderToSupabase(order) {
     payment_method: order.paymentMethod || "Transferencia",
     delivery_notes: order.deliveryNotes || "",
     origin: order.origin || "web",
+    purchase_mode: order.purchaseMode || "surtida",
+    purchase_request_id: order.purchaseRequestId || null,
     stock_applied: Boolean(order.stockApplied),
     updated_at: new Date().toISOString()
   };
@@ -1349,6 +1360,7 @@ async function saveOrderToSupabase(order) {
     product_id: item.id,
     product_name: item.name || "Producto",
     variant_name: item.variant || "",
+    purchase_details: item.purchaseDetails || null,
     presentation: getBudgetItemPresentation(item),
     stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
     quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
@@ -1356,7 +1368,7 @@ async function saveOrderToSupabase(order) {
     unit_cost: Number(item.cost) || 0,
     subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
   }));
-  const { data, error } = await client.rpc("create_web_order", {
+  const { data, error } = await client.rpc("submit_catalog_order", {
     order_payload: payload,
     item_payload: itemRows
   });
@@ -1383,6 +1395,7 @@ async function saveLocalSaleToSupabase(order) {
     customer_location: order.customerLocation || "",
     status: "Pagado",
     origin: "local",
+    purchase_mode: order.purchaseMode || "habitual",
     subtotal: Number(order.subtotal) || 0,
     total: Number(order.total) || 0,
     discount_type: order.discountType || "fixed",
@@ -1396,6 +1409,7 @@ async function saveLocalSaleToSupabase(order) {
   };
   const itemRows = order.items.map((item) => ({
     product_id: item.id,
+    purchase_details: item.purchaseDetails || null,
     product_name: item.name || "Producto",
     variant_name: item.variant || "",
     presentation: getBudgetItemPresentation(item),
@@ -1666,6 +1680,7 @@ function buildSupabaseOrderPayload(order) {
     customer_location: order.customerLocation || "",
     status: order.status || "En revisión",
     origin: normalizeOrderOrigin(order.origin || "web"),
+    purchase_mode: order.purchaseMode || "habitual",
     subtotal: Number(order.subtotal) || 0,
     total: Number(order.total) || 0,
     discount_type: order.discountType || "fixed",
@@ -1738,6 +1753,7 @@ function buildSupabaseOrderItemRows(order, orderId) {
       product_id: item.id,
       product_name: item.name || "Producto",
       variant_name: item.variant || "",
+      purchase_details: item.purchaseDetails || null,
       presentation: getBudgetItemPresentation(item),
       stock_unit: normalizeStockUnit(item.stockUnit || inferDefaultStockUnitFromPresentation(getBudgetItemPresentation(item))),
       quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
@@ -1946,6 +1962,7 @@ async function loadProductRowsFromSupabase(client) {
     .eq("active", true)
     .order("sort_order", { ascending: true });
   if (error) throw error;
+  await loadPackSettings(client);
 
   let productRows = (data || []).filter((row) => !isArchivedProductRow(row));
 
@@ -2092,6 +2109,7 @@ function setupSupabaseCatalogRealtime() {
     .on("postgres_changes", { event: "*", schema: "public", table: "products" }, refreshFromEvent)
     .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, refreshFromEvent)
     .on("postgres_changes", { event: "*", schema: "public", table: "product_variants" }, refreshFromEvent)
+    .on("postgres_changes", { event: "*", schema: "public", table: "product_pack_settings" }, refreshFromEvent)
     .subscribe((status) => {
       document.documentElement.dataset.gbSupabaseRealtime = String(status || "").toLowerCase();
       logSupabaseSyncDebug(status === "SUBSCRIBED" ? "realtime-ok" : "realtime-status", {
@@ -3094,6 +3112,11 @@ function renderProductFormCategories() {
 }
 
 function renderCatalog() {
+  renderPurchaseModeControls();
+  if (!isPrivateManagementRoute() && !publicPurchaseMode) {
+    els.productGrid.innerHTML = "";
+    return;
+  }
   renderInternalWebPendingAccess();
   const query = normalizeProductSearchText(els.searchInput.value);
   const catalogProducts = getCatalogProducts();
@@ -3105,7 +3128,7 @@ function renderCatalog() {
   });
 
   if (!filtered.length) {
-    els.productGrid.innerHTML = `<div class="empty-state">Catálogo vacío. La estructura está lista para cargar productos reales.</div>`;
+    els.productGrid.innerHTML = `<div class="empty-state">${getActiveCatalogMode() === "packs" && !packSettingsReady ? escapeHtml(packSettingsError || "Cargando presentaciones por packs…") : "No hay productos disponibles para esta selección."}</div>`;
     return;
   }
 
@@ -3125,6 +3148,7 @@ function renderCatalog() {
           <div class="product-title">${formatCatalogTitleForCard(group.name)}</div>
         </div>
         ${renderCatalogVariantControl(group)}
+        ${renderPackDistributionControl(group)}
         ${renderCatalogGroupPrice(group)}
         <div class="quantity-row quantity-stepper-row">
           <label for="qty-${group.id}" data-catalog-quantity-label="${escapeHtml(group.id)}">${escapeHtml(getCatalogQuantityLabel(group))}</label>
@@ -3168,6 +3192,10 @@ function renderCatalog() {
       }
       if (!hasCatalogPrice(variant.price)) {
         showToast("Este producto no tiene precio cargado");
+        return;
+      }
+      if (variant.packSpec) {
+        addConfiguredPack(group, variant, getCatalogQuantityValue(group.id, 1));
         return;
       }
       const internalProduct = products.find((item) => item.id === variant.productId);
@@ -3262,7 +3290,7 @@ function warmCatalogImageQueue(urls, concurrency = 2) {
   Array.from({ length: Math.min(concurrency, urls.length) }).forEach(loadNext);
 }
 
-function getCatalogProducts() {
+function getBaseCatalogProducts() {
   const groups = new Map();
   const catalogSourceProducts = getOrderedProducts()
     .filter((product) => product.active !== false)
@@ -3559,6 +3587,7 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   if (quantityLabelEl) quantityLabelEl.textContent = quantityLabel;
   if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${quantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
+  updatePackDistributionControl(group, variant);
 }
 
 function getSelectedCatalogVariant(groupId, catalogProducts) {
@@ -3606,8 +3635,11 @@ function renderCatalogSaleDetail(group, variant) {
 }
 
 function getCatalogSaleDetailHtml(variant) {
-  const presentation = getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
-  const unitPrice = getCatalogUnitPriceLabel(variant);
+  const spec = variant?.packSpec;
+  const presentation = spec?.presentation || getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
+  const unitPrice = spec && !spec.same
+    ? `Pagás por ${PURCHASE.quantityNoun(1, spec.noun)}: ${formatMoney(spec.orderUnitPrice)}`
+    : getCatalogUnitPriceLabel(variant);
   return [
     presentation ? `<span>${escapeHtml(presentation)}</span>` : "",
     unitPrice ? `<span>${escapeHtml(unitPrice)}</span>` : ""
@@ -4306,6 +4338,7 @@ async function openEditProductModal(productId) {
   els.editProductMarkupWrap?.classList.toggle("hidden", !canAccess("admin"));
   if (els.editProductMarkup) els.editProductMarkup.disabled = !canAccess("admin");
   if (els.editProductPresentation) els.editProductPresentation.value = presentation;
+  fillPackEditor(product);
   if (els.editProductDescription) els.editProductDescription.value = product.description || "";
   if (els.editProductCatalog) els.editProductCatalog.value = product.showInCatalog === false ? "no" : "yes";
   if (els.editProductStock) els.editProductStock.value = String(Math.max(0, Number(product.stock) || 0));
@@ -4698,6 +4731,26 @@ async function saveEditedProduct(event) {
   const photoItems = editProductPhotoItems.slice();
   const photoSessionId = editProductPhotoSessionId;
   const originalProductSnapshot = JSON.parse(JSON.stringify(product));
+  let nextPackConfig;
+  try { nextPackConfig = readPackEditor(product); }
+  catch (error) { showEditProductSaveError(error.message); return; }
+  const initialFields = editProductInitialState ? JSON.parse(editProductInitialState) : null;
+  const currentFields = JSON.parse(getEditProductFormState());
+  if (initialFields) {
+    delete initialFields.packConfig;
+    delete currentFields.packConfig;
+    if (nextPackConfig && JSON.stringify(initialFields) === JSON.stringify(currentFields)) {
+      try {
+        setEditProductSavingState(true);
+        await savePackEditor(product, nextPackConfig);
+        closeEditProductModal({ skipUnsavedCheck: true });
+        renderCatalog();
+        showToast("Presentación por packs guardada", "success");
+      } catch (error) { showEditProductSaveError(error.message); }
+      finally { setEditProductSavingState(false); }
+      return;
+    }
+  }
   const nextProduct = {
     ...product,
     optionName: normalizeProductTalleValue(els.editProductOption?.value || ""),
@@ -4769,6 +4822,7 @@ async function saveEditedProduct(event) {
     if (syncResult?.reread?.ok === false) {
       throw new Error(syncResult.reread.message || "Supabase guardo el producto, pero no confirmo la relectura.");
     }
+    if (nextPackConfig) await savePackEditor(product, nextPackConfig);
 
     closeEditProductModal({ skipUnsavedCheck: true });
     renderCatalog();
@@ -6416,6 +6470,8 @@ function renderOperationalWebBudgetItem(order, item) {
 }
 
 function formatOrderItemOperationalQuantity(item, product = null) {
+  const packText = PURCHASE.quantityText(item);
+  if (packText) return packText;
   const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
   const presentation = getItemDisplayPresentation(item);
   if (!presentation) return `${quantity} · presentación no registrada`;
@@ -7770,6 +7826,7 @@ function syncCartWithCurrentCatalog(options = {}) {
 
 function buildCurrentCartItem(item) {
   if (!item) return null;
+  if (item.purchaseMode === "packs") return refreshPackCartItem(item);
   const quantity = Math.max(1, Math.round(Number(item.quantity) || 1));
   if (item.catalogGroupId || item.internalProductId || item.variantLabel || item.basePrice || item.presentation) {
     const current = findCurrentCatalogVariantForCartItem(item);
@@ -7821,7 +7878,7 @@ function findCurrentCatalogVariantForCartItem(item) {
 }
 
 function hasCartItemChanged(previous, current) {
-  const keys = ["cartId", "id", "internalProductId", "catalogGroupId", "name", "brand", "category", "image", "variantLabel", "price", "basePrice", "saleType", "packQuantity", "presentation", "stockUnit", "quantity"];
+  const keys = ["cartId", "id", "internalProductId", "catalogGroupId", "name", "brand", "category", "image", "variantLabel", "price", "basePrice", "saleType", "packQuantity", "presentation", "stockUnit", "quantity", "packError"];
   return keys.some((key) => String(previous?.[key] ?? "") !== String(current?.[key] ?? ""));
 }
 
@@ -7849,7 +7906,7 @@ function renderCart() {
 
   const totalUnits = getCartTotalQuantity(items);
   const totalPrice = getCartTotalPrice(items);
-  const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
+  const minimumReached = PURCHASE.reachesMinimum(publicPurchaseMode, totalPrice);
   els.cartCount.textContent = totalUnits;
   if (els.openCart) {
     els.openCart.innerHTML = `Carrito <span id="cartCount">${totalUnits ? `(${totalUnits})` : "(0)"}</span>`;
@@ -7864,7 +7921,7 @@ function renderCart() {
   els.cartSubtitle.textContent = cartCountSummary;
   if (els.cartSummaryCounts) els.cartSummaryCounts.textContent = cartCountSummary;
   els.minimumStatus.className = `minimum-status ${minimumReached ? "reached" : "pending"}`;
-  els.minimumStatus.textContent = minimumReached
+  els.minimumStatus.textContent = publicPurchaseMode === "packs" ? "Packs y docenas completas · Sin mínimo de dinero" : minimumReached
     ? "✓ Compra mínima alcanzada"
     : `Te faltan ${formatMoney(WHOLESALE_MINIMUM - totalPrice)} para alcanzar la compra mínima online`;
   clearCartError();
@@ -7895,7 +7952,9 @@ function renderCart() {
   `).join("");
   els.cartItems.querySelectorAll("[data-remove]").forEach((button) => {
     button.addEventListener("click", () => {
-      cart = cart.filter((item) => (item.cartId || item.id) !== button.dataset.remove);
+      const removed = cart.find(item => (item.cartId || item.id) === button.dataset.remove);
+      cart = cart.filter((item) => removed?.purchaseDetails ? item.purchaseDetails?.packId !== removed.purchaseDetails.packId : (item.cartId || item.id) !== button.dataset.remove);
+      localStorage.removeItem(`${getPurchaseCartKey()}_request`);
       saveCart();
       renderCart();
     });
@@ -7909,7 +7968,7 @@ function renderCart() {
     const validation = syncCartWithCurrentCatalog({ notify: true });
     const latestItems = getCurrentCartItems();
     const latestTotalPrice = getCartTotalPrice(latestItems);
-    const latestMinimumReached = latestTotalPrice >= WHOLESALE_MINIMUM;
+    const latestMinimumReached = PURCHASE.reachesMinimum(publicPurchaseMode, latestTotalPrice);
     if (validation.changed) renderCart();
     if (!latestMinimumReached) {
       event.preventDefault();
@@ -7926,8 +7985,15 @@ function renderCart() {
     els.whatsappLink.dataset.saving = "true";
     els.whatsappLink.classList.add("disabled");
     try {
-      const consultation = await saveCatalogConsultation(latestItems, latestTotalPrice, latestCustomer);
-      const whatsappUrl = buildWhatsappUrl(latestItems, latestTotalPrice, latestCustomer, formatConsultationNumber(consultation));
+      const refreshed = await refreshCatalogFromSupabase("web-checkout");
+      if (!refreshed?.ok) throw new Error("No se pudieron validar los precios vigentes. El carrito se conserva.");
+      syncCartWithCurrentCatalog({ notify: true });
+      const verifiedItems = getCurrentCartItems();
+      validatePackCart(verifiedItems);
+      const verifiedTotal = getCartTotalPrice(verifiedItems);
+      if (!PURCHASE.reachesMinimum(publicPurchaseMode, verifiedTotal)) throw new Error(`La compra surtida requiere ${formatMoney(WHOLESALE_MINIMUM)}.`);
+      const consultation = await saveCatalogConsultation(verifiedItems, verifiedTotal, latestCustomer);
+      const whatsappUrl = buildWhatsappUrl(consultation.items, consultation.total, latestCustomer, formatConsultationNumber(consultation));
       window.open(whatsappUrl, "_blank", "noopener,noreferrer");
       cart = [];
       saveCart();
@@ -7949,7 +8015,7 @@ function renderCart() {
 
 function shouldShowFloatingCart() {
   if (currentView !== "catalogo") return false;
-  if (!isPrivateManagementRoute()) return true;
+  if (!isPrivateManagementRoute()) return Boolean(publicPurchaseMode);
   return internalUnlocked;
 }
 
@@ -8022,6 +8088,7 @@ function addCatalogGroupToCart(group, variant, quantity, internalProduct = null)
     });
   }
   saveCart();
+  localStorage.removeItem(`${getPurchaseCartKey()}_request`);
   renderCart();
   showToast("Producto agregado al carrito");
 }
@@ -8586,11 +8653,16 @@ function addToCart(product, quantity) {
 async function saveCatalogConsultation(items, totalPrice, customer) {
   const order = makeBudgetFromCatalogItems(items, customer, "Pedido enviado desde el catálogo por WhatsApp.");
   order.catalogTotal = totalPrice;
+  order.purchaseMode = publicPurchaseMode || "surtida";
+  const requestKey = `${getPurchaseCartKey()}_request`;
+  order.purchaseRequestId = localStorage.getItem(requestKey) || crypto.randomUUID();
+  localStorage.setItem(requestKey, order.purchaseRequestId);
   const savedOrder = await withSupabaseTimeout(saveOrderToSupabase(order), "Supabase tardó demasiado en registrar el pedido.");
   orders = orders.filter((item) => String(item.remoteId || item.id) !== String(savedOrder.remoteId || savedOrder.id));
   orders.unshift(savedOrder);
   syncClientsFromOrders();
   saveOrders();
+  localStorage.removeItem(requestKey);
   renderAll();
   return savedOrder;
 }
@@ -9338,6 +9410,7 @@ function getEditProductFormState() {
     cost: els.editProductCost?.value || "",
     price: els.editProductPrice?.value || "",
     markup: canAccess("admin") ? els.editProductMarkup?.value || "" : "",
+    packConfig: canAccess("admin") ? [...document.querySelectorAll("#packProductEditor input, #packProductEditor select")].map(input => [input.name, input.type === "checkbox" ? input.checked : input.value]) : null,
     stockUnit: els.editProductStockUnitSelect?.value || "",
     stock: els.editProductStock?.value || "",
     catalog: els.editProductCatalog?.value || "",
@@ -10134,7 +10207,9 @@ function getDocumentItemVariantLabel(item) {
 
 function formatItemQuantityPrice(item) {
   const quantity = formatDocumentQuantity(item).replace(/\b(pack|packs) x(\d+)/i, "$1 de $2");
-  return `${quantity} × ${formatMoney(Number(item.price) || 0)}`;
+  const detail = item.purchaseDetails;
+  const pack = detail && !detail.same && Number(detail.allocated) === Number(item.quantity) ? ` · ${detail.packs} × ${detail.presentation}${detail.mixed ? " surtido" : ""}` : "";
+  return `${quantity} × ${formatMoney(Number(item.price) || 0)}${pack}`;
 }
 
 function getDocumentItemUnitPrice(item) {
@@ -10149,6 +10224,7 @@ function getDocumentItemUnitPrice(item) {
 
 function formatDocumentQuantity(item) {
   const quantity = Math.max(1, Number(item.quantity) || 1);
+  if (item.purchaseDetails && !item.purchaseDetails.same && Number(item.purchaseDetails.allocated) === quantity) return `${quantity} ${PURCHASE.quantityNoun(quantity, item.purchaseDetails.noun)}`;
   const presentation = getItemDisplayPresentation(item);
   if (!presentation) return `${quantity} (sin presentación)`;
   const label = item.stockUnit || /docena|unidad/i.test(presentation)
@@ -11160,7 +11236,7 @@ function applyPendingPaidStockDiscounts() {
 }
 
 function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
-  const minimumReached = totalPrice >= WHOLESALE_MINIMUM;
+  const minimumReached = PURCHASE.reachesMinimum(publicPurchaseMode, totalPrice);
   const cleanConsultationLabel = String(consultationLabel || "").trim();
   const consultationId = cleanConsultationLabel.replace(/^Pedido\s+/i, "");
   const productLines = items.flatMap((item) => {
@@ -11186,7 +11262,7 @@ function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
     "Forma de entrega: A coordinar",
     "Forma de pago: A coordinar",
     "",
-    minimumReached ? "✅ Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
+    publicPurchaseMode === "packs" ? "COMPRA POR PACKS — Sin mínimo de compra" : minimumReached ? "✅ Compra surtida — Compra mínima alcanzada" : "⚠ Compra mínima no alcanzada",
     "",
     "Gracias por elegir Punto X Mayor.",
     "Nos comunicaremos a la brevedad.",
@@ -12775,8 +12851,10 @@ function makeBudgetFromCatalogItems(items, customer, notes = "") {
       saleType: internalProduct?.saleType || item.saleType || "pack",
       packQuantity: internalProduct?.packQuantity || item.packQuantity || 12,
       stockUnit: normalizeStockUnit(internalProduct?.stockUnit || item.stockUnit || inferDefaultStockUnitFromPresentation(internalProduct?.presentation || item.presentation)),
-      cost: getProductCostForPresentation(internalProduct),
+      cost: item.purchaseDetails ? (Number(internalProduct?.cost) || 0) * getStockUnitsPerSoldPresentation(item.presentation, item.stockUnit) : getProductCostForPresentation(internalProduct),
       variant: item.variantLabel || "",
+      presentation: item.presentation || getProductPresentation(internalProduct),
+      purchaseDetails: item.purchaseDetails || null,
       catalogProduct: item.name || "",
       quantity: Math.max(1, Math.round(Number(item.quantity) || 1))
     };
@@ -13566,7 +13644,7 @@ async function handleCatalogPdfAction(type, action) {
   let purchaseWarning = "";
   setCatalogPdfBusy(true, type === "price-list" ? "Actualizando precios y preparando PDF..." : "Preparando imágenes y catálogo PDF...");
   try {
-    const blob = type === "price-list" ? await createPriceListPdfBlob() : await createCatalogPdfBlob(type);
+    const blob = type.startsWith("price-list") ? await createPriceListPdfBlob(type.endsWith("-packs") ? "packs" : "surtida") : await createCatalogPdfBlob(type);
     purchaseWarning = blob.purchaseWarning || "";
     const filename = getCatalogPdfFilename(type);
     if (preview) {
@@ -13591,7 +13669,7 @@ async function handleCatalogPdfAction(type, action) {
 
 function setCatalogPdfBusy(isBusy, message = "") {
   [els.downloadWholesaleCatalogPdf, els.shareWholesaleCatalogPdf, els.downloadResaleCatalogPdf, els.shareResaleCatalogPdf, els.downloadPriceListPdf,
-    document.querySelector("#sharePriceListPdf"), ...document.querySelectorAll("[data-catalog-pdf-preview]")]
+    document.querySelector("#sharePriceListPdf"), ...document.querySelectorAll("[data-catalog-pdf-preview], [data-commercial-pdf]")]
     .filter(Boolean)
     .forEach((button) => { button.disabled = isBusy; });
   setCatalogPdfStatus(isBusy ? message : "", false);
@@ -13610,22 +13688,25 @@ function canUseCatalogPdf() {
 
 async function createCatalogPdfBlob(type) {
   if (!canUseCatalogPdf()) throw new Error("Iniciá sesión en Gestión para utilizar Catálogos PDF.");
-  const includePrices = type === "wholesale";
+  const includePrices = type !== "resale";
+  const mode = type.endsWith("-packs") ? "packs" : "surtida";
   if (includePrices) {
     await waitForCatalogSyncIdle();
     const refreshed = await refreshCatalogFromSupabase("wholesale-pdf");
     if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes para el PDF. Reintentá.");
   }
-  const productsForPdf = getProductsForCatalogPdf();
+  const productsForPdf = getProductsForCatalogPdf(mode);
   if (!productsForPdf.length) throw new Error("No hay productos visibles para catálogo.");
-  const pdf = await createCatalogPdf(productsForPdf, { includePrices, neutral: !includePrices });
+  const pdf = await createCatalogPdf(productsForPdf, { includePrices, neutral: !includePrices, purchaseMode: mode });
   const blob = new Blob([pdf], { type: "application/pdf" });
   if (includePrices) blob.purchaseWarning = getPdfPurchaseWarnings(productsForPdf);
   return blob;
 }
 
-function getProductsForCatalogPdf() {
-  return getCatalogProducts()
+function getProductsForCatalogPdf(mode = "surtida") {
+  if (mode === "packs" && !packSettingsReady) throw new Error(packSettingsError || "No se pudieron cargar las presentaciones por packs.");
+  return getCatalogProducts(mode)
+    .map(product => ({ ...product, pdfMode: mode }))
     .sort((a, b) => {
       const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
       if (categoryDiff !== 0) return categoryDiff;
@@ -13637,6 +13718,8 @@ function getProductsForCatalogPdf() {
 }
 
 function getCatalogPdfFilename(type) {
+  if (type === "wholesale-packs") return `catalogo-por-packs-${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (type === "price-list-packs") return `lista-por-packs-${new Date().toISOString().slice(0, 10)}.pdf`;
   if (type === "price-list") return `lista-de-precios-punto-x-mayor-${new Date().toISOString().slice(0, 10)}.pdf`;
   const suffix = type === "wholesale" ? "mayorista-con-precios" : "reventa-sin-precios";
   return `catalogo-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -13662,12 +13745,12 @@ async function shareCatalogPdfBlob(blob, filename, type) {
   showToast("Este dispositivo no permite compartir PDF. Se descargó el archivo.");
 }
 
-async function createPriceListPdfBlob() {
+async function createPriceListPdfBlob(mode = "surtida") {
   if (!canUseCatalogPdf()) throw new Error("Iniciá sesión en Gestión para utilizar Catálogos PDF.");
   await waitForCatalogSyncIdle();
   const refreshed = await refreshCatalogFromSupabase("price-list-pdf");
   if (!refreshed?.ok) throw new Error("No se pudieron leer los precios vigentes. Reintentá para generar la lista actualizada.");
-  const current = getProductsForCatalogPdf();
+  const current = getProductsForCatalogPdf(mode);
   if (!current.length) throw new Error("No hay productos visibles para la lista de precios.");
   const blob = new Blob([await createPriceListPdf(current)], { type: "application/pdf" });
   blob.purchaseWarning = getPdfPurchaseWarnings(current);
@@ -13718,47 +13801,16 @@ function getPdfPurchaseWarnings(groups) {
 }
 
 function getPdfPurchaseModesProduct(product) {
-  const rule = getPdfPurchaseRule(product);
-  const variants = [];
-  for (const variant of product.variants || []) {
-    const stockUnit = normalizeStockUnit(variant.stockUnit);
-    const presentation = String(variant.presentation || "").trim();
-    const base = getPdfVariantBasePrice(variant);
-    if (!(base > 0) || !Number.isFinite(base)) throw new Error(`Falta verificar el precio base de ${product.name}.`);
-    const add = (label, price) => variants.push({ ...variant, presentation: label, price });
-    if (rule.completeDozen) {
-      add("Docena — Sin compra mínima", base * getStockUnitsPerSoldPresentation("Docena", stockUnit));
-    } else if (rule.pack) {
-      if (!rule.dozen && stockUnit !== "unidades") throw new Error(`La unidad de precio de ${product.name} necesita revisión antes de ofrecer el pack.`);
-      // Goldsun's existing complete presentation is one valijita (two games), not one game.
-      const unitPrice = rule.goldsun ? Number(variant.price) : rule.dozen ? base * getStockUnitsPerSoldPresentation("Docena", stockUnit) : base;
-      if (!(unitPrice > 0) || !Number.isFinite(unitPrice)) throw new Error(`Falta verificar el precio de la presentación de ${product.name}.`);
-      const identity = getItemDisplayIdentity({ ...variant, variantLabel: variant.label });
-      const size = /^\d+$/.test(identity.value) ? Number(identity.value) : NaN;
-      const allowedSize = rule.minSize === undefined || (size >= rule.minSize && size <= rule.maxSize);
-      const unitLabel = rule.dozen ? "Docena" : rule.goldsun ? "1 valijita (2 juegos)" : "Unidad";
-      add(`${unitLabel} — Compra surtida (mín. total ${formatMoney(WHOLESALE_MINIMUM)})`, unitPrice);
-      if (allowedSize) {
-        const packLabel = rule.goldsun ? "Pack x2 valijitas (4 juegos)" : `Pack x${rule.pack}${rule.dozen ? " docenas" : " unidades"}`;
-        add(`${packLabel} — Sin compra mínima${rule.mixed ? " · Talles surtibles" : ""}`, unitPrice * rule.pack);
-      }
-    } else if (/^(?:venta\s+por\s+)?unidad(?:es)?$/i.test(presentation)) {
-      add(`Unidad — Compra surtida (mín. total ${formatMoney(WHOLESALE_MINIMUM)})`, Number(variant.price));
-    } else {
-      const label = /docena/i.test(presentation) && !/pack/i.test(presentation) ? "Docena" : getPresentationLabelForCatalog(presentation, stockUnit);
-      if (!label) throw new Error(`Falta la presentación vigente de ${product.name}.`);
-      add(`${label} — Sin compra mínima`, Number(variant.price));
-    }
-  }
-  return { ...product, variants };
+  // The catalog projection already applies the shared, persisted purchase configuration.
+  return product;
 }
 
 function getCommercialCatalogPdfTextLines(product, width) {
-  let complete = false;
+  let complete = product.pdfMode === "packs";
   return getCatalogPdfTextLines(getPdfPurchaseModesProduct(product), true, 10000).flatMap((line) => {
     let text = line.text, size = line.size, leading = line.leading;
     if (line.text.startsWith("Presentación: ")) {
-      complete = line.text.includes("Sin compra mínima");
+      complete = product.pdfMode === "packs" || line.text.includes("Sin compra mínima");
       text = line.text.slice("Presentación: ".length);
     }
     if (line.size === 10.5 && line.bold) { size = complete ? 18 : 15; leading = complete ? 22 : 19; }
@@ -13767,8 +13819,9 @@ function getCommercialCatalogPdfTextLines(product, width) {
   });
 }
 
-function getPdfPurchaseConditions() {
-  return [`COMPRA SURTIDA: Combiná productos desde ${formatMoney(WHOLESALE_MINIMUM)} en total.`, "PACKS Y DOCENAS: Sin compra mínima."];
+function getPdfPurchaseConditions(mode = "surtida") {
+  return mode === "packs" ? ["COMPRA POR PACKS — SIN MÍNIMO DE COMPRA", "Packs y docenas completas · Precios de venta vigentes"]
+    : [`COMPRA SURTIDA — COMPRA MÍNIMA ${formatMoney(WHOLESALE_MINIMUM)}`, "Combiná productos hasta completar el mínimo total."];
 }
 
 function wrapPriceListText(text, width, size, bold = false) {
@@ -13872,7 +13925,7 @@ async function createPriceListPdf(currentProducts) {
     text("Av. de Mayo 187, Pergamino, Buenos Aires", margin, headerTop - 53, 10.5);
     text(`Precios actualizados al ${date}`, margin, headerTop - 70, 10.5);
     rule(headerTop - 79);
-    getPdfPurchaseConditions().forEach((condition, index) => text(condition, margin, headerTop - 94 - index * 14, 10, true));
+    getPdfPurchaseConditions(currentProducts[0]?.pdfMode).forEach((condition, index) => text(condition, margin, headerTop - 94 - index * 14, 10, true));
     let y = top;
     let category = "";
     for (const block of entries) {
@@ -13980,7 +14033,8 @@ async function createCatalogPdf(productsForPdf, options = {}) {
     includePrices,
     neutral,
     logoName: logo?.name || "",
-    generatedDate
+    generatedDate,
+    purchaseMode: options.purchaseMode
   }));
   return buildPdfFromPagesWithImages(pageCommands, pageWidth, pageHeight, imageObjects);
 }
@@ -14004,7 +14058,7 @@ function renderCatalogPdfPage(page, settings) {
   };
   const {
     pageIndex, pageCount, pageWidth, pageHeight, margin, gap, headerHeight,
-    cardWidth, cardHeight, imageHeight, includePrices, neutral, logoName, generatedDate
+    cardWidth, cardHeight, imageHeight, includePrices, neutral, logoName, generatedDate, purchaseMode
   } = settings;
   const title = includePrices ? "Catálogo mayorista" : "Catálogo de productos";
   if (logoName) drawImage(logoName, margin, pageHeight - margin - 36, 112, 36);
@@ -14014,7 +14068,7 @@ function renderCatalogPdfPage(page, settings) {
   addText("www.puntoxmayor.com.ar", margin + 128, pageHeight - margin - 36, 8.2, false, 0.3);
   commands.push("0.67 0.52 0.22 RG");
   addLine(margin, pageHeight - margin - 44, pageWidth - margin, pageHeight - margin - 44, 0.8);
-  if (includePrices) getPdfPurchaseConditions().forEach((condition, index) => addText(condition, margin, pageHeight - margin - 59 - index * 14, 9.2, true));
+  if (includePrices) getPdfPurchaseConditions(purchaseMode).forEach((condition, index) => addText(condition, margin, pageHeight - margin - 59 - index * 14, 9.2, true));
   for (const category of page.categories || []) {
     const baseline = pageHeight - margin - headerHeight - category.offset - 13;
     addText(category.name, margin, baseline, 13, true);

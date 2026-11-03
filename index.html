@@ -14,10 +14,12 @@
         var publicHosts = ["www.puntoxmayor.com.ar", "puntoxmayor.com.ar"];
         if (managementHosts.indexOf(hostname) !== -1 || (publicHosts.indexOf(hostname) === -1 && path === "gestion")) {
           document.documentElement.dataset.privateManagement = "true";
+        } else if (["surtida", "packs"].indexOf(new URLSearchParams(location.search).get("compra")) === -1) {
+          document.documentElement.dataset.purchaseState = "choice";
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=price-list-pdf-1">
+    <link rel="stylesheet" href="/styles.css?v=purchase-modes-v2">
   </head>
   <body>
     <header class="topbar public-catalog-header" data-catalog-only>
@@ -79,6 +81,15 @@
       </section>
 
       <section id="catalogView" class="content-view">
+        <div id="purchaseChoice" class="purchase-choice">
+          <h1>ELEGÍ CÓMO QUERÉS COMPRAR</h1>
+          <div class="purchase-choice-options">
+            <article><h2>COMPRA SURTIDA</h2><strong>Compra mínima: $150.000</strong><p>Elegí diferentes productos y cantidades hasta completar el mínimo de compra.</p><button class="primary-button" type="button" data-choose-purchase="surtida" disabled>VER CATÁLOGO SURTIDO</button></article>
+            <article><h2>COMPRA POR PACKS</h2><strong>Sin mínimo de compra</strong><p>Comprá packs o docenas completas, sin mínimo de dinero.</p><button class="primary-button" type="button" data-choose-purchase="packs" disabled>VER CATÁLOGO POR PACKS</button></article>
+          </div>
+        </div>
+        <div id="purchaseModeControls" class="purchase-mode-controls hidden"></div>
+        <div id="catalogBrowseContent" class="hidden">
         <div class="internal-web-pending-slot hidden" id="internalWebPendingSlot"></div>
         <div class="section-head">
           <div>
@@ -109,6 +120,7 @@
             <span>Provincia de Buenos Aires</span>
           </address>
         </footer>
+        </div>
       </section>
       <section id="internalLoginView" class="internal-login-view hidden" aria-labelledby="internalLoginTitle">
         <form class="internal-login-card" id="internalLoginForm">
@@ -388,7 +400,7 @@
           <div class="catalog-pdf-options" aria-label="Opciones de catálogo PDF">
             <article class="catalog-pdf-card">
               <div>
-                <h3>Mayorista con precios</h3>
+                <h3>Catálogo surtido — Con fotos</h3>
                 <p>Incluye foto, nombre, talle o medida, presentación y precio de venta mayorista. No incluye costo ni stock.</p>
               </div>
               <div class="catalog-pdf-actions">
@@ -399,18 +411,18 @@
             </article>
             <article class="catalog-pdf-card">
               <div>
-                <h3>Para reventa sin precios</h3>
-                <p>Diseño neutro para compartir: foto, nombre, talle o medida y presentación. Sin precios, costos ni stock.</p>
+                <h3>Catálogo por packs — Con fotos</h3>
+                <p>Presentaciones completas · Sin mínimo de compra.</p>
               </div>
               <div class="catalog-pdf-actions">
-                <button class="primary-button" id="downloadResaleCatalogPdf" type="button">Descargar PDF</button>
-                <button class="secondary-button" data-catalog-pdf-preview="resale" type="button">Ver PDF</button>
-                <button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button>
+                <button class="primary-button" type="button" data-commercial-pdf="wholesale-packs" data-pdf-action="download">Descargar PDF</button>
+                <button class="secondary-button" type="button" data-commercial-pdf="wholesale-packs" data-pdf-action="preview">Ver PDF</button>
+                <button class="secondary-button" type="button" data-commercial-pdf="wholesale-packs" data-pdf-action="share">Compartir</button>
               </div>
             </article>
             <article class="catalog-pdf-card catalog-price-list-card">
               <div>
-                <h3>Lista de precios</h3>
+                <h3>Lista surtida — Sin fotos</h3>
                 <p>Precios mayoristas · Punto X Mayor</p>
               </div>
               <div class="catalog-pdf-actions">
@@ -419,6 +431,10 @@
                 <button class="secondary-button" id="sharePriceListPdf" type="button">Compartir</button>
               </div>
             </article>
+          </div>
+          <div class="catalog-pdf-options purchase-pdf-options">
+            <article class="catalog-pdf-card"><h3>Lista por packs — Sin fotos</h3><p>Precios de packs y docenas completas.</p><div class="catalog-pdf-actions"><button class="primary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="download">Descargar PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="preview">Ver PDF</button><button class="secondary-button" type="button" data-commercial-pdf="price-list-packs" data-pdf-action="share">Compartir</button></div></article>
+            <article class="catalog-pdf-card"><h3>Para reventa sin precios</h3><p>Fotos y presentaciones. Sin precios, costos ni stock.</p><div class="catalog-pdf-actions"><button class="primary-button" id="downloadResaleCatalogPdf" type="button">Descargar PDF</button><button class="secondary-button" data-catalog-pdf-preview="resale" type="button">Ver PDF</button><button class="secondary-button" id="shareResaleCatalogPdf" type="button">Compartir</button></div></article>
           </div>
           <p class="catalog-pdf-status hidden" id="catalogPdfStatus" role="status"></p>
         </div>
@@ -707,6 +723,13 @@
             Presentación
             <input id="editProductPresentation" name="presentation" type="text" list="presentationOptions">
           </label>
+          <fieldset id="packProductEditor" class="full-field pack-product-editor hidden" data-admin-only>
+            <legend>PRESENTACIÓN PARA CATÁLOGO POR PACKS</legend>
+            <label><input type="checkbox" name="packEnabled"> Mostrar en catálogo por packs</label>
+            <label>Presentación<select name="packMode"><option value="same">Igual que compra surtida</option><option value="custom">Pack personalizado</option></select></label>
+            <label>Cantidad por pack<input name="packQuantity" type="number" min="1" max="1000000" step="1" inputmode="numeric"></label>
+            <output aria-live="polite"></output>
+          </fieldset>
           <label id="editProductCostWrap">
             Precio de costo
             <input id="editProductCost" name="cost" type="number" min="0" step="any" inputmode="decimal">
@@ -797,7 +820,9 @@
         document.documentElement.dataset.gbAppError = event.reason && event.reason.message ? event.reason.message : "promise-error";
       });
     </script>
-  <script src="/app.js?v=employee-catalog-pdf-1"></script>
+  <script src="/purchase_modes.js?v=purchase-modes-v2"></script>
+  <script src="/purchase_integration.js?v=purchase-modes-v2"></script>
+  <script src="/app.js?v=purchase-modes-v2"></script>
   </body>
 </html>
 
