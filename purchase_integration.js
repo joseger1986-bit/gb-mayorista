@@ -103,11 +103,13 @@ function updatePackDistributionControl(group, selected) {
   }
   const total = [...list.querySelectorAll("input")].reduce((sum, input) => sum + (Number(input.value) || 0), 0);
   root.querySelector("output").textContent = `${total} de ${getCatalogQuantityValue(group.id, spec.quantity)} ${spec.noun} elegidas · mínimo ${spec.quantity}`;
-  if (spec.allowMixedPrices && !isPrivateManagementRoute()) {
+  if (spec.allowMixedPrices) {
     const target = getCatalogQuantityValue(group.id, spec.quantity);
     const reference = variants[0].packSpec.orderUnitPrice;
     const selectedTotal = variants.reduce((sum, v) => sum + Math.max(0, Number(list.querySelector(`[data-pack-variant="${CSS.escape(v.id)}"]`)?.value) || 0) * v.packSpec.orderUnitPrice, 0);
-    document.querySelector(`[data-catalog-price="${CSS.escape(group.id)}"]`).textContent = formatMoney(selectedTotal + Math.max(0, target - total) * reference);
+    const amount = selectedTotal + Math.max(0, target - total) * reference;
+    if (isPrivateManagementRoute()) document.querySelector(`[data-catalog-price="${CSS.escape(group.id)}"]`).textContent = formatMoney(amount);
+    else if (total > 0) root.querySelector("output").textContent += ` · Total: ${formatMoney(amount)}`;
   }
 }
 

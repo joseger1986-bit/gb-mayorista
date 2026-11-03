@@ -3522,9 +3522,11 @@ function formatCatalogTitleForCard(value) {
 
 function renderCatalogGroupPrice(group) {
   const selectedVariant = group.variants[0];
+  const customer = selectedVariant && !isPrivateManagementRoute() ? getCustomerCatalogPriceDisplay(selectedVariant, group) : null;
   return `
     <div class="pack-price">
-      <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice((selectedVariant.price || 0) * (selectedVariant.packSpec && !isPrivateManagementRoute() ? selectedVariant.packSpec.quantity : 1)) : ""}</div>
+      ${customer ? `<span class="catalog-unit-price-label" data-catalog-unit-label="${escapeHtml(group.id)}">${escapeHtml(customer.label)}</span>` : ""}
+      <div class="pack-main-price" data-catalog-price="${group.id}">${selectedVariant ? formatCatalogPrice(customer ? customer.price : (selectedVariant.price || 0) * (selectedVariant.packSpec?.quantity || 1)) : ""}</div>
       ${renderCatalogSaleDetail(group, selectedVariant)}
     </div>
   `;
@@ -3592,8 +3594,11 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
     quantityInput.min = String(displayVariant.packSpec.quantity);
     if (minimumChanged) normalizeCatalogQuantityInput(quantityInput, true);
   }
-  const displayQuantity = displayVariant?.packSpec && !isPrivateManagementRoute() ? getCatalogQuantityValue(groupId, displayVariant.packSpec.quantity) : 1;
-  if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(price * displayQuantity) : "";
+  const displayQuantity = displayVariant?.packSpec ? getCatalogQuantityValue(groupId, displayVariant.packSpec.quantity) : 1;
+  const customer = displayVariant && !isPrivateManagementRoute() ? getCustomerCatalogPriceDisplay(displayVariant, group) : null;
+  if (priceEl) priceEl.textContent = displayVariant ? formatCatalogPrice(customer ? customer.price : price * displayQuantity) : "";
+  const unitLabelEl = document.querySelector(`[data-catalog-unit-label="${CSS.escape(groupId)}"]`);
+  if (unitLabelEl && customer) unitLabelEl.textContent = customer.label;
   if (saleDetailEl) saleDetailEl.innerHTML = displayVariant ? getCatalogSaleDetailHtml(displayVariant, displayQuantity, group) : "";
   if (quantityInput && displayVariant) quantityInput.setAttribute("aria-label", `${actualQuantityLabel} para ${group.name}`);
   if (addButton) addButton.disabled = !variant || !hasCatalogPrice(Number(variant?.price) || 0);
@@ -3649,19 +3654,26 @@ function renderCatalogSaleDetail(group, variant) {
 
 function getCatalogSaleDetailHtml(variant, quantity, group) {
   const spec = variant?.packSpec;
-  if (spec && !isPrivateManagementRoute()) {
+  if (!isPrivateManagementRoute()) return `<span>${escapeHtml(getCustomerCatalogPriceDisplay(variant, group).minimumLabel)}</span>`;
+  if (spec) {
     const amount = quantity ?? spec.quantity;
     const presentation = amount === 1 ? PURCHASE.quantityNoun(1, spec.noun) : `Pack x ${amount} ${spec.noun}`;
     return `<span>${escapeHtml(presentation.charAt(0).toUpperCase() + presentation.slice(1))}</span><span>${escapeHtml(getPackUnitPriceText(group, variant))}</span>`;
   }
   const presentation = spec?.presentation || getPresentationLabelForCatalog(variant?.presentation, variant?.stockUnit);
-  const unitPrice = spec && !spec.same
-    ? `Pagás por ${PURCHASE.quantityNoun(1, spec.noun)}: ${formatMoney(spec.orderUnitPrice)}`
-    : getCatalogUnitPriceLabel(variant);
+  const unitPrice = getCatalogUnitPriceLabel(variant).replace(/^Pagás por /, "Precio por ");
   return [
     presentation ? `<span>${escapeHtml(presentation)}</span>` : "",
     unitPrice ? `<span>${escapeHtml(unitPrice)}</span>` : ""
   ].filter(Boolean).join("");
+}
+
+function getCustomerCatalogPriceDisplay(variant, group) {
+  const spec = variant.packSpec || PURCHASE.resolve(variant, { ...getPackConfig(variant), mode: "same", enabled: true });
+  const minimum = spec.quantity * (variant.packSpec ? 1 : Math.max(1, Number(group?.minimum) || 1));
+  const noun = PURCHASE.quantityNoun(1, spec.noun);
+  return { price: spec.orderUnitPrice, label: `Precio por ${noun}`,
+    minimumLabel: `Compra mínima: ${minimum} ${PURCHASE.quantityNoun(minimum, spec.noun)}${spec.kind === "valijita" ? ` (${minimum * 2} juegos)` : ""}` };
 }
 
 function getPresentationLabelForCatalog(presentation, stockUnit = "unidades") {
@@ -13731,8 +13743,8 @@ async function createCatalogPdfBlob(type) {
 function getProductsForCatalogPdf(mode = "surtida") {
   if (mode === "packs" && !packSettingsReady) throw new Error(packSettingsError || "No se pudieron cargar las presentaciones por packs.");
   return getCatalogProducts(mode)
-    .map(product => ({ ...product, pdfMode: mode, variants: mode === "packs" ? product.variants.map(variant => ({ ...variant,
-      presentation: `${variant.packSpec.presentation} · Precio por ${PURCHASE.quantityNoun(1, variant.packSpec.noun)}` })) : product.variants }))
+    .map(product => ({ ...product, pdfMode: mode, variants: product.variants.map(variant => ({ ...variant,
+      pdfSaleDisplay: getCustomerCatalogPriceDisplay(variant, product) })) }))
     .sort((a, b) => {
       const categoryDiff = getExportCategoryRank(a.category) - getExportCategoryRank(b.category);
       if (categoryDiff !== 0) return categoryDiff;
@@ -13894,16 +13906,18 @@ async function createPriceListPdf(currentProducts) {
     // Reutiliza la agrupacion y los importes del catalogo mayorista, sin recalcular precios.
     for (const line of getCatalogPdfTextLines(getPdfPurchaseModesProduct(product), true, 10000)) {
       if (line.size === 9.2 && line.bold) continue;
-      if (line.size === 10.5 && line.bold) { groups.push({ details, price: line.text }); details = []; }
+      if (line.role === "price") { groups.push({ details, after: [], price: line.text }); details = []; }
+      else if (["minimum", "note"].includes(line.role) && groups.length) groups.at(-1).after.push(line.text);
       else details.push(line.text.replace(/^Presentación:\s*/, ""));
     }
     if (details.length && groups.length) groups.at(-1).details.push(...details);
     const priceWidth = Math.max(150, ...groups.map((group) => measure(group.price, layout.priceSize, true) + 6));
-    if (priceWidth > contentWidth - 120) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
+    if (priceWidth > contentWidth - 4) throw new Error(`El precio de ${product.name} excede el ancho imprimible.`);
     const names = wrapPriceListText(product.name, contentWidth - 4, layout.nameSize, true);
     const rows = groups.map((group) => {
-      const lines = group.details.flatMap((text) => wrapPriceListText(text, contentWidth - priceWidth - 18, layout.detailSize));
-      return { ...group, lines, height: Math.max(layout.priceSize + 5, lines.length * layout.detailLeading) + layout.rowGap };
+      const lines = group.details.flatMap((text) => wrapPriceListText(text, contentWidth - 4, layout.detailSize));
+      const afterLines = group.after.flatMap((text) => wrapPriceListText(text, contentWidth - 4, layout.detailSize));
+      return { ...group, lines, afterLines, height: lines.length * layout.detailLeading + layout.priceSize + 6 + afterLines.length * layout.detailLeading + layout.rowGap };
     });
     return { category: String(product.category || "Sin categoría"), names, rows, height: names.length * layout.nameLeading + layout.nameGap + rows.reduce((sum, row) => sum + row.height, 0) + layout.blockGap };
   });
@@ -13970,7 +13984,8 @@ async function createPriceListPdf(currentProducts) {
       y -= layout.nameGap;
       for (const row of block.rows) {
         row.lines.forEach((detail, index) => text(detail, margin, y - layout.detailLeading - index * layout.detailLeading, layout.detailSize));
-        text(row.price, width - margin - measure(row.price, layout.priceSize, true) - 3, y - layout.priceSize, layout.priceSize, true);
+        text(row.price, margin, y - row.lines.length * layout.detailLeading - layout.priceSize, layout.priceSize, true);
+        row.afterLines.forEach((detail, index) => text(detail, margin, y - row.lines.length * layout.detailLeading - layout.priceSize - 6 - layout.detailLeading - index * layout.detailLeading, layout.detailSize));
         y -= row.height;
       }
       rule(y - 1);
@@ -14146,11 +14161,11 @@ function renderCatalogPdfPage(page, settings) {
 function getCatalogPdfTextLines(product, includePrices, width) {
   const lines = [];
   const context = document.createElement("canvas").getContext("2d");
-  const add = (text, size = 8.2, bold = false) => {
+  const add = (text, size = 8.2, bold = false, role = "") => {
     context.font = `${bold ? "bold " : ""}${size * 96 / 72}px Arial`;
     const measure = (value) => context.measureText(value).width * 72 / 96;
     let current = "";
-    const emit = () => { if (current.trim()) lines.push({ text: current.trim(), size, bold, leading: size === 10.5 ? 14 : 11 }); current = ""; };
+    const emit = () => { if (current.trim()) lines.push({ text: current.trim(), size, bold, role, leading: size === 10.5 ? 14 : 11 }); current = ""; };
     for (const word of String(text).split(/\s+/)) {
       if (current && measure(`${current} ${word}`) > width) emit();
       for (const character of word) {
@@ -14162,23 +14177,17 @@ function getCatalogPdfTextLines(product, includePrices, width) {
     emit();
   };
   add(product.name, 9.2, true);
-  const boxerPack = includePrices && product.pdfMode === "packs" && normalizeProductSearchText(product.category) === "ropa interior hombre" && getPdfPurchaseRule(product).pack === 6;
-  if (includePrices && boxerPack) {
-    const reference = product.variants[0];
-    const mixed = reference.packSpec.allowMixedPrices;
-    add(`Pack x ${reference.packSpec.quantity} ${reference.packSpec.noun}${mixed ? " desde" : ""}`, 8.1);
-    add(formatMoney(reference.packSpec.quantity * reference.price), 10.5, true);
-    if (mixed) add("Talles combinables. Cada talle conserva su precio.", 8.1);
-  }
   const groups = new Map();
   for (const variant of product.variants || []) {
     const presentation = String(variant.presentation || "Sin presentación");
-    const key = JSON.stringify([presentation, includePrices ? Number(variant.price) || 0 : null]);
-    if (!groups.has(key)) groups.set(key, { presentation, price: Number(variant.price) || 0, variants: [] });
+    const display = includePrices ? variant.pdfSaleDisplay || getCustomerCatalogPriceDisplay(variant, product) : null;
+    const key = JSON.stringify(display ? [display.label, display.minimumLabel, display.price] : [presentation]);
+    if (!groups.has(key)) groups.set(key, { presentation, display, price: display?.price || 0, variants: [] });
     groups.get(key).variants.push(variant);
   }
   const commonPresentation = groups.size > 1 && new Set([...groups.values()].map((group) => group.presentation)).size === 1;
-  if (commonPresentation && !boxerPack) add(`Presentación: ${groups.values().next().value.presentation}`, 8.1);
+  const commonMinimum = includePrices && groups.size > 1 && new Set([...groups.values()].map(group => group.display.minimumLabel)).size === 1;
+  if (commonPresentation && !includePrices) add(`Presentación: ${groups.values().next().value.presentation}`, 8.1);
   for (const group of groups.values()) {
     const labels = new Map();
     for (const variant of group.variants) {
@@ -14195,9 +14204,14 @@ function getCatalogPdfTextLines(product, includePrices, width) {
       const title = ({ Talle: "Talles disponibles", Color: "Colores disponibles", Medida: "Medidas disponibles", Tamaño: "Tamaños disponibles", Surtido: "Surtidos disponibles" })[type] || "Variantes disponibles";
       add(`${title}: ${value}`);
     }
-    if (!commonPresentation && !boxerPack) add(`Presentación: ${group.presentation}`, 8.1);
-    if (includePrices) add(group.price > 0 ? `${boxerPack ? "Precio por unidad: " : ""}${formatMoney(group.price)}` : "Falta precio", boxerPack ? 8.2 : 10.5, true);
+    if (includePrices) {
+      add(group.display.label, 8.1, false, "unit-label");
+      add(group.price > 0 ? formatMoney(group.price) : "Falta precio", 10.5, true, "price");
+      if (!commonMinimum) add(group.display.minimumLabel, 8.1, false, "minimum");
+    } else if (!commonPresentation) add(`Presentación: ${group.presentation}`, 8.1);
   }
+  if (commonMinimum) add(groups.values().next().value.display.minimumLabel, 8.1, false, "minimum");
+  if (includePrices && product.variants.some(variant => variant.packSpec?.allowMixedPrices)) add("Talles combinables. Cada talle conserva su precio.", 8.1, false, "note");
   return lines;
 }
 
