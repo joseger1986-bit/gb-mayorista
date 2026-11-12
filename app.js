@@ -254,6 +254,8 @@ let currentThermalLayout = null;
 let stockModalProductId = "";
 let stockModalDefaultMode = "add";
 let stockModalSaving = false;
+let stockModalOperation = null;
+const initialStockByNewProduct = new Map();
 let stockReceiptAttempt = null;
 let stockMovementFilter = "todos";
 let stockMovementsRemoteRefreshing = false;
@@ -686,6 +688,7 @@ els.productForm.addEventListener("submit", async (event) => {
     sortOrder: getNextSortOrder()
   };
 
+  initialStockByNewProduct.set(product.id, product.stock);
   products.push(product);
   saveProducts();
   const scrollTop = getAdminTableScrollTop();
@@ -1157,8 +1160,11 @@ function dedupeStockMovements(movements) {
   const seen = new Set();
   return (movements || []).filter((movement) => {
     const id = String(movement?.id || "");
-    if (id && seen.has(`id:${id}`)) return false;
-    if (id) seen.add(`id:${id}`);
+    if (id) {
+      if (seen.has(`id:${id}`)) return false;
+      seen.add(`id:${id}`);
+      return true;
+    }
     const signature = getStockMovementSignature(movement);
     if (!signature) return true;
     if (seen.has(`sig:${signature}`)) return false;
@@ -1303,6 +1309,7 @@ function mapSupabaseOrderToLocal(row) {
     stockApplied: Boolean(row.stock_applied),
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+    remoteUpdatedAt: row.updated_at ?? null,
     items: (row.order_items || row.items || []).map(mapSupabaseOrderItemToLocal),
     subtotal: Number(row.subtotal) || 0,
     total: Number(row.total) || 0,
@@ -1420,9 +1427,10 @@ async function saveLocalSaleToSupabase(order) {
     unit_cost: Number(item.cost) || 0,
     subtotal: (Math.max(1, Math.round(Number(item.quantity) || 1)) * (Number(item.price) || 0))
   }));
-  const { data, error } = await client.rpc("create_local_order", {
-    order_payload: payload,
-    item_payload: itemRows
+  const { data, error } = await client.rpc("internal_create_paid_sale", {
+    p_request_id: order.id,
+    p_order: payload,
+    p_items: itemRows
   });
   if (error) throw new Error(`No se pudo guardar la venta en Supabase: ${error.message || error.code || "error desconocido"}`);
   const savedOrder = data?.order || data?.pedido || data;
@@ -1696,58 +1704,6 @@ function buildSupabaseOrderPayload(order) {
   };
 }
 
-async function claimOrderStockApplication(order) {
-  const client = getSupabaseCatalogClient();
-  const orderId = getRemoteOrderId(order);
-  if (!client || !orderId) {
-    return { claimed: true, remote: false };
-  }
-  const paidAt = order.paidAt || new Date().toISOString();
-  const payload = {
-    status: "Pagado",
-    stock_applied: true,
-    paid_at: paidAt,
-    updated_at: new Date().toISOString()
-  };
-  const { data, error } = await withSupabaseTimeout(client
-    .from("orders")
-    .update(payload)
-    .eq("id", orderId)
-    .or("stock_applied.is.false,stock_applied.is.null")
-    .select("id,status,stock_applied,paid_at,updated_at"), "Supabase tardó demasiado en reservar el descuento de stock.");
-  if (error) throw new Error(`No se pudo reservar el descuento de stock: ${error.message || error.code || "error desconocido"}`);
-  const claimedRow = Array.isArray(data) ? data[0] : null;
-  if (claimedRow?.id) {
-    order.stockApplied = true;
-    order.status = normalizeConsultationStatus(claimedRow.status || "Pagado");
-    order.paidAt = claimedRow.paid_at || paidAt;
-    order.updatedAt = claimedRow.updated_at || payload.updated_at;
-    return { claimed: true, remote: true };
-  }
-  const { data: currentRows, error: readError } = await withSupabaseTimeout(client
-    .from("orders")
-    .select("id,status,stock_applied,paid_at,updated_at")
-    .eq("id", orderId)
-    .limit(1), "Supabase tardó demasiado en verificar el descuento de stock.");
-  if (readError) throw new Error(`No se pudo verificar el descuento de stock: ${readError.message || readError.code || "error desconocido"}`);
-  const current = Array.isArray(currentRows) ? currentRows[0] : null;
-  if (current?.stock_applied) {
-    order.stockApplied = true;
-    order.status = normalizeConsultationStatus(current.status || "Pagado");
-    order.paidAt = current.paid_at || order.paidAt || paidAt;
-    order.updatedAt = current.updated_at || order.updatedAt;
-    return { claimed: false, alreadyApplied: true };
-  }
-  throw new Error("No se pudo confirmar que el stock del pedido quede reservado para descontar.");
-}
-
-async function persistAppliedStockProducts(reason = "order-stock") {
-  localStorage.setItem(STORAGE_PRODUCTS, JSON.stringify(products));
-  const result = await syncCatalogToSupabase(reason);
-  if (!result?.ok) throw new Error(result?.message || "No se pudo persistir el stock actualizado en Supabase.");
-  return result;
-}
-
 function buildSupabaseOrderItemRows(order, orderId) {
   return (order.items || []).map((item) => {
     const row = {
@@ -1801,6 +1757,7 @@ async function persistOrderToSupabase(order, options = {}) {
     order.number = remoteOrder.number || order.number;
     order.createdAt = remoteOrder.createdAt || order.createdAt;
     order.updatedAt = remoteOrder.updatedAt || order.updatedAt;
+    order.remoteUpdatedAt = remoteOrder.remoteUpdatedAt;
   }
   return remoteOrder;
 }
@@ -2309,12 +2266,12 @@ async function syncCatalogToSupabase(reason = "manual") {
         brand: product.brand || "",
         presentation: getProductPresentation(product),
         sale_price: Math.max(0, Number(product.price) || 0),
-        stock: Math.max(0, Number(product.stock) || 0),
         show_in_catalog: product.showInCatalog !== false,
         image_path: getSupabaseImagePath(product.image),
         active: !isArchivedProductRow(product),
         sort_order: Number.isFinite(product.sortOrder) ? product.sortOrder : index + 1
       };
+      if (initialStockByNewProduct.has(product.id)) row.initial_stock = initialStockByNewProduct.get(product.id);
       const persistedCost = getPersistableProductCost(product);
       if (persistedCost !== null) row.cost_price = persistedCost;
       if (supabaseProductDescriptionSupported) row.description = String(product.description || "").trim();
@@ -2337,15 +2294,14 @@ async function syncCatalogToSupabase(reason = "manual") {
     }, "info", { payload: { categoryRows, productRows, pendingDeletedProductIds: [...supabaseCatalogPendingDeletedProductIds] } });
 
     if (productRows.length) {
-      const { data: savedProducts, error: productError } = await client
-        .from("products")
-        .upsert(productRows, { onConflict: "id" })
-        .select("id");
-
+      const { data: savedProducts, error: productError } = await client.rpc("internal_sync_product_metadata", {
+        p_products: productRows
+      });
       if (productError) throw productError;
       if (!Array.isArray(savedProducts) || savedProducts.length === 0) {
         throw new Error("Supabase no confirmo la escritura de productos. Revisar permisos RLS para products.");
       }
+      savedProducts.forEach(({ id }) => initialStockByNewProduct.delete(id));
 
       const deletedProducts = await deleteExplicitlyRemovedProductsFromSupabase(client);
       const variantsSynced = await syncProductVariantsToSupabase(client);
@@ -2848,13 +2804,6 @@ async function syncProductVariantsToSupabase(client) {
   const productIds = products.map((product) => product.id).filter(Boolean);
   if (!productIds.length) return;
 
-  const { error: deleteError } = await client
-    .from("product_variants")
-    .delete()
-    .in("product_id", productIds);
-
-  if (deleteError) throw deleteError;
-
   const variantRows = products.flatMap((product) => {
     const variants = getProductVariantNames(product);
     return variants.map((name, index) => ({
@@ -2862,7 +2811,6 @@ async function syncProductVariantsToSupabase(client) {
       name,
       presentation: getProductPresentation(product),
       sale_price: null,
-      stock: Math.max(0, Number(product.variantStock?.[name]) || 0),
       active: true,
       sort_order: index + 1
     }));
@@ -2870,10 +2818,9 @@ async function syncProductVariantsToSupabase(client) {
 
   if (!variantRows.length) return 0;
 
-  const { data: insertedVariants, error: insertError } = await client
-    .from("product_variants")
-    .insert(variantRows)
-    .select("id");
+  const { data: insertedVariants, error: insertError } = await client.rpc("internal_sync_variant_metadata", {
+    p_variants: variantRows
+  });
 
   if (insertError) throw insertError;
   return Array.isArray(insertedVariants) ? insertedVariants.length : variantRows.length;
@@ -4790,7 +4737,6 @@ async function saveEditedProduct(event) {
     category: normalizeCategory(String(els.editProductCategory?.value || product.category).trim()),
     presentation: String(els.editProductPresentation?.value || "").trim(),
     description: String(els.editProductDescription?.value || "").trim(),
-    stock: Math.max(0, Math.round(Number(els.editProductStock?.value) || 0)),
     stockUnit: normalizeStockUnit(els.editProductStockUnitSelect?.value || product.stockUnit),
     variants: String(els.editProductVariants?.value || "").trim(),
     showInCatalog: els.editProductCatalog?.value !== "no"
@@ -4896,6 +4842,7 @@ function openStockModal(productId, mode = "add") {
   const product = products.find((item) => item.id === productId);
   if (!product || !els.stockModalOverlay || !els.stockModalForm) return;
   stockModalProductId = productId;
+  stockModalOperation = null;
   stockModalDefaultMode = mode === "subtract" ? "subtract" : "add";
   if (els.stockModalTitle) {
     els.stockModalTitle.textContent = `${stockModalDefaultMode === "subtract" ? "Quitar stock" : "Agregar stock"}: ${getProductArticleName(product)}`;
@@ -4995,6 +4942,10 @@ async function confirmStockModal(event) {
   }
   setStockModalSaving(true);
   try {
+    const signature = JSON.stringify([product.id, movementType, quantity, reason, purchaseUnitCost]);
+    if (stockModalOperation?.signature !== signature) {
+      stockModalOperation = { signature, id: crypto.randomUUID() };
+    }
     if (purchaseUnitCost !== null) {
       await receiveStockWithPurchaseCost(product, quantity, purchaseUnitCost);
     } else {
@@ -5004,7 +4955,8 @@ async function confirmStockModal(event) {
         reason,
         orderId: null,
         variant: "Base / sin variante",
-        deferRender: true
+        deferRender: true,
+        operationId: stockModalOperation.id
       });
     }
     closeStockModal();
@@ -6616,7 +6568,6 @@ function saveBudgetItemEdit(orderId, productId) {
     showToast('La presentación no puede quedar vacía');
     return;
   }
-  restoreConfirmedStock(order);
   item.presentation = presentation;
   item.saleType = getSaleTypeFromPresentation(presentation);
   item.packQuantity = getPackQuantityFromPresentation(presentation);
@@ -6624,8 +6575,6 @@ function saveBudgetItemEdit(orderId, productId) {
   item.price = Math.max(1, Math.round(Number(els.ordersList.querySelector('[data-edit-item-price]')?.value) || item.price || 1));
   if (item.purchaseDetails?.quantityRule === "minimum") item.purchaseDetails.allocated = item.quantity;
   recalculateBudget(order);
-  reapplyConfirmedStock(order);
-  saveProducts();
   saveOrders();
   closeBudgetItemEditor();
   openOrderId = orderId;
@@ -6698,16 +6647,19 @@ async function saveManualConsultation(order, options = {}) {
       return false;
     }
   }
-  if (!order.stockApplied) {
-    applyBudgetStock(order, -1);
-    order.stockApplied = true;
-    recordClientPurchase(order);
+  if (!remoteOrder?.stockApplied && !order.stockApplied) {
+    showToast("Supabase no confirmó el descuento de stock de la venta.");
+    return false;
   }
+  order.stockApplied = true;
+  order.paidAt = remoteOrder?.paidAt || order.paidAt;
   syncClientsFromOrders();
-  saveProducts();
   saveOrders();
   saveClients();
-  saveStockHistory();
+  await Promise.all([
+    refreshCatalogFromSupabase("paid-local-sale", { silent: true }),
+    refreshStockMovementsFromSupabase("paid-local-sale", { silent: true })
+  ]);
   if (renderAfterSave) {
     openOrderId = order.id;
     completedQuickSaleOrderId = order.id;
@@ -8718,20 +8670,6 @@ function isInternalOrder(order) {
   return order.type === "order";
 }
 
-function setProductStock(id, nextStock, reason = "Ajuste manual", variantName = "Base / sin variante", options = {}) {
-  if (!hasPermission("stock")) return;
-  const product = products.find((item) => item.id === id);
-  if (!product) return;
-  const previousStock = getProductStock(product, variantName);
-  const finalStock = Math.max(0, Math.round(nextStock || 0));
-  setProductVariantStock(product, variantName, finalStock);
-  recordStockMovement(product, finalStock - previousStock, previousStock, finalStock, reason, { variant: variantName });
-  saveProducts();
-  saveStockHistory();
-  renderAll();
-  if (!options.silent) showToast("Stock modificado");
-}
-
 async function receiveStockWithPurchaseCost(product, quantity, unitCost) {
   if (!canAccess("admin") || !hasPermission("stock")) throw new Error("Se requiere el perfil Administrador.");
   const client = getSupabaseAuthClient();
@@ -8797,30 +8735,14 @@ async function applyStockMovement(product, options = {}) {
     if (sessionError || !sessionData?.session?.access_token) {
       throw new Error(formatSupabaseOperationError(sessionError, "La sesión de Gestión venció. Cerrá sesión y volvé a ingresar."));
     }
-    const remoteBefore = await readProductStockFromSupabase(client, product.id, "antes del movimiento");
-    const previousStock = Math.max(0, Math.round(Number(remoteBefore.stock) || 0));
-    const expectedStock = movementType === "entrada" ? previousStock + quantity : previousStock - quantity;
-    if (movementType === "salida" && quantity > previousStock) {
-      throw new Error(`No hay stock suficiente. Stock actual: ${previousStock} ${getStockUnitLabel(product, previousStock)}.`);
-    }
     const rpcParams = {
-      product_id: product.id,
-      movement_type: movementType,
-      movement_quantity: quantity,
-      movement_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim(),
-      related_order_id: options.orderId || null
+      p_request_id: options.operationId || crypto.randomUUID(),
+      p_product_id: product.id,
+      p_type: movementType,
+      p_quantity: quantity,
+      p_reason: String(options.reason || (movementType === "salida" ? "Ajuste" : "Ingreso")).trim()
     };
-    console.info("Punto X Mayor STOCK MOVEMENT START", {
-      product_id: product.id,
-      nombre: getProductArticleName(product),
-      stock_actual: previousStock,
-      cantidad: quantity,
-      unidad: normalizeStockUnit(product.stockUnit || remoteBefore.stock_unit),
-      movimiento: movementType,
-      rpc_function: "adjust_product_stock(uuid, text, numeric, text, uuid)",
-      rpc_params: rpcParams
-    });
-    const rpcResponse = await withSupabaseTimeout(client.rpc("adjust_product_stock", rpcParams), "Supabase tardó demasiado en guardar el movimiento de stock.");
+    const rpcResponse = await withSupabaseTimeout(client.rpc("internal_adjust_stock_once", rpcParams), "No se pudo confirmar el movimiento. Reintentá sin cambiar los datos.");
     const { data, error, status, statusText, count } = rpcResponse || {};
     console.info("Punto X Mayor STOCK MOVEMENT RPC RESULT", {
       product_id: product.id,
@@ -8835,33 +8757,17 @@ async function applyStockMovement(product, options = {}) {
     }
     const rpcPayload = Array.isArray(data) ? data[0] : data;
     const movement = rpcPayload?.movement || rpcPayload?.stock_movement || rpcPayload;
-    const nextStock = Math.max(0, Math.round(Number(rpcPayload?.new_stock ?? movement?.new_stock)));
-    if (!Number.isFinite(nextStock)) {
-      throw new Error("Supabase guardó el movimiento, pero no devolvió el stock actualizado.");
+    const previousStock = Number(movement?.previous_stock);
+    const nextStock = Number(movement?.new_stock);
+    if (!movement?.id || String(movement.product_id) !== String(product.id)
+      || !Number.isFinite(previousStock) || !Number.isFinite(nextStock)
+      || nextStock - previousStock !== (movementType === "entrada" ? quantity : -quantity)) {
+      throw new Error("Supabase no confirmó un movimiento válido. Reintentá sin cambiar los datos.");
     }
-    if (nextStock !== expectedStock) {
-      throw new Error(`Supabase devolvió stock ${nextStock}, pero se esperaba ${expectedStock}.`);
-    }
-    const remoteAfter = await readProductStockFromSupabase(client, product.id, "después del movimiento");
-    const confirmedStock = Math.max(0, Math.round(Number(remoteAfter.stock) || 0));
-    console.info("Punto X Mayor STOCK MOVEMENT CHECK", {
-      product_id: remoteAfter.id,
-      nombre: remoteAfter.name,
-      stock_devuelto_por_supabase: confirmedStock,
-      stock_esperado: expectedStock
-    });
-    if (confirmedStock !== nextStock) {
-      throw new Error(`Supabase no confirmó el stock actualizado. Esperado: ${nextStock}, actual: ${confirmedStock}.`);
-    }
-    await verifyStockMovementSaved(client, movement, product, {
-      movementType,
-      quantity,
-      previousStock,
-      nextStock
-    });
-    setProductVariantStock(product, "Base / sin variante", nextStock);
+    const remoteAfter = await readProductStockFromSupabase(client, product.id, "después del movimiento").catch(() => null);
+    if (remoteAfter) setProductVariantStock(product, "Base / sin variante", Number(remoteAfter.stock));
     if (String(editingProductId || "") === String(product.id)) {
-      if (els.editProductStock) els.editProductStock.value = String(nextStock);
+      if (els.editProductStock) els.editProductStock.value = String(product.stock);
       updateEditProductStockLabels(product);
     }
     if (String(stockModalProductId || "") === String(product.id) && els.stockModalCurrent) {
@@ -8897,143 +8803,6 @@ async function readProductStockFromSupabase(client, productId, stage = "lectura"
   const productRow = Array.isArray(data) ? data[0] : data;
   if (!productRow?.id) throw new Error(`No se encontró el producto en Supabase para validar stock ${stage}.`);
   return productRow;
-}
-
-async function verifyStockMovementSaved(client, movement, product, expected) {
-  let movementRow = null;
-  if (movement?.id) {
-    const { data, error } = await withSupabaseTimeout(client
-      .from("stock_movements")
-      .select("id,product_id,movement_type,quantity,stock_unit,previous_stock,new_stock,reason,created_at")
-      .eq("id", movement.id)
-      .limit(1), "Supabase tardó demasiado en confirmar el movimiento de stock.");
-    if (error) {
-      throw new Error(formatSupabaseOperationError(error, "No se pudo confirmar el movimiento de stock."));
-    }
-    movementRow = Array.isArray(data) ? data[0] : data;
-  }
-  if (!movementRow) {
-    const { data, error } = await withSupabaseTimeout(client
-      .from("stock_movements")
-      .select("id,product_id,movement_type,quantity,stock_unit,previous_stock,new_stock,reason,created_at")
-      .eq("product_id", product.id)
-      .order("created_at", { ascending: false })
-      .limit(1), "Supabase tardó demasiado en confirmar el movimiento de stock.");
-    if (error) {
-      throw new Error(formatSupabaseOperationError(error, "No se pudo confirmar el movimiento de stock."));
-    }
-    movementRow = Array.isArray(data) ? data[0] : data;
-  }
-  console.info("Punto X Mayor STOCK MOVEMENT SAVED", {
-    product_id: product.id,
-    movimiento: movementRow
-  });
-  if (!movementRow?.id) throw new Error("Supabase actualizó el stock, pero no confirmó el movimiento registrado.");
-  const sameProduct = String(movementRow.product_id || "") === String(product.id);
-  const savedMovementType = String(movementRow.movement_type || "").toLowerCase();
-  const expectedMovementType = expected.movementType === "entrada" ? "add" : "subtract";
-  const legacyMovementType = expected.movementType === "entrada" ? "entrada" : "salida";
-  const sameType = savedMovementType === expectedMovementType || savedMovementType === legacyMovementType;
-  const sameQuantity = Math.round(Number(movementRow.quantity) || 0) === expected.quantity;
-  const samePrevious = Math.round(Number(movementRow.previous_stock) || 0) === expected.previousStock;
-  const sameNext = Math.round(Number(movementRow.new_stock) || 0) === expected.nextStock;
-  if (!sameProduct || !sameType || !sameQuantity || !samePrevious || !sameNext) {
-    throw new Error("Supabase registró un movimiento de stock que no coincide con la operación solicitada.");
-  }
-  return movementRow;
-}
-
-async function registerStockMovementOnly(product, movement = {}) {
-  if (!product?.id) return;
-  const client = getSupabaseCatalogClient();
-  const quantity = Math.abs(Math.round(Number(movement.quantity) || 0));
-  if (!client || !quantity) return;
-  try {
-    const movementType = normalizeStockMovementType(movement.movementType) === "entrada" ? "add" : "subtract";
-    if (movement.orderId && movementType === "subtract") {
-      const { data: existing, error: existingError } = await withSupabaseTimeout(client
-        .from("stock_movements")
-        .select("id,product_id,movement_type,quantity,stock_unit,previous_stock,new_stock,reason,created_at,order_id")
-        .eq("order_id", movement.orderId)
-        .eq("product_id", product.id)
-        .eq("movement_type", "subtract")
-        .eq("reason", movement.reason || "Venta")
-        .limit(1), "Supabase tardó demasiado en verificar movimientos de stock existentes.");
-      if (existingError) throw existingError;
-      const existingMovement = Array.isArray(existing) ? existing[0] : null;
-      if (existingMovement?.id) {
-        upsertStockMovement(normalizeStockMovementFromRemote(existingMovement, product, movement));
-        return existingMovement;
-      }
-    }
-    const { data, error } = await withSupabaseTimeout(client
-      .from("stock_movements")
-      .insert([{
-        product_id: product.id,
-        product_name: getProductArticleName(product),
-        movement_type: movementType,
-        reason: movement.reason || "Venta",
-        quantity,
-        stock_unit: normalizeStockUnit(product.stockUnit),
-        previous_stock: Math.max(0, Math.round(Number(movement.previousStock) || 0)),
-        new_stock: Math.max(0, Math.round(Number(movement.nextStock) || 0)),
-        order_id: movement.orderId || null,
-        unit_cost: Number(movement.unitCost) || Number(product.cost) || 0,
-        previous_cost: Number(movement.unitCost) || Number(product.cost) || 0,
-        new_cost: Number(movement.unitCost) || Number(product.cost) || 0,
-        total_cost: quantity * (Number(movement.unitCost) || Number(product.cost) || 0)
-      }])
-      .select("*")
-      .limit(1), "Supabase tardó demasiado en registrar el movimiento de stock.");
-    if (error) throw error;
-    const saved = Array.isArray(data) ? data[0] : null;
-    if (saved) upsertStockMovement(normalizeStockMovementFromRemote(saved, product, movement));
-    return saved;
-  } catch (error) {
-    console.error("Punto X Mayor stock movement log:", error);
-    showToast(error.message || "El stock se actualizó, pero no se pudo registrar el movimiento.");
-    return null;
-  }
-}
-
-function adjustProductStock(id, delta, variantName = "Base / sin variante") {
-  if (!hasPermission("stock")) return;
-  const product = products.find((item) => item.id === id);
-  if (!product) return;
-  const adjustment = Math.round(delta || 0);
-  if (!adjustment) {
-    showToast("Ingresá un ajuste distinto de 0");
-    return;
-  }
-  const previousStock = getProductStock(product, variantName);
-  const finalStock = Math.max(0, previousStock + adjustment);
-  setProductVariantStock(product, variantName, finalStock);
-  recordStockMovement(product, finalStock - previousStock, previousStock, finalStock, "Ajuste manual", { variant: variantName });
-  saveProducts();
-  saveStockHistory();
-  renderAll();
-  showToast("Movimiento de stock registrado");
-}
-
-function recordStockMovement(product, delta, previousStock, nextStock, reason, meta = {}) {
-  if (!delta) return;
-  upsertStockMovement({
-    id: crypto.randomUUID(),
-    productId: product.id,
-    productName: getProductArticleName(product),
-    variant: meta.variant || "Base / sin variante",
-    delta,
-    movementType: delta > 0 ? "entrada" : "salida",
-    quantity: Math.abs(delta),
-    stockUnit: normalizeStockUnit(product.stockUnit),
-    previousStock,
-    nextStock,
-    reason,
-    orderId: meta.orderId || "",
-    user: meta.user || "",
-    userId: meta.userId || "",
-    createdAt: new Date().toISOString()
-  });
 }
 
 function upsertStockMovement(entry) {
@@ -9976,32 +9745,31 @@ async function markOrderPaidAndDiscountStock(id, nextStatus = "Pagado") {
     catch (error) { showToast(error.message); return; }
   }
   if (order.stockApplied) {
-    order.status = "Pagado";
-    try {
-      await persistOrderToSupabase(order);
-    } catch (error) {
-      console.error("Punto X Mayor paid order save:", error);
-      showToast(error.message || "No se pudo guardar el estado pagado.");
-      return;
-    }
-    saveOrders();
     showToast("El stock de este pedido ya fue descontado");
-    renderAll();
     return;
   }
-  order.status = "Pagado";
-  order.paidAt = order.paidAt || new Date().toISOString();
-  order.updatedAt = new Date().toISOString();
-  recalculateBudget(order);
-  applyBudgetStock(order, -1);
-  order.stockApplied = true;
-  recordClientPurchase(order);
-  saveProducts();
-  saveOrders();
-  saveClients();
-  saveStockHistory();
   try {
-    await persistOrderToSupabase(order);
+    const client = getSupabaseCatalogClient();
+    if (!client) throw new Error("No hay conexión con Supabase.");
+    const payload = buildSupabaseOrderPayload({ ...order, items: [...order.items] });
+    const { data, error } = await client.rpc("internal_confirm_order_stock", {
+      p_order_id: getRemoteOrderId(order),
+      p_expected_updated_at: order.remoteUpdatedAt ?? null,
+      p_order: payload,
+      p_items: buildSupabaseOrderItemRows(order, getRemoteOrderId(order))
+    });
+    if (error) throw error;
+    if (!data?.order?.stock_applied || data.order.status !== "Pagado") {
+      throw new Error("Supabase no confirmó el pago y el descuento de stock.");
+    }
+    Object.assign(order, mapSupabaseOrderToLocal({ ...data.order, order_items: data.items }));
+    syncClientsFromOrders();
+    saveOrders();
+    saveClients();
+    await Promise.all([
+      refreshCatalogFromSupabase("paid-order", { silent: true }),
+      refreshStockMovementsFromSupabase("paid-order", { silent: true })
+    ]);
   } catch (error) {
     console.error("Punto X Mayor paid order save:", error);
     showToast(error.message || "No se pudo guardar el pago en Supabase.");
@@ -11011,12 +10779,9 @@ function updateBudgetItemQty(orderId, productId, quantity) {
   if (!order || !item) return;
   if (!canEditOrder(order)) return;
   openOrderId = orderId;
-  restoreConfirmedStock(order);
   item.quantity = Math.max(1, Math.round(quantity || 1));
   if (item.purchaseDetails?.quantityRule === "minimum") item.purchaseDetails.allocated = item.quantity;
   recalculateBudget(order);
-  reapplyConfirmedStock(order);
-  saveProducts();
   saveOrders();
   renderAll();
   showToast("Cantidad actualizada");
@@ -11149,8 +10914,6 @@ function addBudgetItem(orderId, productId, quantity) {
   if (!canEditOrder(order)) return;
   openOrderId = orderId;
   previewOrderId = "";
-  restoreConfirmedStock(order);
-
   const existing = order.items.find((item) => item.id === productId);
   if (existing) existing.quantity += Math.max(1, Math.round(quantity || 1));
   else {
@@ -11169,8 +10932,6 @@ function addBudgetItem(orderId, productId, quantity) {
   }
 
   recalculateBudget(order);
-  reapplyConfirmedStock(order);
-  saveProducts();
   saveOrders();
   renderAll();
   showToast("Producto agregado al presupuesto");
@@ -11185,11 +10946,8 @@ async function removeBudgetItem(orderId, productId) {
     text: `Vas a eliminar "${item ? getOrderItemDisplayName(item) : "este producto"}" del pedido.`,
     action: async () => {
       openOrderId = orderId;
-      restoreConfirmedStock(order);
       order.items = order.items.filter((item) => item.id !== productId);
       recalculateBudget(order);
-      reapplyConfirmedStock(order);
-      saveProducts();
       saveOrders();
       renderAll();
       showToast("Producto quitado del presupuesto", "success");
@@ -11205,72 +10963,6 @@ function canChangeOrderStatus(order) {
   return canEditOrder(order);
 }
 
-function restoreConfirmedStock(order) {
-  if (isConfirmed(order.status) && order.stockApplied) {
-    applyBudgetStock(order, 1);
-    order.stockApplied = false;
-  }
-}
-
-function reapplyConfirmedStock(order) {
-  if (isConfirmed(order.status)) {
-    applyBudgetStock(order, -1);
-    order.stockApplied = true;
-  }
-}
-
-function applyBudgetStock(order, direction, options = {}) {
-  const movementTasks = [];
-  order.items.forEach((item) => {
-    const product = products.find((entry) => entry.id === item.id);
-    if (!product) return;
-    const variantName = String(product.variants || "").trim() ? item.variant || "Base / sin variante" : "Base / sin variante";
-    const previousStock = getProductStock(product, variantName);
-    const delta = direction * getStockConsumptionForOrderItem(item, product);
-    const nextStock = Math.max(0, previousStock + delta);
-    setProductVariantStock(product, variantName, nextStock);
-    if (direction < 0) {
-      recordStockMovement(product, nextStock - previousStock, previousStock, nextStock, `Pedido ${getOrderCustomerName(order)}`, {
-        orderId: order.id,
-        variant: variantName
-      });
-      const movementTask = registerStockMovementOnly(product, {
-        movementType: "salida",
-        reason: "Venta",
-        quantity: Math.abs(nextStock - previousStock),
-        previousStock,
-        nextStock,
-        orderId: order.remoteId || order.id || null,
-        variant: variantName,
-        unitCost: Number(item.cost) || getProductCostForPresentation(product) || Number(product.cost) || 0
-      });
-      if (options.awaitRemoteMovements) movementTasks.push(movementTask);
-    }
-  });
-  return movementTasks;
-}
-
-function getStockConsumptionForOrderItem(item, product) {
-  const quantity = Math.max(1, Math.round(Number(item?.quantity) || 1));
-  const presentation = getBudgetItemPresentation(item);
-  const stockUnit = normalizeStockUnit(product?.stockUnit || item?.stockUnit || inferDefaultStockUnitFromPresentation(presentation));
-  return quantity * getStockUnitsPerSoldPresentation(presentation, stockUnit);
-}
-
-function applyPendingPaidStockDiscounts() {
-  let changed = false;
-  orders.forEach((order) => {
-    if (normalizeConsultationStatus(order.status) !== "Pagado" || order.stockApplied) return;
-    applyBudgetStock(order, -1);
-    order.stockApplied = true;
-    order.updatedAt = order.updatedAt || new Date().toISOString();
-    changed = true;
-  });
-  if (!changed) return;
-  saveProducts();
-  saveOrders();
-  saveStockHistory();
-}
 
 function buildWhatsappUrl(items, totalPrice, customer, consultationLabel = "") {
   const minimumReached = PURCHASE.reachesMinimum(publicPurchaseMode, totalPrice);
@@ -13227,7 +12919,22 @@ async function persistImportedProductUpdates(updates) {
         if (key === "updated_at") continue;
         if (key === "category_id" ? next.category !== previous.category : JSON.stringify(value) !== JSON.stringify(beforeRow[key])) patch[key] = value;
       }
-      if (Number(next.stock) !== Number(previous.stock)) patch.stock = next.stock;
+      if (Number(next.stock) !== Number(previous.stock)) {
+        const { error } = await client.rpc("internal_import_product_stock", {
+          p_request_id: crypto.randomUUID(),
+          p_product_id: next.id,
+          p_expected: previous.stock,
+          p_target: next.stock,
+          p_metadata: patch,
+          p_expected_sale: previous.price,
+          p_expected_cost: previous.cost
+        });
+        if (error) throw error;
+        Object.assign(previous, next);
+        if (Object.hasOwn(patch, "cost_price")) reportAdminCostById.set(String(next.id), next.cost);
+        saved++;
+        continue;
+      }
       if (!Object.keys(patch).length) continue;
       patch.updated_at = new Date().toISOString();
       let query = client.from("products").update(patch, { count: "exact" }).eq("id", next.id).eq("active", true);
