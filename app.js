@@ -269,6 +269,9 @@ let reportAdminCostById = new Map();
 let reportAdminCostsLoaded = false;
 let reportAdminCostsPromise = null;
 let internalCatalogSale = null;
+let internalSaleDraftOwner = "";
+let internalSaleDraftError = false;
+let internalAuthGeneration = 0;
 let manualOrderBusy = false;
 let internalCatalogSaleExpanded = false;
 let internalCatalogCompletedSaleId = "";
@@ -929,6 +932,7 @@ function unlockInternalSession(session, context = null) {
   internalAuthContext = context || null;
   internalUnlocked = internalAuthenticated && ["admin", "employee"].includes(role);
   currentRole = internalUnlocked ? role : "client";
+  if (internalUnlocked && isPrivateManagementRoute()) restoreInternalSaleDraft(session.user.id, role);
   if (internalAuthenticated) {
     sessionStorage.setItem(STORAGE_INTERNAL_UNLOCKED, internalUnlocked ? "true" : "pending");
     if (internalUnlocked) {
@@ -959,7 +963,12 @@ function unlockInternalSession(session, context = null) {
 }
 
 function lockInternalSession(options = {}) {
+  internalAuthGeneration++;
   manualCatalogEdit = null;
+  internalSaleDraftOwner = "";
+  internalCatalogSale = null;
+  internalCatalogSaleExpanded = false;
+  internalCatalogCompletedSaleId = "";
   const clearStoredProfile = options.clearStoredProfile !== false;
   internalAuthenticated = false;
   internalUnlocked = false;
@@ -1035,13 +1044,8 @@ async function initializeSupabaseAuth() {
         return;
       }
       if (internalProfileSubmitting || Date.now() < internalProfileAuthBypassUntil) return;
-      completeInternalAccessAfterAuth(session, { silent: !isPrivateManagementRoute() }).then((allowed) => {
-        if (allowed && isPrivateManagementRoute()) {
-          renderAll();
-          setView(getInitialView(), true, { replace: true });
-          refreshCatalogFromSupabase("auth-session", { silent: true });
-        }
-      });
+      // Do not call Supabase from inside its authentication callback lock.
+      queueMicrotask(() => resumeInternalAccess());
       return;
     }
     if (!session?.user && internalAuthBootstrapping) return;
@@ -1050,6 +1054,31 @@ async function initializeSupabaseAuth() {
       els.internalRoleView?.classList.add("hidden");
       if (isPrivateManagementRoute()) showInternalLogin(false);
     }
+  });
+  let resuming = false;
+  async function resumeInternalAccess() {
+    if (!isPrivateManagementRoute() || resuming || internalUnlocked || passwordRecoveryActive
+      || isPasswordRecoveryReturn() || internalProfileSubmitting || internalAuthBootstrapping) return;
+    resuming = true;
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (error || !data?.session?.user) return;
+      const allowed = await completeInternalAccessAfterAuth(data.session);
+      if (allowed && internalUnlocked) {
+        renderAll();
+        setView(getInitialView(), true, { replace: true });
+        refreshCatalogFromSupabase("auth-session", { silent: true });
+      }
+    } catch (error) {
+      console.warn("Punto X Mayor session resume:", error);
+    } finally {
+      resuming = false;
+    }
+  }
+  window.addEventListener("online", resumeInternalAccess);
+  window.addEventListener("pageshow", resumeInternalAccess);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) resumeInternalAccess();
   });
 }
 function clearLocalCatalogCacheWhenSupabaseConfigured() {
@@ -1522,9 +1551,12 @@ async function saveInternalPendingOrder() {
   const disabledControls = [...els.internalSaleDock.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled)")];
   disabledControls.forEach((control) => { control.disabled = true; });
   if (saveButton) { saveButton.disabled = true; saveButton.textContent = "GUARDANDO PEDIDO..."; }
+  const draftOwner = internalSaleDraftOwner;
   try {
     const pending = { ...internalCatalogSale, items: internalCatalogSale.items.map((item) => ({ ...item })), origin: "manual", status: "Pendiente", stockApplied: false, paidAt: null };
     await persistManualOrder(pending);
+    clearSavedInternalSaleDraft(draftOwner, pending.id);
+    if (draftOwner !== internalSaleDraftOwner) return true;
     collapseInternalSaleDetail({ fromHistory: true });
     internalCatalogSale = null;
     internalCatalogSaleExpanded = false;
@@ -8107,6 +8139,47 @@ function getInternalCatalogSale() {
   return internalCatalogSale;
 }
 
+function restoreInternalSaleDraft(userId, role) {
+  const key = `gb_mayorista_sale_draft_v1:${userId}:${role}`;
+  if (key === internalSaleDraftOwner) return;
+  internalSaleDraftOwner = key;
+  internalCatalogSale = null;
+  internalSaleDraftError = false;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (saved?.version !== 1 || !saved.sale?.id || !Array.isArray(saved.sale.items)) return;
+    internalCatalogSale = { ...saved.sale, manualDraft: true, stockApplied: false, status: "En revisión" };
+    internalCatalogSaleExpanded = internalCatalogSale.items.length > 0;
+    internalPurchaseMode = saved.mode === "packs" ? "packs" : "habitual";
+  } catch (error) {
+    console.warn("Punto X Mayor draft restore:", error);
+  }
+}
+
+function persistInternalSaleDraft(order = internalCatalogSale) {
+  if (!internalSaleDraftOwner || !order || order !== internalCatalogSale || order.stockApplied) return;
+  try {
+    // Persist the same draft ID for safe retries after a lost response.
+    localStorage.setItem(internalSaleDraftOwner, JSON.stringify({
+      version: 1, mode: internalPurchaseMode,
+      sale: { ...order, items: order.items.map(({ cost, ...item }) => ({ ...item, cost: 0 })), profit: 0 }
+    }));
+    internalSaleDraftError = false;
+  } catch (error) {
+    if (!internalSaleDraftError) showToast("El navegador no pudo guardar esta preparación. No cierres la pestaña.");
+    internalSaleDraftError = true;
+  }
+}
+
+function clearSavedInternalSaleDraft(key, id) {
+  if (!key || !id) return;
+  try {
+    if (JSON.parse(localStorage.getItem(key) || "null")?.sale?.id === id) localStorage.removeItem(key);
+  } catch (error) {
+    console.warn("Punto X Mayor draft cleanup:", error);
+  }
+}
+
 function getManualCatalogTarget() {
   const order = manualCatalogEdit?.catalogActive ? manualCatalogEdit.order : null;
   return order && isInternalCatalogQuickSaleMode() && getOrderOrigin(order) === "manual"
@@ -8473,6 +8546,7 @@ function updateInternalSaleCustomer(field, value) {
   } else if (field === "location") {
     internalCatalogSale.customerLocation = cleanValue;
   }
+  persistInternalSaleDraft();
 }
 
 function updateInternalSaleTotals() {
@@ -8493,6 +8567,8 @@ async function finalizeInternalCatalogSale() {
   manualOrderBusy = true;
   try {
   const sale = internalCatalogSale;
+  const draftOwner = internalSaleDraftOwner;
+  readInternalSaleCustomerFields();
   sale.manualDraft = true;
   sale.origin = "local";
   sale.status = "Pagado";
@@ -8500,6 +8576,8 @@ async function finalizeInternalCatalogSale() {
   if (!orders.some((order) => order.id === sale.id)) orders.unshift(sale);
   const saved = await saveManualConsultation(sale, { renderAfterSave: false });
   if (!saved) return;
+  clearSavedInternalSaleDraft(draftOwner, sale.id);
+  if (draftOwner !== internalSaleDraftOwner) return;
   collapseInternalSaleDetail({ fromHistory: true });
   internalCatalogSale = null;
   internalCatalogSaleExpanded = false;
@@ -8548,6 +8626,7 @@ async function discardInternalCatalogSale() {
           if (operationalWebOrderId === id) operationalWebOrderId = "";
           saveOrders();
         } else {
+          clearSavedInternalSaleDraft(internalSaleDraftOwner, draft.id);
           internalCatalogSale = null;
           internalCatalogSaleExpanded = false;
           internalPendingSaveError = "";
@@ -11700,12 +11779,14 @@ function formatLoginLockMessage(lock) {
 
 async function completeInternalAccessAfterAuth(session, options = {}) {
   const client = getSupabaseAuthClient();
+  const generation = internalAuthGeneration;
   if (!client || !session?.user) {
     if (!internalAuthBootstrapping) lockInternalSession();
     return false;
   }
   try {
     const context = await rpcJson("internal_current_user", {}, "No se pudo validar el usuario interno.");
+    if (generation !== internalAuthGeneration) return false;
     if (!context?.allowed) throw new Error("Este usuario no está habilitado para Gestión Interna.");
     internalAuthenticated = true;
     const backendRole = normalizeInternalRole(context.role);
@@ -11720,6 +11801,7 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
           "No se pudo restaurar el perfil interno."
         );
         const restoredRole = normalizeInternalRole(profileSession?.role);
+        if (generation !== internalAuthGeneration) return false;
         if (profileSession?.ok && restoredRole === savedProfile) {
           const restoredContext = {
             ...context,
@@ -11733,8 +11815,9 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
           return true;
         }
       } catch (profileError) {
+        if (generation !== internalAuthGeneration) return false;
         console.warn("Punto X Mayor restore profile session:", profileError);
-        if (isPrivateManagementRoute() && internalAuthBootstrapping) {
+        if (isPrivateManagementRoute()) {
           internalUnlocked = false;
           internalAuthContext = context;
           currentRole = "client";
@@ -11758,6 +11841,7 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
     if (!options.silent) showInternalRoleChoice();
     return false;
   } catch (error) {
+    if (generation !== internalAuthGeneration) return false;
     console.error("Punto X Mayor internal access:", error);
     if (isPrivateManagementRoute()) {
       internalAuthenticated = true;
@@ -12660,6 +12744,7 @@ function recalculateBudget(order) {
   order.total = totals.total;
   order.profit = totals.profit;
   order.updatedAt = new Date().toISOString();
+  persistInternalSaleDraft(order);
 }
 
 function calculateBudgetTotals(order) {
