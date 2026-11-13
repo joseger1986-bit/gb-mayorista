@@ -192,7 +192,10 @@ function addConfiguredPack(group, variant, quantityInput) {
           quantity, purchaseDetails: detail, purchaseMode: "packs" });
       }
     }
-    if (isInternalCatalogQuickSaleMode()) renderInternalCatalogSale();
+    if (isInternalCatalogQuickSaleMode()) {
+      if (!getManualCatalogTarget()) persistInternalSaleDraft();
+      renderInternalCatalogSale();
+    }
     else { saveCart(); renderCart(); }
     showToast("Cantidad agregada", "success");
   } catch (error) { showToast(error.message); }
