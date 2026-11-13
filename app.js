@@ -3145,7 +3145,7 @@ function renderCatalog() {
         return;
       }
       if (variant.packSpec) {
-        addConfiguredPack(group, variant, getCatalogQuantityValue(group.id, 1));
+        addConfiguredPack(group, variant, document.querySelector(`#qty-${CSS.escape(group.id)}`)?.value);
         return;
       }
       const internalProduct = products.find((item) => item.id === variant.productId);
@@ -3537,6 +3537,9 @@ function updateCatalogCardSelection(groupId, catalogProducts) {
   const actualQuantityLabel = displayVariant?.packSpec ? `Cantidad de ${displayVariant.packSpec.noun}` : quantityLabel;
   if (quantityLabelEl) quantityLabelEl.textContent = actualQuantityLabel;
   if (quantityInput && displayVariant?.packSpec) {
+    const distributed = Boolean(variant?.packSpec?.mixGroup);
+    quantityInput.closest("[data-stepper]")?.classList.toggle("hidden", distributed);
+    quantityLabelEl?.classList.toggle("hidden", distributed);
     const minimumChanged = Number(quantityInput.min) !== displayVariant.packSpec.quantity;
     quantityInput.min = String(displayVariant.packSpec.quantity);
     if (minimumChanged) normalizeCatalogQuantityInput(quantityInput, true);

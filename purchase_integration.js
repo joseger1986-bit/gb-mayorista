@@ -102,12 +102,10 @@ function updatePackDistributionControl(group, selected) {
     list.querySelectorAll("input").forEach(input => input.addEventListener("input", () => updatePackDistributionControl(group, getSelectedCatalogVariant(group.id, [group]) || selected)));
   }
   const total = [...list.querySelectorAll("input")].reduce((sum, input) => sum + (Number(input.value) || 0), 0);
-  root.querySelector("output").textContent = `${total} de ${getCatalogQuantityValue(group.id, spec.quantity)} ${spec.noun} elegidas · mínimo ${spec.quantity}`;
+  root.querySelector("output").textContent = `${total} ${PURCHASE.quantityNoun(total, spec.noun)} · mínimo ${spec.quantity}`;
   if (spec.allowMixedPrices) {
-    const target = getCatalogQuantityValue(group.id, spec.quantity);
-    const reference = variants[0].packSpec.orderUnitPrice;
     const selectedTotal = variants.reduce((sum, v) => sum + Math.max(0, Number(list.querySelector(`[data-pack-variant="${CSS.escape(v.id)}"]`)?.value) || 0) * v.packSpec.orderUnitPrice, 0);
-    const amount = selectedTotal + Math.max(0, target - total) * reference;
+    const amount = total > 0 ? selectedTotal : spec.minimumTotalPrice;
     if (isPrivateManagementRoute()) document.querySelector(`[data-catalog-price="${CSS.escape(group.id)}"]`).textContent = formatMoney(amount);
     else if (total > 0) root.querySelector("output").textContent += ` · Total: ${formatMoney(amount)}`;
   }
@@ -125,17 +123,20 @@ function getPackUnitPriceText(group, variant) {
   return `Precio por ${PURCHASE.quantityNoun(1, variant.packSpec.noun)}: ${prices.map(formatMoney).join(" / ")}${prices.length > 1 ? " según talle" : ""}`;
 }
 
-function addConfiguredPack(group, variant, packs) {
+function addConfiguredPack(group, variant, quantityInput) {
   try {
     const spec = variant.packSpec;
-    const count = PURCHASE.integer(packs, "Cantidad elegida");
-    if (count < spec.quantity) throw new Error(`La compra mínima es de ${spec.quantity} ${spec.noun}.`);
+    let count;
     let selected;
     if (spec.mixGroup) {
       const root = document.querySelector(`[data-pack-distribution="${CSS.escape(group.id)}"]`);
       const allocation = Object.fromEntries([...root.querySelectorAll("[data-pack-variant]")].map(input => [input.dataset.packVariant, input.value]));
+      count = Object.values(allocation).reduce((sum, amount) => sum + (Number(amount) === 0 ? 0 : PURCHASE.integer(amount, "Cantidad por talle")), 0);
+      if (count < spec.quantity) throw new Error(`La compra mínima es de ${spec.quantity} ${spec.noun}.`);
       selected = PURCHASE.distribution(spec, group.variants, allocation, count);
     } else {
+      count = PURCHASE.integer(quantityInput, "Cantidad elegida");
+      if (count < spec.quantity) throw new Error(`La compra mínima es de ${spec.quantity} ${spec.noun}.`);
       if (count * spec.stockPerBase > Number(variant.stock)) throw new Error("No hay stock suficiente para esa cantidad.");
       selected = [{ variant, quantity: count }];
     }
