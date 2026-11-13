@@ -11819,7 +11819,10 @@ async function completeInternalAccessAfterAuth(session, options = {}) {
             profile_session_token: savedProfileSessionToken
           };
           unlockInternalSession(session, restoredContext);
-          if (canAccess("admin")) await refreshAdminProductCosts("session-restore");
+          // Product costs are independent of the authenticated profile.
+          if (canAccess("admin")) refreshAdminProductCosts("session-restore").catch(error => {
+            console.warn("Punto X Mayor admin costs on restore:", error);
+          });
           return true;
         }
       } catch (profileError) {
@@ -11917,6 +11920,7 @@ function showInternalRoleChoice(message = "", isError = false) {
         <button class="secondary-button full ${selected === "admin" ? "active" : ""}" type="button" data-profile-role="admin">Entrar como Administrador</button>
         <button class="secondary-button full ${selected === "employee" ? "active" : ""}" type="button" data-profile-role="employee">Entrar como Empleado</button>
       </div>
+      ${selected ? `<input type="text" name="username" autocomplete="username" class="visually-hidden" tabindex="-1" aria-label="Usuario del perfil" value="${escapeHtml(getInternalUsernameForRole(selected))}">` : ""}
       <label class="password-field ${selected ? "" : "hidden"}">
         Contraseña de ${escapeHtml(getInternalRoleLabel(selected))}
         <span>
@@ -11978,22 +11982,11 @@ async function handleInternalProfileSubmit(event) {
     if (sessionError) throw sessionError;
     if (!sessionData?.session?.user) throw new Error("La sesión general ya no está disponible. Iniciá sesión nuevamente.");
     const username = getInternalUsernameForRole(role);
-    let verification;
-    try {
-      verification = await rpcJson(
+    const verification = await rpcJson(
         "internal_start_profile_session",
         { p_username: username, p_password: password },
         "No se pudo validar la contraseña del perfil."
-      );
-    } catch (profileSessionError) {
-      if (!String(profileSessionError?.message || "").toLowerCase().includes("internal_start_profile_session")) throw profileSessionError;
-      console.warn("Punto X Mayor profile session RPC unavailable:", profileSessionError);
-      verification = await rpcJson(
-        "internal_verify_profile_password",
-        { p_username: username, p_password: password },
-        "No se pudo validar la contraseña del perfil."
-      );
-    }
+    );
     if (!verification?.ok) {
       const reason = verification?.reason === "profile_password_not_configured"
         ? "La contraseña de este perfil todavía no está configurada."
@@ -12002,6 +11995,7 @@ async function handleInternalProfileSubmit(event) {
     }
     const verifiedRole = normalizeInternalRole(verification.role);
     if (verifiedRole !== role) throw new Error("El perfil seleccionado no coincide con el perfil validado.");
+    if (!verification.profile_session_token) throw new Error("No se pudo guardar la sesión del perfil. Volvé a intentar.");
     const context = {
       ...(internalAuthContext || {}),
       allowed: true,
@@ -12017,7 +12011,7 @@ async function handleInternalProfileSubmit(event) {
     if (canAccess("admin")) await refreshAdminProductCosts("profile-login");
     await refreshOrdersFromSupabase("profile-login", { silent: true });
     renderAll();
-    setView("pedidos", true, { replace: true });
+    setView(internalCatalogSale?.items?.length ? "catalogo" : "pedidos", true, { replace: true });
   } catch (error) {
     console.error("Punto X Mayor profile access:", error);
     const message = error?.message || "Contraseña incorrecta.";
@@ -12300,7 +12294,10 @@ async function handleInternalLogout() {
         console.warn("Punto X Mayor profile session logout:", profileError);
       }
     }
-    if (client) await client.auth.signOut();
+    if (client) {
+      const { error } = await client.auth.signOut({ scope: "local" });
+      if (error) throw error;
+    }
   } catch (error) {
     console.error("Punto X Mayor Supabase Auth logout:", error);
     showToast("No se pudo cerrar sesión");
